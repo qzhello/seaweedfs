@@ -394,7 +394,12 @@ func (s *Store) CollectHeartbeat() *master_pb.Heartbeat {
 	collectionVolumeDeletedBytes := make(map[string]int64)
 	collectionVolumeReadOnlyCount := make(map[string]map[string]uint8)
 	for _, location := range s.Locations {
+		// keepRemoteData is parallel to deleteVids: true entries preserve the
+		// cloud-tier object on Volume.Destroy. IO-error deletions on a
+		// remote-tiered volume must not nuke the remote object — the error
+		// is local/transient and the cloud copy is the source of truth.
 		var deleteVids []needle.VolumeId
+		var keepRemoteData []bool
 		effectiveMaxCount := location.MaxVolumeCount
 		if location.isDiskSpaceLow {
 			usedSlots := int32(location.LocalVolumesLen())
@@ -419,6 +424,7 @@ func (s *Store) CollectHeartbeat() *master_pb.Heartbeat {
 
 			if v.lastIoError != nil {
 				deleteVids = append(deleteVids, v.Id)
+				keepRemoteData = append(keepRemoteData, v.HasRemoteFile())
 				shouldDeleteVolume = true
 				glog.Warningf("volume %d has IO error: %v", v.Id, v.lastIoError)
 			} else {
@@ -428,6 +434,7 @@ func (s *Store) CollectHeartbeat() *master_pb.Heartbeat {
 					if v.expiredLongEnough(MAX_TTL_VOLUME_REMOVAL_DELAY) {
 						if !shouldDeleteVolume {
 							deleteVids = append(deleteVids, v.Id)
+							keepRemoteData = append(keepRemoteData, false)
 							shouldDeleteVolume = true
 						}
 					} else {
@@ -476,8 +483,8 @@ func (s *Store) CollectHeartbeat() *master_pb.Heartbeat {
 		if len(deleteVids) > 0 {
 			// delete expired volumes.
 			location.volumesLock.Lock()
-			for _, vid := range deleteVids {
-				found, err := location.deleteVolumeById(vid, false)
+			for i, vid := range deleteVids {
+				found, err := location.deleteVolumeById(vid, false, keepRemoteData[i])
 				if err == nil {
 					if found {
 						glog.V(0).Infof("volume %d is deleted", vid)
@@ -725,7 +732,7 @@ func (s *Store) UnmountVolume(i needle.VolumeId) error {
 	return fmt.Errorf("volume %d not found on disk", i)
 }
 
-func (s *Store) DeleteVolume(i needle.VolumeId, onlyEmpty bool) error {
+func (s *Store) DeleteVolume(i needle.VolumeId, onlyEmpty bool, keepRemoteData bool) error {
 	v := s.findVolume(i)
 	if v == nil {
 		return fmt.Errorf("delete volume %d not found on disk", i)
@@ -740,7 +747,7 @@ func (s *Store) DeleteVolume(i needle.VolumeId, onlyEmpty bool) error {
 		DiskId:           v.diskId,
 	}
 	for _, location := range s.Locations {
-		err := location.DeleteVolume(i, onlyEmpty)
+		err := location.DeleteVolume(i, onlyEmpty, keepRemoteData)
 		if err == nil {
 			glog.V(0).Infof("DeleteVolume %d", i)
 			s.DeletedVolumesChan <- message
