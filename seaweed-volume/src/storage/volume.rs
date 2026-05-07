@@ -773,6 +773,13 @@ impl Volume {
         Ok(())
     }
 
+    fn nm_or_not_found(&self) -> Result<&NeedleMap, VolumeError> {
+        self.nm.as_ref().ok_or_else(|| {
+            tracing::warn!(volume_id = self.id.0, "needle map not loaded");
+            VolumeError::NotFound
+        })
+    }
+
     fn load_index(&mut self) -> Result<(), VolumeError> {
         let use_redb = matches!(
             self.needle_map_kind,
@@ -1058,7 +1065,7 @@ impl Volume {
         read_option: &mut ReadOption,
     ) -> Result<i32, VolumeError> {
         let _guard = self.data_file_access_control.read_lock();
-        let nm = self.nm.as_ref().ok_or(VolumeError::NotFound)?;
+        let nm = self.nm_or_not_found()?;
         let nv = nm.get(n.id).ok_or(VolumeError::NotFound)?;
 
         if nv.offset.is_zero() {
@@ -1300,7 +1307,7 @@ impl Volume {
         read_deleted: bool,
     ) -> Result<NeedleStreamInfo, VolumeError> {
         let _guard = self.data_file_access_control.read_lock();
-        let nm = self.nm.as_ref().ok_or(VolumeError::NotFound)?;
+        let nm = self.nm_or_not_found()?;
         let nv = nm.get(n.id).ok_or(VolumeError::NotFound)?;
 
         if nv.offset.is_zero() {
@@ -1402,7 +1409,7 @@ impl Volume {
         &self,
         needle_id: NeedleId,
     ) -> Result<(u64, u16), VolumeError> {
-        let nm = self.nm.as_ref().ok_or(VolumeError::NotFound)?;
+        let nm = self.nm_or_not_found()?;
         let nv = nm.get(needle_id).ok_or(VolumeError::NotFound)?;
         if nv.offset.is_zero() {
             return Err(VolumeError::NotFound);
@@ -1719,7 +1726,7 @@ impl Volume {
     /// Read all live needles from the volume (for ReadAllNeedles streaming RPC).
     pub fn read_all_needles(&self) -> Result<Vec<Needle>, VolumeError> {
         let _guard = self.data_file_access_control.read_lock();
-        let nm = self.nm.as_ref().ok_or(VolumeError::NotFound)?;
+        let nm = self.nm_or_not_found()?;
         let version = self.version();
         let dat_size = self.current_dat_file_size()? as i64;
         let mut needles = Vec::new();
@@ -1908,7 +1915,7 @@ impl Volume {
         if self.dat_file.is_none() && self.remote_dat_file.is_none() {
             return Err(VolumeError::NotFound);
         }
-        let nm = self.nm.as_ref().ok_or(VolumeError::NotFound)?;
+        let nm = self.nm_or_not_found()?;
         let dat_size = self.dat_file_size().map_err(VolumeError::Io)?;
 
         let mut files_checked: u64 = 0;
@@ -1968,7 +1975,7 @@ impl Volume {
         if self.dat_file.is_none() && self.remote_dat_file.is_none() {
             return Err(VolumeError::NotFound);
         }
-        let nm = self.nm.as_ref().ok_or(VolumeError::NotFound)?;
+        let nm = self.nm_or_not_found()?;
 
         let dat_size = self.dat_file_size().map_err(|e| VolumeError::Io(e))?;
         let version = self.version();
