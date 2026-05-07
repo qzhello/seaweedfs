@@ -1,22 +1,27 @@
 package s3lifecycle
 
-// ActionKind identifies a single compiled lifecycle action under one XML
-// rule. A single XML <Rule> may declare multiple action sub-elements in
-// parallel, each yielding a separate compiled action with its own delay
-// group, mode, pending stream, and durable state directory.
-//
-// The values here mirror the wire-form ActionKind enum in
-// weed/pb/s3_lifecycle.proto (offset by the UNSPECIFIED sentinel at 0).
+// ActionKey is the engine-wide identity of one compiled lifecycle action.
+// Bucket is part of the key because two buckets may carry rules with
+// identical RuleHash; without scoping they'd collide in any keyed map.
+// The on-disk path /etc/s3/lifecycle/<bucket>/<rule_hash>/<action_kind>/
+// mirrors this shape.
+type ActionKey struct {
+	Bucket     string
+	RuleHash   [8]byte
+	ActionKind ActionKind
+}
+
+// ActionKind values mirror the wire-form enum in s3_lifecycle.proto.
 type ActionKind int
 
 const (
-	ActionKindUnspecified         ActionKind = iota // matches proto ACTION_KIND_UNSPECIFIED
-	ActionKindExpirationDays                        // Expiration.Days
-	ActionKindExpirationDate                        // Expiration.Date
-	ActionKindNoncurrentDays                        // NoncurrentVersionExpiration.NoncurrentDays (with optional NewerNoncurrent retention)
-	ActionKindNewerNoncurrent                       // NoncurrentVersionExpiration.NewerNoncurrentVersions (count-only, no NoncurrentDays)
-	ActionKindAbortMPU                              // AbortIncompleteMultipartUpload.DaysAfterInitiation
-	ActionKindExpiredDeleteMarker                   // Expiration.ExpiredObjectDeleteMarker
+	ActionKindUnspecified ActionKind = iota
+	ActionKindExpirationDays
+	ActionKindExpirationDate
+	ActionKindNoncurrentDays
+	ActionKindNewerNoncurrent
+	ActionKindAbortMPU
+	ActionKindExpiredDeleteMarker
 )
 
 // String returns the leaf-directory name used in
@@ -40,16 +45,10 @@ func (k ActionKind) String() string {
 	}
 }
 
-// RuleActionKinds returns the compiled actions a single XML rule expands to.
-// Empty when no action sub-element is populated. Order is deterministic so
-// callers can hash / iterate stably:
-//
-//	EXPIRATION_DAYS, EXPIRATION_DATE, EXPIRED_DELETE_MARKER,
-//	NONCURRENT_DAYS, NEWER_NONCURRENT, ABORT_MPU
-//
-// Note: NewerNoncurrentVersions is paired with NoncurrentDays into a single
-// NONCURRENT_DAYS action when both are set; only when NewerNoncurrent is set
-// alone (no day threshold) does it produce a NEWER_NONCURRENT action.
+// RuleActionKinds returns the compiled actions a single XML rule expands to,
+// in deterministic order. NewerNoncurrentVersions paired with NoncurrentDays
+// is subsumed into NONCURRENT_DAYS; only stand-alone NewerNoncurrent
+// produces a NEWER_NONCURRENT action.
 func RuleActionKinds(rule *Rule) []ActionKind {
 	if rule == nil {
 		return nil
