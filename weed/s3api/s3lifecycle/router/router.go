@@ -14,6 +14,11 @@ import (
 // Match is one (event, action) pair where EvaluateAction fired. The
 // dispatcher runs `LifecycleDelete` at DueTime; identity-CAS in the RPC
 // guards against drift between schedule time and dispatch time.
+//
+// For NoncurrentDays / NewerNoncurrent on a versioned bucket, ObjectKey
+// is the seaweedfs storage path (logical-key + ".versions/" + version_id)
+// so the dispatcher can locate the specific version, and VersionID
+// carries the AWS-visible version ID separately.
 type Match struct {
 	Key      s3lifecycle.ActionKey
 	Action   *engine.CompiledAction
@@ -56,7 +61,7 @@ func Route(snap *engine.Snapshot, ev *reader.Event, now time.Time) []Match {
 	if len(keys) == 0 {
 		return nil
 	}
-	info := buildObjectInfo(ev)
+	info := buildObjectInfo(ev, snap.BucketVersioned(ev.Bucket))
 	if info == nil {
 		return nil
 	}
@@ -107,19 +112,25 @@ func Route(snap *engine.Snapshot, ev *reader.Event, now time.Time) []Match {
 	return matches
 }
 
-// buildObjectInfo derives a non-versioned ObjectInfo from a meta-log event.
-// Versioned-bucket semantics (IsLatest, NumVersions, NoncurrentIndex,
-// IsDeleteMarker for noncurrent versions) require listing siblings and land
-// in Phase 5; for now any non-MPU event is treated as IsLatest=true with the
-// LifecycleDelete RPC's identity-CAS catching stale schedules.
+// buildObjectInfo derives an ObjectInfo from a meta-log event and the
+// bucket's versioning state. Returns nil when the event has no usable
+// shape (missing attributes, hard delete already handled upstream).
 //
-// MPU init directories at .uploads/<upload_id> populate IsMPUInit and use the
-// destination object key from the entry's Extended map for filter matching,
-// so a rule with Filter.Prefix=foo/ matches an MPU uploading to foo/bar.txt.
+// On a versioned bucket the storage layout (<key>.versions/v_<id>) is
+// shared between the current latest and the noncurrent versions; the
+// latest pointer lives in the .versions/ directory's Extended map and
+// is updated separately. Without that pointer-transition signal here,
+// the router conservatively classifies every event as if it were the
+// current version (IsLatest=true) so it never deletes the live
+// latest; bootstrap walking + the server-side dispatch guard handle
+// noncurrent retention. NumVersions=0 keeps ExpiredObjectDeleteMarker
+// (which requires sole-survivor) suppressed.
 //
-// Returns nil when Attributes are missing — without ModTime, EvaluateAction
-// would compute due against year-0001 and fire immediately.
-func buildObjectInfo(ev *reader.Event) *s3lifecycle.ObjectInfo {
+// MPU init directories at .uploads/<upload_id> populate IsMPUInit and
+// use the destination object key from the entry's Extended map for
+// filter matching, so a rule with Filter.Prefix=foo/ matches an MPU
+// uploading to foo/bar.txt.
+func buildObjectInfo(ev *reader.Event, versioned bool) *s3lifecycle.ObjectInfo {
 	entry := ev.NewEntry
 	if entry == nil || entry.Attributes == nil {
 		return nil
@@ -135,12 +146,36 @@ func buildObjectInfo(ev *reader.Event) *s3lifecycle.ObjectInfo {
 			IsMPUInit: true,
 		}
 	}
+	// Directory entries that aren't MPU inits aren't lifecycle subjects:
+	// the .versions/ folder itself, prefix dirs, etc. — emit nothing.
+	if entry.IsDirectory {
+		return nil
+	}
 	info := &s3lifecycle.ObjectInfo{
 		Key:         ev.Key,
 		ModTime:     time.Unix(entry.Attributes.Mtime, int64(entry.Attributes.MtimeNs)),
 		Size:        int64(entry.Attributes.FileSize),
 		IsLatest:    true,
 		NumVersions: 1,
+	}
+	if versioned {
+		// On a versioned bucket the actual file path doesn't tell us
+		// whether the entry is the current latest or a noncurrent
+		// version — the latest pointer lives in the .versions/
+		// directory's Extended map and isn't part of this event. We
+		// also can't compute NumVersions / NoncurrentIndex here. Skip
+		// any version-folder file event for now; bootstrap walking
+		// drives noncurrent retention and current-version expiration
+		// for versioned buckets until pointer-transition routing
+		// lands. The bare-key path (null-version, pre-versioning
+		// objects) keeps the regular routing.
+		if isVersionFolderPath(ev.Key) {
+			return nil
+		}
+		// NumVersions=0 keeps ExpiredObjectDeleteMarker (sole-survivor
+		// gate) suppressed for the bare-key delete-marker case until
+		// sibling listing lands.
+		info.NumVersions = 0
 	}
 	if tags := extractTags(entry.Extended); len(tags) > 0 {
 		info.Tags = tags
@@ -149,6 +184,22 @@ func buildObjectInfo(ev *reader.Event) *s3lifecycle.ObjectInfo {
 		info.IsDeleteMarker = true
 	}
 	return info
+}
+
+// isVersionFolderPath reports whether the bucket-relative key sits inside a
+// .versions/ folder — i.e. the path's parent segment ends with the
+// VersionsFolder suffix. Used by the versioned-bucket gate so the router
+// skips version-file events that need sibling state to be classified
+// safely.
+func isVersionFolderPath(key string) bool {
+	idx := strings.LastIndex(key, "/")
+	if idx <= 0 {
+		return false
+	}
+	parent := key[:idx]
+	parentIdx := strings.LastIndex(parent, "/")
+	leaf := parent[parentIdx+1:]
+	return strings.HasSuffix(leaf, s3_constants.VersionsFolder)
 }
 
 // mpuInitInfo recognizes a multipart-upload init: a directory entry at

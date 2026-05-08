@@ -398,3 +398,167 @@ func TestRouteRegularObjectUnderDualRuleSkipsAbortMPU(t *testing.T) {
 		t.Fatalf("ActionKind=%v, want ExpirationDays", got)
 	}
 }
+
+func compileWithVersioned(rule *s3lifecycle.Rule, prior map[s3lifecycle.ActionKey]engine.PriorState) *engine.Snapshot {
+	e := engine.New()
+	return e.Compile([]engine.CompileInput{{Bucket: "bk", Rules: []*s3lifecycle.Rule{rule}, Versioned: true}},
+		engine.CompileOptions{PriorStates: prior})
+}
+
+func TestRouteVersionedNoncurrentEventDoesNotFireFromRouter(t *testing.T) {
+	// Versioned bucket: the storage layout <key>.versions/v_<id> is
+	// shared between the current latest and noncurrent versions, and
+	// the latest pointer lives in the parent directory's metadata —
+	// not on the version file itself. The router cannot distinguish
+	// without consulting the .versions/ directory, so it must not
+	// emit NONCURRENT_* matches; bootstrap (with sibling listing) is
+	// responsible for those.
+	rule := &s3lifecycle.Rule{
+		ID:                              "r",
+		Status:                          s3lifecycle.StatusEnabled,
+		NoncurrentVersionExpirationDays: 7,
+	}
+	snap := compileWithVersioned(rule, activatedPrior(rule))
+
+	now := time.Now()
+	old := now.AddDate(0, 0, -30)
+	ev := eventCreate("bk", "logs/foo.versions/v_v1", old.Unix(), 1, old.UnixNano())
+	ev.NewEntry.Extended = map[string][]byte{
+		s3_constants.ExtVersionIdKey: []byte("v1"),
+	}
+
+	if got := Route(snap, ev, now); len(got) != 0 {
+		t.Fatalf("router must not emit noncurrent matches yet, got %v", got)
+	}
+}
+
+func TestRouteVersionedCurrentEventStaysLatest(t *testing.T) {
+	// Versioned bucket, ExpirationDays rule. The current-version event
+	// arrives at the bare <key>; nothing about its path looks like a
+	// .versions/ entry, so IsLatest stays true and the rule fires.
+	rule := &s3lifecycle.Rule{ID: "r", Status: s3lifecycle.StatusEnabled, ExpirationDays: 1}
+	snap := compileWithVersioned(rule, activatedPrior(rule))
+
+	now := time.Now()
+	old := now.AddDate(0, 0, -2)
+	ev := eventCreate("bk", "logs/foo", old.Unix(), 1, old.UnixNano())
+
+	matches := Route(snap, ev, now)
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match (EXPIRATION_DAYS), got %v", matches)
+	}
+	if matches[0].Key.ActionKind != s3lifecycle.ActionKindExpirationDays {
+		t.Fatalf("ActionKind=%v, want ExpirationDays", matches[0].Key.ActionKind)
+	}
+	if matches[0].VersionID != "" {
+		t.Fatalf("VersionID=%q, want empty for current-version path", matches[0].VersionID)
+	}
+}
+
+func TestRouteNonVersionedBucketIgnoresVersionsSuffix(t *testing.T) {
+	// A non-versioned bucket happens to have an object literally named
+	// "logs/foo.versions/v1" — that's just a regular path. The router
+	// must NOT classify it as noncurrent or set IsLatest=false; the
+	// rule fires as a normal current-object expiration.
+	rule := &s3lifecycle.Rule{ID: "r", Status: s3lifecycle.StatusEnabled, ExpirationDays: 1}
+	snap := compileWith(rule, activatedPrior(rule))
+
+	now := time.Now()
+	old := now.AddDate(0, 0, -2)
+	ev := eventCreate("bk", "logs/foo.versions/v1", old.Unix(), 1, old.UnixNano())
+
+	matches := Route(snap, ev, now)
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match, got %v", matches)
+	}
+	if matches[0].VersionID != "" {
+		t.Fatalf("VersionID=%q, want empty for non-versioned bucket", matches[0].VersionID)
+	}
+	if matches[0].ObjectKey != "logs/foo.versions/v1" {
+		t.Fatalf("ObjectKey=%q, want unchanged for non-versioned bucket", matches[0].ObjectKey)
+	}
+}
+
+func TestRouteVersionedExpiredDeleteMarkerSuppressedWithoutSiblings(t *testing.T) {
+	// ExpiredObjectDeleteMarker requires NumVersions==1 — the marker is
+	// the sole-survivor. Without sibling listing the router can't
+	// confirm that, so the rule must NOT fire just because the latest
+	// is a delete marker. A future PR adds sibling listing.
+	rule := &s3lifecycle.Rule{
+		ID:                        "r",
+		Status:                    s3lifecycle.StatusEnabled,
+		ExpiredObjectDeleteMarker: true,
+	}
+	snap := compileWithVersioned(rule, activatedPrior(rule))
+
+	now := time.Now()
+	old := now.AddDate(0, 0, -1)
+	ev := eventCreate("bk", "logs/gone", old.Unix(), 0, old.UnixNano())
+	ev.NewEntry.Extended = map[string][]byte{
+		s3_constants.ExtDeleteMarkerKey: {1},
+	}
+
+	if got := Route(snap, ev, now); len(got) != 0 {
+		t.Fatalf("ExpiredDeleteMarker without sibling count must not fire, got %v", got)
+	}
+}
+
+func TestRouteVersionedAllVersionFolderPathsSkipped(t *testing.T) {
+	// On a versioned bucket the router skips every event whose parent
+	// directory name ends with ".versions" — both the version files
+	// SeaweedFS itself writes (logs/foo.versions/v_v1) and any literal
+	// key the user happens to put under such a parent — because the
+	// current-vs-noncurrent classification needs the .versions/
+	// directory's latest pointer, which isn't carried by these events.
+	// Bootstrap covers retention for those entries.
+	rule := &s3lifecycle.Rule{ID: "r", Status: s3lifecycle.StatusEnabled, ExpirationDays: 1}
+	snap := compileWithVersioned(rule, activatedPrior(rule))
+
+	now := time.Now()
+	old := now.AddDate(0, 0, -2)
+	cases := []struct {
+		name  string
+		key   string
+		isDir bool
+		ext   map[string][]byte
+	}{
+		{
+			name: "tracked version file",
+			key:  "logs/foo.versions/v_v1",
+			ext:  map[string][]byte{s3_constants.ExtVersionIdKey: []byte("v1")},
+		},
+		{
+			name: "literal-key collision",
+			key:  "logs/backup.versions/2023",
+		},
+		{
+			name: "bucket-root .versions",
+			key:  ".versions/v_v1",
+			ext:  map[string][]byte{s3_constants.ExtVersionIdKey: []byte("v1")},
+		},
+		{
+			// The .versions/ folder itself is a directory entry; the
+			// router must not emit ObjectInfo for it. Without the
+			// directory short-circuit it would route as a regular
+			// object and the dispatcher would target a directory path.
+			name:  "versions dir itself",
+			key:   "logs/foo.versions",
+			isDir: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ev := eventCreate("bk", tc.key, old.Unix(), 1, old.UnixNano())
+			if tc.ext != nil {
+				ev.NewEntry.Extended = tc.ext
+			}
+			if tc.isDir {
+				ev.NewEntry.IsDirectory = true
+			}
+			if got := Route(snap, ev, now); len(got) != 0 {
+				t.Fatalf("version-folder event should be skipped, got %v", got)
+			}
+		})
+	}
+}
+
