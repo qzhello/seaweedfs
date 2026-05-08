@@ -22,12 +22,12 @@ var shardHashPool = sync.Pool{
 // the same shard. Implementation: top 4 bits of sha256(bucket || "/" || key).
 func ShardID(bucket, key string) int {
 	h := shardHashPool.Get().(hash.Hash)
+	defer shardHashPool.Put(h)
 	h.Reset()
 	h.Write([]byte(bucket))
 	h.Write([]byte{'/'})
 	h.Write([]byte(key))
 	var buf [sha256.Size]byte
 	sum := h.Sum(buf[:0])
-	shardHashPool.Put(h)
 	return int(sum[0] >> 4)
 }
