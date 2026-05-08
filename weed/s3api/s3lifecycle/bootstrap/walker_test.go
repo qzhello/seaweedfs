@@ -3,6 +3,8 @@ package bootstrap
 import (
 	"context"
 	"errors"
+	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -107,8 +109,9 @@ func TestWalk_MultiActionRule_AllDueDispatched(t *testing.T) {
 		{Path: "obj/a", IsLatest: true, ModTime: mod},
 		// Non-current version under NoncurrentDays.
 		{Path: "obj/a/.versions/v1", IsLatest: false, ModTime: mod, SuccessorModTime: mod},
-		// MPU init under AbortMPU.
-		{Path: ".uploads/u1/", IsMPUInit: true, ModTime: mod},
+		// MPU init under AbortMPU. Real init is a directory; DestKey
+		// carries the eventual object key for prefix matching.
+		{Path: ".uploads/u1", IsDirectory: true, IsMPUInit: true, DestKey: "obj/a", ModTime: mod},
 	}
 
 	rec := &recorder{}
@@ -116,18 +119,24 @@ func TestWalk_MultiActionRule_AllDueDispatched(t *testing.T) {
 		t.Fatalf("Walk: %v", err)
 	}
 
-	gotKinds := map[s3lifecycle.ActionKind]bool{}
-	for _, c := range rec.calls {
-		gotKinds[c.kind] = true
+	// Exact-shape assertion: each entry dispatches exactly one action,
+	// and ABORT_MPU only fires on the .uploads/<id> entry. A weaker
+	// "kinds-as-set" check would have missed the (kind, info) gating
+	// regression where an MPU init also fired NONCURRENT_DAYS.
+	want := []dispatchCall{
+		{kind: s3lifecycle.ActionKindAbortMPU, path: ".uploads/u1"},
+		{kind: s3lifecycle.ActionKindExpirationDays, path: "obj/a"},
+		{kind: s3lifecycle.ActionKindNoncurrentDays, path: "obj/a/.versions/v1"},
 	}
-	for _, want := range []s3lifecycle.ActionKind{
-		s3lifecycle.ActionKindExpirationDays,
-		s3lifecycle.ActionKindNoncurrentDays,
-		s3lifecycle.ActionKindAbortMPU,
-	} {
-		if !gotKinds[want] {
-			t.Fatalf("expected dispatch for %v, got %v", want, rec.calls)
+	got := append([]dispatchCall(nil), rec.calls...)
+	sort.Slice(got, func(i, j int) bool {
+		if got[i].path != got[j].path {
+			return got[i].path < got[j].path
 		}
+		return got[i].kind < got[j].kind
+	})
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("dispatch calls mismatch:\n got %+v\nwant %+v", got, want)
 	}
 }
 
@@ -308,5 +317,92 @@ func TestWalk_ResumeFromCheckpoint(t *testing.T) {
 	}
 	if cp.LastScannedPath != "c" {
 		t.Fatalf("checkpoint want c, got %q", cp.LastScannedPath)
+	}
+}
+
+func TestWalk_MPUInitDirMatchesByDestKey(t *testing.T) {
+	// Existing in-flight MPUs predate the meta-log subscription, so they
+	// only get cleaned up via the bootstrap walk. The init record is a
+	// directory whose path is .uploads/<id>; the rule's Filter.Prefix
+	// applies to the destination object key, not the upload directory.
+	rule := &s3lifecycle.Rule{
+		ID:                          "r-mpu",
+		Status:                      s3lifecycle.StatusEnabled,
+		Prefix:                      "logs/",
+		AbortMPUDaysAfterInitiation: 7,
+	}
+	snap := compileEvDriven(t, "bk", rule)
+	mod := mustTime(t, "2024-01-01T00:00:00Z")
+	now := mod.AddDate(0, 0, 8) // past the 7d threshold
+
+	entries := []*Entry{
+		// Matches: dest key under logs/.
+		{Path: ".uploads/u-match", IsDirectory: true, IsMPUInit: true, DestKey: "logs/foo.txt", ModTime: mod},
+		// Filtered out: dest key under data/.
+		{Path: ".uploads/u-skip", IsDirectory: true, IsMPUInit: true, DestKey: "data/foo.txt", ModTime: mod},
+		// No DestKey: malformed init mid-write; skip rather than guess.
+		{Path: ".uploads/u-bare", IsDirectory: true, IsMPUInit: true, ModTime: mod},
+	}
+
+	rec := &recorder{}
+	if _, err := Walk(context.Background(), snap, "bk", EntryCallback(entries), rec, WalkOptions{Now: now}); err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if len(rec.calls) != 1 {
+		t.Fatalf("expected 1 dispatch (u-match only), got %v", rec.calls)
+	}
+	if rec.calls[0].path != ".uploads/u-match" {
+		t.Fatalf("dispatch path=%q, want .uploads/u-match (the rm target)", rec.calls[0].path)
+	}
+	if rec.calls[0].kind != s3lifecycle.ActionKindAbortMPU {
+		t.Fatalf("dispatch kind=%v, want AbortMPU", rec.calls[0].kind)
+	}
+}
+
+func TestWalk_NonMPUDirectorySkipped(t *testing.T) {
+	// Non-MPU directories must still be skipped — the relaxed
+	// IsDirectory check is gated on IsMPUInit.
+	rule := &s3lifecycle.Rule{ID: "r", Status: s3lifecycle.StatusEnabled, ExpirationDays: 1}
+	snap := compileEvDriven(t, "bk", rule)
+	mod := mustTime(t, "2024-01-01T00:00:00Z")
+	now := mod.AddDate(0, 0, 100)
+
+	rec := &recorder{}
+	if _, err := Walk(context.Background(), snap, "bk", EntryCallback([]*Entry{
+		{Path: "a/", IsDirectory: true, IsLatest: true, ModTime: mod},
+	}), rec, WalkOptions{Now: now}); err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if len(rec.calls) != 0 {
+		t.Fatalf("plain directory should not dispatch, got %v", rec.calls)
+	}
+}
+
+func TestWalk_MPUInitDoesNotFireNoncurrent(t *testing.T) {
+	// Same rule covers both AbortMPU and NoncurrentVersionExpiration; the
+	// MPU init record must dispatch only the AbortMPU action. Without the
+	// engine guard, NONCURRENT_DAYS would fire (IsLatest=false) and the
+	// server would BLOCK on empty version_id, freezing the cursor.
+	rule := &s3lifecycle.Rule{
+		ID:                              "r",
+		Status:                          s3lifecycle.StatusEnabled,
+		AbortMPUDaysAfterInitiation:     7,
+		NoncurrentVersionExpirationDays: 7,
+	}
+	snap := compileEvDriven(t, "bk", rule)
+	mod := mustTime(t, "2024-01-01T00:00:00Z")
+	now := mod.AddDate(0, 0, 30)
+
+	rec := &recorder{}
+	if _, err := Walk(context.Background(), snap, "bk", EntryCallback([]*Entry{
+		{Path: ".uploads/u1", IsDirectory: true, IsMPUInit: true, DestKey: "obj/a", ModTime: mod},
+	}), rec, WalkOptions{Now: now}); err != nil {
+		t.Fatalf("Walk: %v", err)
+	}
+	if len(rec.calls) != 1 {
+		t.Fatalf("expected 1 dispatch (AbortMPU only), got %v", rec.calls)
+	}
+	if rec.calls[0].kind != s3lifecycle.ActionKindAbortMPU {
+		t.Fatalf("kind=%v, want AbortMPU", rec.calls[0].kind)
 	}
 }

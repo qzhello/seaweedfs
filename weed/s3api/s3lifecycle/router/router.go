@@ -71,6 +71,17 @@ func Route(snap *engine.Snapshot, ev *reader.Event, now time.Time) []Match {
 		if action.Mode != engine.ModeEventDriven {
 			continue
 		}
+		// (kind, info) shape gate: ABORT_MPU only fires on MPU init events,
+		// and other kinds never do. Without this an MPU init would be
+		// matched against NONCURRENT_DAYS (IsLatest=false reads as a
+		// non-current version) and the dispatcher would BLOCK on empty
+		// version_id.
+		if info.IsMPUInit && key.ActionKind != s3lifecycle.ActionKindAbortMPU {
+			continue
+		}
+		if !info.IsMPUInit && key.ActionKind == s3lifecycle.ActionKindAbortMPU {
+			continue
+		}
 		// Schedule from ModTime, not the meta-log event time: a backdated
 		// or out-of-band entry update has eventTime ≈ now but ModTime far
 		// in the past, so eventTime+Delay would push the dispatch into the
@@ -99,8 +110,12 @@ func Route(snap *engine.Snapshot, ev *reader.Event, now time.Time) []Match {
 // buildObjectInfo derives a non-versioned ObjectInfo from a meta-log event.
 // Versioned-bucket semantics (IsLatest, NumVersions, NoncurrentIndex,
 // IsDeleteMarker for noncurrent versions) require listing siblings and land
-// in Phase 5; for now any event is treated as IsLatest=true with the
+// in Phase 5; for now any non-MPU event is treated as IsLatest=true with the
 // LifecycleDelete RPC's identity-CAS catching stale schedules.
+//
+// MPU init directories at .uploads/<upload_id> populate IsMPUInit and use the
+// destination object key from the entry's Extended map for filter matching,
+// so a rule with Filter.Prefix=foo/ matches an MPU uploading to foo/bar.txt.
 //
 // Returns nil when Attributes are missing — without ModTime, EvaluateAction
 // would compute due against year-0001 and fire immediately.
@@ -108,6 +123,17 @@ func buildObjectInfo(ev *reader.Event) *s3lifecycle.ObjectInfo {
 	entry := ev.NewEntry
 	if entry == nil || entry.Attributes == nil {
 		return nil
+	}
+	if destKey, ok := mpuInitInfo(ev, entry); ok {
+		// MPU intermediate state has no tags, no versions, no delete-marker
+		// semantics. info.Key is the user's destination key so a rule's
+		// Filter.Prefix matches the eventual object; the dispatcher already
+		// carries .uploads/<upload_id> in m.ObjectKey for ABORT_MPU.
+		return &s3lifecycle.ObjectInfo{
+			Key:       destKey,
+			ModTime:   time.Unix(entry.Attributes.Mtime, int64(entry.Attributes.MtimeNs)),
+			IsMPUInit: true,
+		}
 	}
 	info := &s3lifecycle.ObjectInfo{
 		Key:         ev.Key,
@@ -123,6 +149,27 @@ func buildObjectInfo(ev *reader.Event) *s3lifecycle.ObjectInfo {
 		info.IsDeleteMarker = true
 	}
 	return info
+}
+
+// mpuInitInfo recognizes a multipart-upload init: a directory entry at
+// `.uploads/<upload_id>` carrying the destination key in Extended. Sub-events
+// for part uploads (deeper paths under the upload directory) are deliberately
+// rejected — they ride a different mtime and would over-fire ABORT_MPU.
+func mpuInitInfo(ev *reader.Event, entry *filer_pb.Entry) (destKey string, ok bool) {
+	uploadsPrefix := s3_constants.MultipartUploadsFolder + "/"
+	if !entry.IsDirectory || !strings.HasPrefix(ev.Key, uploadsPrefix) {
+		return "", false
+	}
+	rest := ev.Key[len(uploadsPrefix):]
+	if rest == "" || strings.ContainsRune(rest, '/') {
+		// `.uploads/` itself or `.uploads/<id>/<part>...`; not the init.
+		return "", false
+	}
+	keyBytes, hasKey := entry.Extended[s3_constants.ExtMultipartObjectKey]
+	if !hasKey || len(keyBytes) == 0 {
+		return "", false
+	}
+	return string(keyBytes), true
 }
 
 // buildIdentity captures the entry's schedule-time fingerprint for the CAS
