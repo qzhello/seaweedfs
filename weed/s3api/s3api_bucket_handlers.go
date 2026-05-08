@@ -14,8 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/seaweedfs/seaweedfs/weed/util"
-
 	"github.com/aws/aws-sdk-go/private/protocol/xml/xmlutil"
 	"github.com/seaweedfs/seaweedfs/weed/s3api/s3bucket"
 
@@ -956,6 +954,24 @@ func (s3a *S3ApiServer) PutBucketLifecycleConfigurationHandler(w http.ResponseWr
 	collectionTtls := fc.GetCollectionTtls(collectionName)
 	changed := false
 
+	// PUT replaces the entire lifecycle policy, so any day-TTL filer.conf
+	// entry left over from a previous PUT (rule removed, prefix changed,
+	// rule disabled, gained a tag/size filter, bucket switched to
+	// versioned) must be removed first — otherwise a stale entry keeps
+	// routing new writes to the old collection/replication and the volume
+	// server keeps expiring objects under the prior TTL.
+	bucketPrefix := fmt.Sprintf("%s/%s/", s3a.option.BucketsPath, bucket)
+	for prefix, ttl := range collectionTtls {
+		if !strings.HasPrefix(prefix, bucketPrefix) || !strings.HasSuffix(ttl, "d") {
+			continue
+		}
+		fc.DeleteLocationConf(prefix)
+		changed = true
+	}
+	// Re-read after removing so the per-rule dedupe below sees the freshly
+	// cleared state, not the snapshot from before the loop above.
+	collectionTtls = fc.GetCollectionTtls(collectionName)
+
 	// Check whether the bucket has versioning enabled. Versioned buckets must
 	// NOT use the TTL fast-path because:
 	//  1. TTL volumes expire as a unit, destroying all data — including
@@ -1035,13 +1051,10 @@ func (s3a *S3ApiServer) PutBucketLifecycleConfigurationHandler(w http.ResponseWr
 			s3err.WriteErrorResponse(w, r, s3err.ErrInternalError)
 			return
 		}
-		ttlSec := int32((time.Duration(rule.Expiration.Days) * util.LifeCycleInterval).Seconds())
-		glog.V(2).Infof("Start updating TTL for %s", locationPrefix)
-		if updErr := s3a.updateEntriesTTL(locationPrefix, ttlSec); updErr != nil {
-			glog.Errorf("PutBucketLifecycleConfigurationHandler update TTL for %s: %s", locationPrefix, updErr)
-		} else {
-			glog.V(2).Infof("Finished updating TTL for %s", locationPrefix)
-		}
+		// Existing entries are not back-stamped here; the lifecycle worker
+		// drives expiration off the meta-log and bootstrap walk so a PUT
+		// stays O(rules) instead of O(objects). New writes inherit TTL from
+		// the filer.conf entry above.
 		changed = true
 	}
 
@@ -1088,16 +1101,13 @@ func (s3a *S3ApiServer) DeleteBucketLifecycleHandler(w http.ResponseWriter, r *h
 	}
 	collectionTtls := fc.GetCollectionTtls(s3a.getCollectionName(bucket))
 	changed := false
+	bucketPrefix := fmt.Sprintf("%s/%s/", s3a.option.BucketsPath, bucket)
 	for prefix, ttl := range collectionTtls {
-		bucketPrefix := fmt.Sprintf("%s/%s/", s3a.option.BucketsPath, bucket)
-		if strings.HasPrefix(prefix, bucketPrefix) && strings.HasSuffix(ttl, "d") {
-			pathConf, found := fc.GetLocationConf(prefix)
-			if found {
-				pathConf.Ttl = ""
-				fc.SetLocationConf(pathConf)
-			}
-			changed = true
+		if !strings.HasPrefix(prefix, bucketPrefix) || !strings.HasSuffix(ttl, "d") {
+			continue
 		}
+		fc.DeleteLocationConf(prefix)
+		changed = true
 	}
 
 	if changed {
