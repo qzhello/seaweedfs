@@ -31,9 +31,10 @@ type Match struct {
 // s3_lifecycle_pb.EntryIdentity but stay in-package so the router doesn't
 // pull a proto dependency.
 type EntryIdentity struct {
-	MtimeNs int64
-	Size    int64
-	HeadFid string
+	MtimeNs      int64
+	Size         int64
+	HeadFid      string
+	ExtendedHash []byte
 }
 
 // Route returns the matches that fire for ev against snap. Only EVENT_DRIVEN
@@ -70,11 +71,13 @@ func Route(snap *engine.Snapshot, ev *reader.Event, now time.Time) []Match {
 		if action.Mode != engine.ModeEventDriven {
 			continue
 		}
-		// Evaluate at the scheduled dispatch time, not the event time:
-		// ExpirationDays gates on now >= modtime + N, which is exactly
-		// what holds when we actually dispatch. The dispatcher's
-		// identity-CAS catches drift if the object changes meanwhile.
-		dueTime := eventTime.Add(action.Delay)
+		// Schedule from ModTime, not the meta-log event time: a backdated
+		// or out-of-band entry update has eventTime ≈ now but ModTime far
+		// in the past, so eventTime+Delay would push the dispatch into the
+		// future even though the rule fires immediately. ModTime+Delay is
+		// the correct fire moment; the dispatcher's identity-CAS catches
+		// drift if the object changes meanwhile.
+		dueTime := info.ModTime.Add(action.Delay)
 		res := s3lifecycle.EvaluateAction(action.Rule, key.ActionKind, info, dueTime)
 		if res.Action == s3lifecycle.ActionNone {
 			continue
@@ -138,8 +141,12 @@ func buildIdentity(ev *reader.Event) *EntryIdentity {
 		id.Size = int64(entry.Attributes.FileSize)
 	}
 	if len(entry.GetChunks()) > 0 {
-		id.HeadFid = entry.GetChunks()[0].FileId
+		// Meta-log events arrive with chunk.FileId cleared by
+		// BeforeEntrySerialization; GetFileIdString reconstructs it from
+		// Fid so the worker matches the server-side fingerprint.
+		id.HeadFid = entry.GetChunks()[0].GetFileIdString()
 	}
+	id.ExtendedHash = s3lifecycle.HashExtended(entry.Extended)
 	return id
 }
 

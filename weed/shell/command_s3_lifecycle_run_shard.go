@@ -1,0 +1,376 @@
+package shell
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"io"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/seaweedfs/seaweedfs/weed/pb"
+	"github.com/seaweedfs/seaweedfs/weed/pb/filer_pb"
+	"github.com/seaweedfs/seaweedfs/weed/pb/s3_lifecycle_pb"
+	"github.com/seaweedfs/seaweedfs/weed/s3api/lifecycle_xml"
+	"github.com/seaweedfs/seaweedfs/weed/s3api/s3_constants"
+	"github.com/seaweedfs/seaweedfs/weed/s3api/s3lifecycle"
+	"github.com/seaweedfs/seaweedfs/weed/s3api/s3lifecycle/dispatcher"
+	"github.com/seaweedfs/seaweedfs/weed/s3api/s3lifecycle/engine"
+	"github.com/seaweedfs/seaweedfs/weed/util"
+)
+
+func init() {
+	Commands = append(Commands, &commandS3LifecycleRunShard{})
+}
+
+type commandS3LifecycleRunShard struct{}
+
+func (c *commandS3LifecycleRunShard) Name() string {
+	return "s3.lifecycle.run-shard"
+}
+
+func (c *commandS3LifecycleRunShard) Help() string {
+	return `manually run one or more shards of the event-driven S3 lifecycle worker
+
+Subscribes once to the filer meta-log, filters events to the configured
+(bucket, key-prefix-hash) shards, routes them through the compiled lifecycle
+engine, and dispatches due actions to the S3 server's LifecycleDelete RPC.
+Persists each shard's cursor to /etc/s3/lifecycle/cursors/shard-NN.json so
+subsequent runs resume.
+
+The -shards form covers a range or set; one filer subscription handles the
+whole set, with no per-shard goroutine fan-out. Provide either -shard or
+-shards, not both.
+
+	# single shard
+	s3.lifecycle.run-shard -shard 0 -s3 localhost:8333 -events 100
+
+	# contiguous range, all 16 shards via one subscription
+	s3.lifecycle.run-shard -shards 0-15 -s3 localhost:8333 -events 5000
+
+	# explicit set
+	s3.lifecycle.run-shard -shards 0,3,7 -s3 localhost:8333
+
+	# custom cadence
+	s3.lifecycle.run-shard -shards 0-15 -s3 s3-host:8333 -dispatch 1s -checkpoint 10s
+`
+}
+
+func (c *commandS3LifecycleRunShard) HasTag(CommandTag) bool { return false }
+
+func (c *commandS3LifecycleRunShard) Do(args []string, env *CommandEnv, writer io.Writer) error {
+	fs := flag.NewFlagSet(c.Name(), flag.ContinueOnError)
+	shard := fs.Int("shard", -1, "single shard id in [0, 16); use -shards for a range or set")
+	shardsSpec := fs.String("shards", "", "shard range \"lo-hi\" or comma list \"a,b,c\"; mutually exclusive with -shard")
+	s3Endpoint := fs.String("s3", "", "s3 server gRPC endpoint, host:port")
+	eventBudget := fs.Int("events", 1000, "max in-shard events to process before returning (0 = unbounded; counts only events that pass the shard filter)")
+	dispatchTick := fs.Duration("dispatch", 5*time.Second, "dispatcher tick cadence")
+	checkpointTick := fs.Duration("checkpoint", 30*time.Second, "cursor checkpoint cadence")
+	runtime := fs.Duration("runtime", 0, "wall-clock cap on the run; 0 = no timeout. -events alone can hang on quiet shards")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	shards, err := resolveShardSelection(*shard, *shardsSpec)
+	if err != nil {
+		return err
+	}
+	if *s3Endpoint == "" {
+		return fmt.Errorf("-s3 required (host:port of s3 server gRPC)")
+	}
+	if *eventBudget < 0 {
+		return fmt.Errorf("-events must be >= 0 (0 = unbounded)")
+	}
+
+	bucketsPath, err := resolveBucketsPath(env)
+	if err != nil {
+		return fmt.Errorf("resolve buckets path: %w", err)
+	}
+	fmt.Fprintf(writer, "buckets path: %s\n", bucketsPath)
+
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	conn, err := pb.GrpcDial(dialCtx, *s3Endpoint, false, env.option.GrpcDialOption)
+	dialCancel()
+	if err != nil {
+		return fmt.Errorf("dial s3 %s: %w", *s3Endpoint, err)
+	}
+	defer conn.Close()
+	rpcClient := s3_lifecycle_pb.NewSeaweedS3LifecycleInternalClient(conn)
+
+	// Run the whole pipeline inside one WithFilerClient so the reader's
+	// SubscribeMetadata stream and the persister share a single connection.
+	return env.WithFilerClient(true, func(filerClient filer_pb.SeaweedFilerClient) error {
+		inputs, parseErrors, err := loadLifecycleCompileInputs(context.Background(), filerClient, bucketsPath)
+		if err != nil {
+			return fmt.Errorf("load lifecycle configs: %w", err)
+		}
+		for i, pe := range parseErrors {
+			// Surface up to the first three parse errors so the operator
+			// can chase malformed configs; cap the rest with a count so
+			// the output stays readable on large clusters.
+			if i < 3 {
+				fmt.Fprintf(writer, "warning: %s: %v\n", pe.bucket, pe.err)
+			}
+		}
+		if extra := len(parseErrors) - 3; extra > 0 {
+			fmt.Fprintf(writer, "warning: %d additional bucket(s) had malformed lifecycle config\n", extra)
+		}
+		if len(inputs) == 0 {
+			fmt.Fprintln(writer, "no buckets with enabled lifecycle rules found")
+			return nil
+		}
+		fmt.Fprintf(writer, "loaded lifecycle for %d bucket(s)\n", len(inputs))
+
+		// Activate every action so this manual run dispatches whatever fires.
+		// The production bootstrap walker promotes actions only after a clean
+		// walk; this shell entrypoint runs out-of-band of that flow.
+		eng := engine.New()
+		eng.Compile(inputs, engine.CompileOptions{PriorStates: allActivePriorStates(inputs)})
+
+		pipeline := &dispatcher.Pipeline{
+			Shards:         shards,
+			BucketsPath:    bucketsPath,
+			Engine:         eng,
+			Persister:      &dispatcher.FilerPersister{Store: dispatcher.NewFilerStoreClient(filerClient)},
+			Client:         &lifecycleClientCallable{c: rpcClient},
+			FilerClient:    filerClient,
+			ClientID:       util.RandomInt32(),
+			ClientName:     fmt.Sprintf("shell-lifecycle-%s", formatShardLabel(shards)),
+			DispatchTick:   *dispatchTick,
+			CheckpointTick: *checkpointTick,
+			EventBudget:    *eventBudget,
+		}
+
+		var ctx context.Context
+		var cancel context.CancelFunc
+		if *runtime > 0 {
+			ctx, cancel = context.WithTimeout(context.Background(), *runtime)
+		} else {
+			ctx, cancel = context.WithCancel(context.Background())
+		}
+		defer cancel()
+
+		fmt.Fprintf(writer, "running shards %s (event budget=%d, runtime=%s)…\n", formatShardLabel(shards), *eventBudget, *runtime)
+		if err := pipeline.Run(ctx); err != nil {
+			return fmt.Errorf("pipeline: %w", err)
+		}
+		fmt.Fprintf(writer, "shards %s complete; cursors checkpointed\n", formatShardLabel(shards))
+		return nil
+	})
+}
+
+// resolveShardSelection turns the -shard / -shards flags into a sorted,
+// deduplicated []int. Exactly one form must be specified.
+func resolveShardSelection(singleShard int, shardsSpec string) ([]int, error) {
+	if singleShard >= 0 && shardsSpec != "" {
+		return nil, fmt.Errorf("-shard and -shards are mutually exclusive")
+	}
+	if singleShard < 0 && shardsSpec == "" {
+		return nil, fmt.Errorf("specify -shard <id> or -shards <range|set>")
+	}
+	if singleShard >= 0 {
+		if singleShard >= s3lifecycle.ShardCount {
+			return nil, fmt.Errorf("-shard %d out of [0,%d)", singleShard, s3lifecycle.ShardCount)
+		}
+		return []int{singleShard}, nil
+	}
+	return parseShardsSpec(shardsSpec)
+}
+
+// parseShardsSpec accepts "lo-hi" (inclusive) or "a,b,c" and returns a
+// sorted, deduplicated, in-range []int.
+func parseShardsSpec(spec string) ([]int, error) {
+	spec = strings.TrimSpace(spec)
+	seen := map[int]struct{}{}
+	add := func(v int) error {
+		if v < 0 || v >= s3lifecycle.ShardCount {
+			return fmt.Errorf("shard %d out of [0,%d)", v, s3lifecycle.ShardCount)
+		}
+		seen[v] = struct{}{}
+		return nil
+	}
+	if strings.Contains(spec, "-") && !strings.Contains(spec, ",") {
+		parts := strings.SplitN(spec, "-", 2)
+		lo, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+		if err != nil {
+			return nil, fmt.Errorf("range lo: %w", err)
+		}
+		hi, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err != nil {
+			return nil, fmt.Errorf("range hi: %w", err)
+		}
+		if lo > hi {
+			return nil, fmt.Errorf("range lo %d > hi %d", lo, hi)
+		}
+		for v := lo; v <= hi; v++ {
+			if err := add(v); err != nil {
+				return nil, err
+			}
+		}
+	} else {
+		for _, part := range strings.Split(spec, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			v, err := strconv.Atoi(part)
+			if err != nil {
+				return nil, fmt.Errorf("shard list: %w", err)
+			}
+			if err := add(v); err != nil {
+				return nil, err
+			}
+		}
+	}
+	if len(seen) == 0 {
+		return nil, fmt.Errorf("empty shard set")
+	}
+	out := make([]int, 0, len(seen))
+	for v := range seen {
+		out = append(out, v)
+	}
+	sort.Ints(out)
+	return out, nil
+}
+
+func formatShardLabel(shards []int) string {
+	if len(shards) == 1 {
+		return fmt.Sprintf("%d", shards[0])
+	}
+	// Detect contiguous range.
+	contiguous := true
+	for i := 1; i < len(shards); i++ {
+		if shards[i] != shards[i-1]+1 {
+			contiguous = false
+			break
+		}
+	}
+	if contiguous {
+		return fmt.Sprintf("%d-%d", shards[0], shards[len(shards)-1])
+	}
+	parts := make([]string, len(shards))
+	for i, v := range shards {
+		parts[i] = strconv.Itoa(v)
+	}
+	return strings.Join(parts, ",")
+}
+
+// lifecycleClientCallable adapts the generated grpc client (variadic
+// CallOption tail) to the dispatcher.LifecycleClient interface.
+type lifecycleClientCallable struct {
+	c s3_lifecycle_pb.SeaweedS3LifecycleInternalClient
+}
+
+func (l *lifecycleClientCallable) LifecycleDelete(ctx context.Context, req *s3_lifecycle_pb.LifecycleDeleteRequest) (*s3_lifecycle_pb.LifecycleDeleteResponse, error) {
+	return l.c.LifecycleDelete(ctx, req)
+}
+
+// resolveBucketsPath fetches the filer's configured buckets directory.
+// Falls back to /buckets when the filer doesn't return one.
+func resolveBucketsPath(env *CommandEnv) (string, error) {
+	var path string
+	err := env.WithFilerClient(false, func(client filer_pb.SeaweedFilerClient) error {
+		resp, err := client.GetFilerConfiguration(context.Background(), &filer_pb.GetFilerConfigurationRequest{})
+		if err != nil {
+			return err
+		}
+		path = resp.GetDirBuckets()
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		path = "/buckets"
+	}
+	return path, nil
+}
+
+type lifecycleParseError struct {
+	bucket string
+	err    error
+}
+
+// loadLifecycleCompileInputs walks the buckets directory and reads each
+// bucket entry's lifecycle XML from its Extended attributes. Pagination
+// loops with startFrom so clusters with more than one page of buckets
+// don't drop the tail. Parse errors are collected per bucket and returned
+// alongside the successful inputs so the caller can surface them.
+func loadLifecycleCompileInputs(ctx context.Context, client filer_pb.SeaweedFilerClient, bucketsPath string) ([]engine.CompileInput, []lifecycleParseError, error) {
+	var (
+		inputs      []engine.CompileInput
+		parseErrors []lifecycleParseError
+		startFrom   string
+	)
+	const pageSize uint32 = 1024
+	for {
+		pageCount := 0
+		var lastName string
+		err := filer_pb.SeaweedList(ctx, client, bucketsPath, "", func(entry *filer_pb.Entry, isLast bool) error {
+			pageCount++
+			lastName = entry.Name
+			if !entry.IsDirectory {
+				return nil
+			}
+			xmlBytes, ok := entry.Extended[bucketLifecycleConfigurationXMLKey]
+			if !ok || len(xmlBytes) == 0 {
+				return nil
+			}
+			rules, err := lifecycle_xml.ParseCanonical(xmlBytes)
+			if err != nil {
+				parseErrors = append(parseErrors, lifecycleParseError{bucket: entry.Name, err: err})
+				return nil
+			}
+			if len(rules) == 0 {
+				return nil
+			}
+			inputs = append(inputs, engine.CompileInput{
+				Bucket:    entry.Name,
+				Rules:     rules,
+				Versioned: isBucketVersioned(entry),
+			})
+			return nil
+		}, startFrom, false, pageSize)
+		if err != nil {
+			return nil, nil, err
+		}
+		if uint32(pageCount) < pageSize {
+			break
+		}
+		startFrom = lastName
+	}
+	return inputs, parseErrors, nil
+}
+
+const bucketLifecycleConfigurationXMLKey = "s3-bucket-lifecycle-configuration-xml"
+
+func isBucketVersioned(entry *filer_pb.Entry) bool {
+	v, ok := entry.Extended[s3_constants.ExtVersioningKey]
+	if !ok {
+		return false
+	}
+	s := strings.ToLower(strings.TrimSpace(string(v)))
+	return s == "enabled" || s == "suspended"
+}
+
+// allActivePriorStates seeds every compiled action as bootstrap-complete +
+// event-driven so the run dispatches whatever fires. Production bootstrap
+// walks set this incrementally per bucket; this manual run skips the walk.
+func allActivePriorStates(inputs []engine.CompileInput) map[s3lifecycle.ActionKey]engine.PriorState {
+	prior := map[s3lifecycle.ActionKey]engine.PriorState{}
+	for _, in := range inputs {
+		for _, rule := range in.Rules {
+			hash := s3lifecycle.RuleHash(rule)
+			for _, kind := range s3lifecycle.RuleActionKinds(rule) {
+				key := s3lifecycle.ActionKey{Bucket: in.Bucket, RuleHash: hash, ActionKind: kind}
+				prior[key] = engine.PriorState{
+					BootstrapComplete: true,
+					Mode:              engine.ModeEventDriven,
+				}
+			}
+		}
+	}
+	return prior
+}
