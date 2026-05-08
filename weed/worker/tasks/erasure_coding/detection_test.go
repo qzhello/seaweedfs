@@ -57,7 +57,7 @@ func TestPlanECDestinationsUsesPlanner(t *testing.T) {
 		Collection: "",
 	}
 
-	plan, err := planECDestinations(planner, metric, NewDefaultConfig())
+	plan, err := planECDestinations(planner, metric, NewDefaultConfig(), erasure_coding.DataShardsCount, erasure_coding.ParityShardsCount)
 	require.NoError(t, err)
 	require.NotNil(t, plan)
 	assert.Equal(t, erasure_coding.TotalShardsCount, len(plan.Plans))
@@ -140,7 +140,8 @@ func TestDetectionContextCancellation(t *testing.T) {
 }
 
 func TestDetectionMaxResultsHonorsLimit(t *testing.T) {
-	activeTopology := buildActiveTopology(t, 4, []string{"hdd"}, 20, 0)
+	// One node per shard so each shard gets its own disk (#9369).
+	activeTopology := buildActiveTopology(t, erasure_coding.TotalShardsCount, []string{"hdd"}, 20, 0)
 	clusterInfo := &types.ClusterInfo{ActiveTopology: activeTopology}
 	metrics := buildVolumeMetricsForIDs(3)
 
@@ -148,6 +149,68 @@ func TestDetectionMaxResultsHonorsLimit(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
 	assert.True(t, hasMore)
+}
+
+// #9369: 7 servers × 2 physical HDDs must yield 14 distinct (server, disk_id)
+// destinations, not 7 destinations doubled up on the same disk.
+func TestPlanECDestinationsSpreadsAcrossPhysicalDisks(t *testing.T) {
+	const numServers = 7
+	const disksPerServer = 2
+
+	activeTopology := topology.NewActiveTopology(10)
+	nodes := make([]*master_pb.DataNodeInfo, 0, numServers)
+	for i := 1; i <= numServers; i++ {
+		volumeInfos := make([]*master_pb.VolumeInformationMessage, 0, disksPerServer)
+		for d := uint32(0); d < disksPerServer; d++ {
+			volumeInfos = append(volumeInfos, &master_pb.VolumeInformationMessage{
+				Id:       uint32(i*100 + int(d)),
+				DiskId:   d,
+				DiskType: "hdd",
+			})
+		}
+		nodes = append(nodes, &master_pb.DataNodeInfo{
+			Id: fmt.Sprintf("127.0.0.1:%d", 8080+i),
+			DiskInfos: map[string]*master_pb.DiskInfo{
+				"hdd": {
+					DiskId:         0,
+					VolumeCount:    int64(disksPerServer),
+					MaxVolumeCount: 200,
+					VolumeInfos:    volumeInfos,
+				},
+			},
+		})
+	}
+	require.NoError(t, activeTopology.UpdateTopology(&master_pb.TopologyInfo{
+		DataCenterInfos: []*master_pb.DataCenterInfo{{
+			Id: "dc1",
+			RackInfos: []*master_pb.RackInfo{{
+				Id:            "rack1",
+				DataNodeInfos: nodes,
+			}},
+		}},
+	}))
+
+	planner := newECPlacementPlanner(activeTopology, nil)
+	require.NotNil(t, planner)
+
+	metric := &types.VolumeHealthMetrics{
+		VolumeID:   42,
+		Server:     "127.0.0.1:8081",
+		Size:       100 * 1024 * 1024,
+		Collection: "",
+	}
+
+	plan, err := planECDestinations(planner, metric, NewDefaultConfig(), erasure_coding.DataShardsCount, erasure_coding.ParityShardsCount)
+	require.NoError(t, err)
+	require.NotNil(t, plan)
+	require.Equal(t, erasure_coding.TotalShardsCount, len(plan.Plans))
+
+	seen := make(map[string]bool, len(plan.Plans))
+	for _, p := range plan.Plans {
+		key := fmt.Sprintf("%s:%d", p.TargetNode, p.TargetDisk)
+		assert.False(t, seen[key], "duplicate (server,disk_id) target %s", key)
+		seen[key] = true
+	}
 }
 
 func TestPlanECDestinationsFailsWithInsufficientCapacity(t *testing.T) {
@@ -162,7 +225,7 @@ func TestPlanECDestinationsFailsWithInsufficientCapacity(t *testing.T) {
 		Collection: "",
 	}
 
-	_, err := planECDestinations(planner, metric, NewDefaultConfig())
+	_, err := planECDestinations(planner, metric, NewDefaultConfig(), erasure_coding.DataShardsCount, erasure_coding.ParityShardsCount)
 	require.Error(t, err)
 }
 

@@ -8,6 +8,74 @@ import (
 	"github.com/seaweedfs/seaweedfs/weed/pb/master_pb"
 )
 
+// splitDiskInfoByPhysicalDisk returns one master_pb.DiskInfo per physical
+// disk_id observed in VolumeInfos / EcShardInfos. Multiple same-type physical
+// disks collapse to one DiskInfo at the master; per-volume/per-shard records
+// keep the original disk_id and are the authoritative signal here. Capacity
+// is split evenly — the wire format doesn't carry per-disk capacity yet.
+func splitDiskInfoByPhysicalDisk(diskInfo *master_pb.DiskInfo) []*master_pb.DiskInfo {
+	if diskInfo == nil {
+		return nil
+	}
+
+	// Records with DiskId=0 and a non-zero outer DiskId belong to the outer
+	// disk — handles older payloads / fixtures that omit the per-record id.
+	normalize := func(id uint32) uint32 {
+		if id == 0 && diskInfo.DiskId != 0 {
+			return diskInfo.DiskId
+		}
+		return id
+	}
+
+	diskIDs := make(map[uint32]struct{})
+	for _, vi := range diskInfo.VolumeInfos {
+		diskIDs[normalize(vi.DiskId)] = struct{}{}
+	}
+	for _, eci := range diskInfo.EcShardInfos {
+		diskIDs[normalize(eci.DiskId)] = struct{}{}
+	}
+	if len(diskIDs) == 0 {
+		diskIDs[diskInfo.DiskId] = struct{}{}
+	}
+
+	if len(diskIDs) == 1 {
+		for diskID := range diskIDs {
+			if diskID == diskInfo.DiskId {
+				return []*master_pb.DiskInfo{diskInfo}
+			}
+		}
+	}
+
+	perDiskVolumes := make(map[uint32][]*master_pb.VolumeInformationMessage)
+	for _, vi := range diskInfo.VolumeInfos {
+		perDiskVolumes[normalize(vi.DiskId)] = append(perDiskVolumes[normalize(vi.DiskId)], vi)
+	}
+	perDiskShards := make(map[uint32][]*master_pb.VolumeEcShardInformationMessage)
+	for _, eci := range diskInfo.EcShardInfos {
+		perDiskShards[normalize(eci.DiskId)] = append(perDiskShards[normalize(eci.DiskId)], eci)
+	}
+
+	count := int64(len(diskIDs))
+	share := func(total int64) int64 { return total / count }
+
+	result := make([]*master_pb.DiskInfo, 0, len(diskIDs))
+	for diskID := range diskIDs {
+		result = append(result, &master_pb.DiskInfo{
+			Type:              diskInfo.Type,
+			MaxVolumeCount:    share(diskInfo.MaxVolumeCount),
+			VolumeCount:       int64(len(perDiskVolumes[diskID])),
+			FreeVolumeCount:   share(diskInfo.FreeVolumeCount),
+			ActiveVolumeCount: share(diskInfo.ActiveVolumeCount),
+			RemoteVolumeCount: share(diskInfo.RemoteVolumeCount),
+			VolumeInfos:       perDiskVolumes[diskID],
+			EcShardInfos:      perDiskShards[diskID],
+			DiskId:            diskID,
+			Tags:              append([]string(nil), diskInfo.Tags...),
+		})
+	}
+	return result
+}
+
 // CountTopologyResources counts datacenters, nodes, and disks in topology info
 func CountTopologyResources(topologyInfo *master_pb.TopologyInfo) (dcCount, nodeCount, diskCount int) {
 	if topologyInfo == nil {
@@ -73,24 +141,28 @@ func (at *ActiveTopology) UpdateTopology(topologyInfo *master_pb.TopologyInfo) e
 					disks:      make(map[uint32]*activeDisk),
 				}
 
-				// Add disks for this node
+				// One activeDisk per physical disk_id (#9369): the master keys
+				// DiskInfos by disk type, so same-type disks must be split out.
 				for diskType, diskInfo := range nodeInfo.DiskInfos {
-					disk := &activeDisk{
-						DiskInfo: &DiskInfo{
-							NodeID:     nodeInfo.Id,
-							DiskID:     diskInfo.DiskId,
-							DiskType:   diskType,
-							DataCenter: dc.Id,
-							Rack:       rack.Id,
-							DiskInfo:   diskInfo,
-						},
-					}
+					perDiskInfos := splitDiskInfoByPhysicalDisk(diskInfo)
+					for _, perDisk := range perDiskInfos {
+						disk := &activeDisk{
+							DiskInfo: &DiskInfo{
+								NodeID:     nodeInfo.Id,
+								DiskID:     perDisk.DiskId,
+								DiskType:   diskType,
+								DataCenter: dc.Id,
+								Rack:       rack.Id,
+								DiskInfo:   perDisk,
+							},
+						}
 
-					diskKey := fmt.Sprintf("%s:%d", nodeInfo.Id, diskInfo.DiskId)
-					glog.V(3).Infof("UpdateTopology: adding disk key=%q nodeId=%q diskId=%d diskType=%q address=%q grpcPort=%d volumes=%d maxVolumes=%d",
-						diskKey, nodeInfo.Id, diskInfo.DiskId, diskType, nodeInfo.Address, nodeInfo.GrpcPort, diskInfo.VolumeCount, diskInfo.MaxVolumeCount)
-					node.disks[diskInfo.DiskId] = disk
-					at.disks[diskKey] = disk
+						diskKey := fmt.Sprintf("%s:%d", nodeInfo.Id, perDisk.DiskId)
+						glog.V(3).Infof("UpdateTopology: adding disk key=%q nodeId=%q diskId=%d diskType=%q address=%q grpcPort=%d volumes=%d maxVolumes=%d",
+							diskKey, nodeInfo.Id, perDisk.DiskId, diskType, nodeInfo.Address, nodeInfo.GrpcPort, perDisk.VolumeCount, perDisk.MaxVolumeCount)
+						node.disks[perDisk.DiskId] = disk
+						at.disks[diskKey] = disk
+					}
 				}
 
 				at.nodes[nodeInfo.Id] = node
@@ -205,23 +277,27 @@ func (at *ActiveTopology) rebuildIndexes() {
 	at.volumeIndex = make(map[uint32][]string)
 	at.ecShardIndex = make(map[uint32][]string)
 
-	// Rebuild indexes from current topology
+	// Index by the per-record DiskId (not the outer DiskInfo.DiskId) so the
+	// keys match the per-physical-disk activeDisk entries — see #9369.
 	for _, dc := range at.topologyInfo.DataCenterInfos {
 		for _, rack := range dc.RackInfos {
 			for _, nodeInfo := range rack.DataNodeInfos {
 				for _, diskInfo := range nodeInfo.DiskInfos {
-					diskKey := fmt.Sprintf("%s:%d", nodeInfo.Id, diskInfo.DiskId)
-
-					// Index volumes
 					for _, volumeInfo := range diskInfo.VolumeInfos {
-						volumeID := volumeInfo.Id
-						at.volumeIndex[volumeID] = append(at.volumeIndex[volumeID], diskKey)
+						diskID := volumeInfo.DiskId
+						if diskID == 0 && diskInfo.DiskId != 0 {
+							diskID = diskInfo.DiskId
+						}
+						diskKey := fmt.Sprintf("%s:%d", nodeInfo.Id, diskID)
+						at.volumeIndex[volumeInfo.Id] = append(at.volumeIndex[volumeInfo.Id], diskKey)
 					}
-
-					// Index EC shards
 					for _, ecShardInfo := range diskInfo.EcShardInfos {
-						volumeID := ecShardInfo.Id
-						at.ecShardIndex[volumeID] = append(at.ecShardIndex[volumeID], diskKey)
+						diskID := ecShardInfo.DiskId
+						if diskID == 0 && diskInfo.DiskId != 0 {
+							diskID = diskInfo.DiskId
+						}
+						diskKey := fmt.Sprintf("%s:%d", nodeInfo.Id, diskID)
+						at.ecShardIndex[ecShardInfo.Id] = append(at.ecShardIndex[ecShardInfo.Id], diskKey)
 					}
 				}
 			}
