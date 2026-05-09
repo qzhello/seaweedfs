@@ -54,14 +54,54 @@ type Pipeline struct {
 	// EventBuffer sets the channel capacity between reader and router
 	// goroutines. Zero = defaultEventBuffer.
 	EventBuffer int
+
+	// events is the input channel for the dispatch goroutine. The reader
+	// is the primary writer; InjectEvent allows external code (the bucket
+	// bootstrapper) to push synthesized events through the same router
+	// path. Initialized lazily by InjectEvent and Run; ready signals
+	// readiness to InjectEvent callers that arrive before Run.
+	eventsOnce  sync.Once
+	events      chan *reader.Event
+	eventsReady chan struct{}
 }
 
+// ensureEventsChan lazily creates the events channel and the readiness
+// signal so InjectEvent works whether it's called before or after Run.
+func (p *Pipeline) ensureEventsChan() {
+	p.eventsOnce.Do(func() {
+		bufSize := p.EventBuffer
+		if bufSize <= 0 {
+			bufSize = defaultEventBuffer
+		}
+		p.events = make(chan *reader.Event, bufSize)
+		p.eventsReady = make(chan struct{})
+		close(p.eventsReady)
+	})
+}
+
+// InjectEvent pushes a synthesized event onto the same input the reader
+// feeds. Used by the bucket bootstrapper to backfill pre-rule entries:
+// each entry becomes one *reader.Event, flows through router.Route, and
+// schedules a Match with DueTime=mtime+delay. Set TsNs=0 so the cursor
+// doesn't advance — the reader still resumes from its persisted position
+// on restart.
+func (p *Pipeline) InjectEvent(ctx context.Context, ev *reader.Event) error {
+	p.ensureEventsChan()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case p.events <- ev:
+		return nil
+	}
+}
+
+// Tick defaults live in dispatch_ticks_*.go so the s3tests build can shrink
+// them without touching production timings. defaultDispatchTick and
+// defaultCheckpointTick are the only knobs that change per build tag.
 const (
-	defaultDispatchTick   = 5 * time.Second
-	defaultCheckpointTick = 30 * time.Second
-	defaultEventBuffer    = 1024
-	shutdownDrainTimeout  = 30 * time.Second
-	shutdownSaveTimeout   = 5 * time.Second
+	defaultEventBuffer   = 1024
+	shutdownDrainTimeout = 30 * time.Second
+	shutdownSaveTimeout  = 5 * time.Second
 )
 
 // shardState bundles per-shard mutable state so the single dispatch
@@ -130,11 +170,8 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		minStartTsNs = 0
 	}
 
-	bufSize := p.EventBuffer
-	if bufSize <= 0 {
-		bufSize = defaultEventBuffer
-	}
-	events := make(chan *reader.Event, bufSize)
+	p.ensureEventsChan()
+	events := p.events
 	rd := &reader.Reader{
 		BucketsPath: p.BucketsPath,
 		ShardPredicate: func(s int) bool {
@@ -153,11 +190,12 @@ func (p *Pipeline) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	var readerErr error
 
-	// Reader goroutine.
+	// Reader goroutine. Doesn't close the events channel because external
+	// callers (BucketBootstrapper) also write to it; the dispatcher exits
+	// on runCtx cancellation rather than channel close.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		defer close(events)
 		readerErr = rd.Run(runCtx, p.FilerClient, p.ClientName, p.ClientID)
 		if readerErr != nil && !isCtxShutdown(readerErr) {
 			glog.Errorf("lifecycle reader: shards=%v: %v", shardIDs, readerErr)
@@ -184,7 +222,6 @@ func (p *Pipeline) Run(ctx context.Context) error {
 		defer dt.Stop()
 		ct := time.NewTicker(checkpointTick)
 		defer ct.Stop()
-		snap := p.Engine.Snapshot()
 
 		drainAll := func() {
 			drainCtx, drainCancel := context.WithTimeout(context.Background(), shutdownDrainTimeout)
@@ -209,14 +246,18 @@ func (p *Pipeline) Run(ctx context.Context) error {
 				if st == nil {
 					continue
 				}
-				if snap == nil {
-					snap = p.Engine.Snapshot()
-				}
+				// Always re-fetch the snapshot — caching it across events
+				// means an event arriving between dispatch ticks routes
+				// against a stale snap. With bootstrap injection, events
+				// often land within the same dispatch interval as the
+				// engine.Compile that introduced their bucket; routing
+				// against the prior (empty) snapshot would silently drop
+				// every match. Engine.Snapshot is an atomic Load.
+				snap := p.Engine.Snapshot()
 				for _, m := range router.Route(snap, ev, time.Now()) {
 					st.dispatch.Schedule.Add(m)
 				}
 			case <-dt.C:
-				snap = p.Engine.Snapshot()
 				now := time.Now()
 				for _, st := range states {
 					st.dispatch.Tick(runCtx, now)
