@@ -151,7 +151,9 @@ func Detection(ctx context.Context, metrics []*types.VolumeHealthMetrics, cluste
 				if planner == nil {
 					planner = newECPlacementPlanner(clusterInfo.ActiveTopology, ecConfig.PreferredTags)
 				}
-				multiPlan, err := planECDestinations(planner, metric, ecConfig)
+				dataShards := erasure_coding.DataShardsCount
+				parityShards := erasure_coding.ParityShardsCount
+				multiPlan, err := planECDestinations(planner, metric, ecConfig, dataShards, parityShards)
 				if err != nil {
 					glog.Warningf("Failed to plan EC destinations for volume %d: %v", metric.VolumeID, err)
 					consecutivePlanningFailures++
@@ -168,7 +170,7 @@ func Detection(ctx context.Context, metrics []*types.VolumeHealthMetrics, cluste
 
 				// Calculate expected shard size for EC operation
 				// Each data shard will be approximately volumeSize / dataShards
-				expectedShardSize := uint64(metric.Size) / uint64(erasure_coding.DataShardsCount)
+				expectedShardSize := uint64(metric.Size) / uint64(dataShards)
 
 				// Add pending EC shard task to ActiveTopology for capacity management
 
@@ -281,10 +283,10 @@ func Detection(ctx context.Context, metrics []*types.VolumeHealthMetrics, cluste
 					Sources: sourcesProto,
 
 					// Unified targets - all EC shard destinations
-					Targets: createECTargets(multiPlan),
+					Targets: createECTargets(multiPlan, dataShards, parityShards),
 
 					TaskParams: &worker_pb.TaskParams_ErasureCodingParams{
-						ErasureCodingParams: createECTaskParams(multiPlan),
+						ErasureCodingParams: createECTaskParams(dataShards, parityShards),
 					},
 				}
 
@@ -591,14 +593,20 @@ func (p *ecPlacementPlanner) buildCandidateSets(shardsNeeded int) [][]*placement
 	return candidateSets
 }
 
-// planECDestinations plans the destinations for erasure coding operation
-// This function implements EC destination planning logic directly in the detection phase
-func planECDestinations(planner *ecPlacementPlanner, metric *types.VolumeHealthMetrics, ecConfig *Config) (*topology.MultiDestinationPlan, error) {
+// planECDestinations plans the destinations for erasure coding operation.
+// dataShards/parityShards are parameters so callers can drive non-10+4 ratios.
+func planECDestinations(planner *ecPlacementPlanner, metric *types.VolumeHealthMetrics, ecConfig *Config, dataShards, parityShards int) (*topology.MultiDestinationPlan, error) {
 	if planner == nil || planner.activeTopology == nil {
 		return nil, fmt.Errorf("active topology not available for EC placement")
 	}
-	// Calculate expected shard size for EC operation
-	expectedShardSize := uint64(metric.Size) / uint64(erasure_coding.DataShardsCount)
+	if dataShards <= 0 || parityShards <= 0 {
+		return nil, fmt.Errorf("invalid EC ratio: dataShards=%d parityShards=%d", dataShards, parityShards)
+	}
+	totalShards := dataShards + parityShards
+	// Survive losing one disk: each disk holds at most parityShards shards,
+	// so we need at least ceil(totalShards / parityShards) disks.
+	minTotalDisks := (totalShards + parityShards - 1) / parityShards
+	expectedShardSize := uint64(metric.Size) / uint64(dataShards)
 
 	// Get source node information from topology
 	var sourceRack, sourceDC string
@@ -626,12 +634,18 @@ func planECDestinations(planner *ecPlacementPlanner, metric *types.VolumeHealthM
 	}
 
 	// Select best disks for EC placement with rack/DC diversity using the cached planner
-	selectedDisks, err := planner.selectDestinations(sourceRack, sourceDC, erasure_coding.TotalShardsCount)
+	selectedDisks, err := planner.selectDestinations(sourceRack, sourceDC, totalShards)
 	if err != nil {
 		return nil, err
 	}
-	if len(selectedDisks) < erasure_coding.MinTotalDisks {
-		return nil, fmt.Errorf("found %d disks, but could not find %d suitable destinations for EC placement", len(selectedDisks), erasure_coding.MinTotalDisks)
+	if len(selectedDisks) < minTotalDisks {
+		return nil, fmt.Errorf("found %d disks, but could not find %d suitable destinations for EC placement", len(selectedDisks), minTotalDisks)
+	}
+	// One shard per (server, disk_id): #9185's disk_id-aware ReceiveFile rejects
+	// a second shard on the same disk.
+	if len(selectedDisks) < totalShards {
+		return nil, fmt.Errorf("found %d disks, but EC %d+%d needs %d distinct (server, disk_id) targets",
+			len(selectedDisks), dataShards, parityShards, totalShards)
 	}
 
 	var plans []*topology.DestinationPlan
@@ -688,54 +702,48 @@ func planECDestinations(planner *ecPlacementPlanner, metric *types.VolumeHealthM
 	}, nil
 }
 
-// createECTargets creates unified TaskTarget structures from the multi-destination plan
-// with proper shard ID assignment during planning phase
-func createECTargets(multiPlan *topology.MultiDestinationPlan) []*worker_pb.TaskTarget {
+// createECTargets builds TaskTargets with one shard per plan entry.
+// planECDestinations ensures numTargets == totalShards.
+func createECTargets(multiPlan *topology.MultiDestinationPlan, dataShards, parityShards int) []*worker_pb.TaskTarget {
 	var targets []*worker_pb.TaskTarget
 	numTargets := len(multiPlan.Plans)
+	totalShards := dataShards + parityShards
 
-	// Create shard assignment arrays for each target (round-robin distribution)
 	targetShards := make([][]uint32, numTargets)
 	for i := range targetShards {
 		targetShards[i] = make([]uint32, 0)
 	}
-
-	// Distribute shards in round-robin fashion to spread both data and parity shards
-	// This ensures each target gets a mix of data shards (0-9) and parity shards (10-13)
-	for shardId := uint32(0); shardId < uint32(erasure_coding.TotalShardsCount); shardId++ {
-		targetIndex := int(shardId) % numTargets
-		targetShards[targetIndex] = append(targetShards[targetIndex], shardId)
+	for shardId := 0; shardId < totalShards; shardId++ {
+		targetIndex := shardId % numTargets
+		targetShards[targetIndex] = append(targetShards[targetIndex], uint32(shardId))
 	}
 
-	// Create targets with assigned shard IDs
 	for i, plan := range multiPlan.Plans {
 		target := &worker_pb.TaskTarget{
 			Node:          plan.TargetAddress,
 			DiskId:        plan.TargetDisk,
 			Rack:          plan.TargetRack,
 			DataCenter:    plan.TargetDC,
-			ShardIds:      targetShards[i], // Round-robin assigned shards
+			ShardIds:      targetShards[i],
 			EstimatedSize: plan.ExpectedSize,
 		}
 		targets = append(targets, target)
 
-		// Log shard assignment with data/parity classification
-		dataShards := make([]uint32, 0)
-		parityShards := make([]uint32, 0)
+		assignedData := make([]uint32, 0)
+		assignedParity := make([]uint32, 0)
 		for _, shardId := range targetShards[i] {
-			if shardId < uint32(erasure_coding.DataShardsCount) {
-				dataShards = append(dataShards, shardId)
+			if int(shardId) < dataShards {
+				assignedData = append(assignedData, shardId)
 			} else {
-				parityShards = append(parityShards, shardId)
+				assignedParity = append(assignedParity, shardId)
 			}
 		}
 		glog.V(2).Infof("EC planning: target %s assigned shards %v (data: %v, parity: %v)",
-			plan.TargetNode, targetShards[i], dataShards, parityShards)
+			plan.TargetNode, targetShards[i], assignedData, assignedParity)
 	}
 
 	glog.V(1).Infof("EC planning: distributed %d shards across %d targets using round-robin (data shards 0-%d, parity shards %d-%d)",
-		erasure_coding.TotalShardsCount, numTargets,
-		erasure_coding.DataShardsCount-1, erasure_coding.DataShardsCount, erasure_coding.TotalShardsCount-1)
+		totalShards, numTargets, dataShards-1, dataShards, totalShards-1)
 	return targets
 }
 
@@ -779,10 +787,10 @@ func convertTaskSourcesToProtobuf(sources []topology.TaskSourceSpec, volumeID ui
 }
 
 // createECTaskParams creates clean EC task parameters (destinations now in unified targets)
-func createECTaskParams(multiPlan *topology.MultiDestinationPlan) *worker_pb.ErasureCodingTaskParams {
+func createECTaskParams(dataShards, parityShards int) *worker_pb.ErasureCodingTaskParams {
 	return &worker_pb.ErasureCodingTaskParams{
-		DataShards:   erasure_coding.DataShardsCount,   // Standard data shards
-		ParityShards: erasure_coding.ParityShardsCount, // Standard parity shards
+		DataShards:   int32(dataShards),
+		ParityShards: int32(parityShards),
 	}
 }
 

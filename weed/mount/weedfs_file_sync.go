@@ -65,9 +65,12 @@ func (wfs *WFS) Flush(cancel <-chan struct{}, in *fuse.FlushIn) fuse.Status {
 		return fuse.OK
 	}
 
-	// When a closing lock owner is present, flush synchronously before waking any
-	// blocked POSIX lock waiters so write-serialized callers cannot overtake each other.
-	allowAsync := in.LockOwner == 0
+	// FlushIn.LockOwner is populated by some FUSE kernels even when the process
+	// did not hold byte-range locks. Only force the synchronous close path when
+	// this owner actually has POSIX locks to release; otherwise writebackCache
+	// would silently degrade to a blocking flush for ordinary close().
+	hasPosixLocks := wfs.posixLocks.HasPosixOwner(in.NodeId, in.LockOwner)
+	allowAsync := !hasPosixLocks
 	status := wfs.doFlush(fh, in.Uid, in.Gid, allowAsync)
 	if in.LockOwner != 0 {
 		wfs.posixLocks.ReleasePosixOwner(in.NodeId, in.LockOwner)
@@ -198,11 +201,9 @@ func (wfs *WFS) flushMetadataToFiler(fh *FileHandle, dir, name string, uid, gid 
 		if entry.Attributes.Gid == 0 {
 			entry.Attributes.Gid = gid
 		}
-		flushNow := time.Now()
-		entry.Attributes.Mtime = flushNow.Unix()
-		entry.Attributes.MtimeNs = int32(flushNow.Nanosecond())
-		entry.Attributes.Ctime = flushNow.Unix()
-		entry.Attributes.CtimeNs = int32(flushNow.Nanosecond())
+		// Do not stamp mtime/ctime here. Write/SetAttr already maintain
+		// them on the entry; overwriting at flush time clobbered user-set
+		// mtime (utimes/touch -m -d) once the deferred flush ran.
 	}
 
 	glog.V(4).Infof("%s set chunks: %v", fileFullPath, len(entry.GetChunks()))

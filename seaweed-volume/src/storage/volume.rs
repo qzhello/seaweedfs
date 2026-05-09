@@ -773,6 +773,13 @@ impl Volume {
         Ok(())
     }
 
+    fn nm_or_not_found(&self) -> Result<&NeedleMap, VolumeError> {
+        self.nm.as_ref().ok_or_else(|| {
+            tracing::warn!(volume_id = self.id.0, "needle map not loaded");
+            VolumeError::NotFound
+        })
+    }
+
     fn load_index(&mut self) -> Result<(), VolumeError> {
         let use_redb = matches!(
             self.needle_map_kind,
@@ -1058,7 +1065,7 @@ impl Volume {
         read_option: &mut ReadOption,
     ) -> Result<i32, VolumeError> {
         let _guard = self.data_file_access_control.read_lock();
-        let nm = self.nm.as_ref().ok_or(VolumeError::NotFound)?;
+        let nm = self.nm_or_not_found()?;
         let nv = nm.get(n.id).ok_or(VolumeError::NotFound)?;
 
         if nv.offset.is_zero() {
@@ -1300,7 +1307,7 @@ impl Volume {
         read_deleted: bool,
     ) -> Result<NeedleStreamInfo, VolumeError> {
         let _guard = self.data_file_access_control.read_lock();
-        let nm = self.nm.as_ref().ok_or(VolumeError::NotFound)?;
+        let nm = self.nm_or_not_found()?;
         let nv = nm.get(n.id).ok_or(VolumeError::NotFound)?;
 
         if nv.offset.is_zero() {
@@ -1402,7 +1409,7 @@ impl Volume {
         &self,
         needle_id: NeedleId,
     ) -> Result<(u64, u16), VolumeError> {
-        let nm = self.nm.as_ref().ok_or(VolumeError::NotFound)?;
+        let nm = self.nm_or_not_found()?;
         let nv = nm.get(needle_id).ok_or(VolumeError::NotFound)?;
         if nv.offset.is_zero() {
             return Err(VolumeError::NotFound);
@@ -1719,7 +1726,7 @@ impl Volume {
     /// Read all live needles from the volume (for ReadAllNeedles streaming RPC).
     pub fn read_all_needles(&self) -> Result<Vec<Needle>, VolumeError> {
         let _guard = self.data_file_access_control.read_lock();
-        let nm = self.nm.as_ref().ok_or(VolumeError::NotFound)?;
+        let nm = self.nm_or_not_found()?;
         let version = self.version();
         let dat_size = self.current_dat_file_size()? as i64;
         let mut needles = Vec::new();
@@ -1908,7 +1915,7 @@ impl Volume {
         if self.dat_file.is_none() && self.remote_dat_file.is_none() {
             return Err(VolumeError::NotFound);
         }
-        let nm = self.nm.as_ref().ok_or(VolumeError::NotFound)?;
+        let nm = self.nm_or_not_found()?;
         let dat_size = self.dat_file_size().map_err(VolumeError::Io)?;
 
         let mut files_checked: u64 = 0;
@@ -1968,7 +1975,7 @@ impl Volume {
         if self.dat_file.is_none() && self.remote_dat_file.is_none() {
             return Err(VolumeError::NotFound);
         }
-        let nm = self.nm.as_ref().ok_or(VolumeError::NotFound)?;
+        let nm = self.nm_or_not_found()?;
 
         let dat_size = self.dat_file_size().map_err(|e| VolumeError::Io(e))?;
         let version = self.version();
@@ -3081,7 +3088,10 @@ impl Volume {
     }
 
     /// Remove all volume files from disk.
-    pub fn destroy(&mut self, only_empty: bool) -> Result<(), VolumeError> {
+    /// Destroy removes everything related to this volume. When keep_remote_data
+    /// is true the cloud-tier object backing the volume is left intact — used
+    /// by moves where another server is taking over the same .vif.
+    pub fn destroy(&mut self, only_empty: bool, keep_remote_data: bool) -> Result<(), VolumeError> {
         if only_empty && self.file_count() > 0 {
             return Err(VolumeError::NotEmpty);
         }
@@ -3093,7 +3103,11 @@ impl Volume {
         }
 
         let (storage_name, storage_key) = self.remote_storage_name_key();
-        if self.has_remote_file && !storage_name.is_empty() && !storage_key.is_empty() {
+        if !keep_remote_data
+            && self.has_remote_file
+            && !storage_name.is_empty()
+            && !storage_key.is_empty()
+        {
             let backend = crate::remote_storage::s3_tier::global_s3_tier_registry()
                 .read()
                 .unwrap()
@@ -3659,7 +3673,7 @@ mod tests {
             dat_path = v.file_name(".dat");
             idx_path = v.file_name(".idx");
             assert!(Path::new(&dat_path).exists());
-            v.destroy(false).unwrap();
+            v.destroy(false, false).unwrap();
         }
 
         assert!(!Path::new(&dat_path).exists());
@@ -4424,7 +4438,7 @@ mod tests {
         assert!(std::path::Path::new(&idx_path).exists());
 
         // Destroy the volume
-        v.destroy(false).unwrap();
+        v.destroy(false, false).unwrap();
 
         // .dat and .idx should be gone
         assert!(
@@ -4481,7 +4495,7 @@ mod tests {
         assert!(std::path::Path::new(&dat_path).exists());
         assert!(std::path::Path::new(&idx_path).exists());
 
-        v.destroy(false).unwrap();
+        v.destroy(false, false).unwrap();
 
         assert!(
             !std::path::Path::new(&dat_path).exists(),

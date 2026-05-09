@@ -54,8 +54,10 @@ func (v *Volume) isFileUnchanged(n *needle.Needle) bool {
 
 var ErrVolumeNotEmpty = fmt.Errorf("volume not empty")
 
-// Destroy removes everything related to this volume
-func (v *Volume) Destroy(onlyEmpty bool) (err error) {
+// Destroy removes everything related to this volume. When keepRemoteData is
+// true the cloud-tier object backing the volume is left intact — used by
+// moves where another server is taking over the same .vif.
+func (v *Volume) Destroy(onlyEmpty bool, keepRemoteData bool) (err error) {
 	v.dataFileAccessLock.Lock()
 	defer v.dataFileAccessLock.Unlock()
 
@@ -75,10 +77,12 @@ func (v *Volume) Destroy(onlyEmpty bool) (err error) {
 		return
 	}
 	close(v.asyncRequestsChan)
-	storageName, storageKey := v.RemoteStorageNameKey()
-	if v.HasRemoteFile() && storageName != "" && storageKey != "" {
-		if backendStorage, found := backend.BackendStorages[storageName]; found {
-			backendStorage.DeleteFile(storageKey)
+	if !keepRemoteData {
+		storageName, storageKey := v.RemoteStorageNameKey()
+		if v.HasRemoteFile() && storageName != "" && storageKey != "" {
+			if backendStorage, found := backend.BackendStorages[storageName]; found {
+				backendStorage.DeleteFile(storageKey)
+			}
 		}
 	}
 	v.doClose()
@@ -89,20 +93,26 @@ func (v *Volume) Destroy(onlyEmpty bool) (err error) {
 
 func removeVolumeFiles(filename string) {
 	// basic
-	os.Remove(filename + ".dat")
-	os.Remove(filename + ".idx")
-	os.Remove(filename + ".vif")
+	deleteAndLog := func(ext string) {
+		fullFilename := filename + "." + ext
+		if err := os.RemoveAll(fullFilename); err != nil {
+			glog.V(0).Infof("failed to remove volume file %s: %s", fullFilename, err)
+		}
+	}
+	deleteAndLog("dat")
+	deleteAndLog("idx")
+	deleteAndLog("vif")
 	// sorted index file
-	os.Remove(filename + ".sdx")
+	deleteAndLog("sdx")
 	// compaction
-	os.Remove(filename + ".cpd")
-	os.Remove(filename + ".cpx")
+	deleteAndLog("cpd")
+	deleteAndLog("cpx")
 	// level db index file
-	os.RemoveAll(filename + ".ldb")
+	deleteAndLog("ldb")
 	// redb index file (Rust volume server)
-	os.Remove(filename + ".rdb")
+	deleteAndLog("rdb")
 	// marker for damaged or incomplete volume
-	os.Remove(filename + ".note")
+	deleteAndLog("note")
 }
 
 func (v *Volume) asyncRequestAppend(request *needle.AsyncRequest) {

@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/bits"
 	"net"
@@ -14,7 +15,10 @@ import (
 
 	"github.com/seaweedfs/seaweedfs/weed/glog"
 	"github.com/seaweedfs/seaweedfs/weed/pb"
+	"github.com/seaweedfs/seaweedfs/weed/pb/filer_pb"
 	pluginworker "github.com/seaweedfs/seaweedfs/weed/plugin/worker"
+	"github.com/seaweedfs/seaweedfs/weed/s3api/s3bucket"
+	"github.com/seaweedfs/seaweedfs/weed/s3api/s3tables"
 	"github.com/seaweedfs/seaweedfs/weed/security"
 	stats_collect "github.com/seaweedfs/seaweedfs/weed/stats"
 	"github.com/seaweedfs/seaweedfs/weed/util"
@@ -22,12 +26,12 @@ import (
 	"github.com/seaweedfs/seaweedfs/weed/util/grace"
 	"github.com/seaweedfs/seaweedfs/weed/util/version"
 	"github.com/seaweedfs/seaweedfs/weed/worker"
+	"github.com/seaweedfs/seaweedfs/weed/worker/tasks/vacuum"
 	"github.com/seaweedfs/seaweedfs/weed/worker/types"
 
 	// Import task packages to trigger their auto-registration
 	_ "github.com/seaweedfs/seaweedfs/weed/worker/tasks/balance"
 	_ "github.com/seaweedfs/seaweedfs/weed/worker/tasks/erasure_coding"
-	_ "github.com/seaweedfs/seaweedfs/weed/worker/tasks/vacuum"
 )
 
 type MiniOptions struct {
@@ -212,6 +216,9 @@ Example Usage:
 	weed mini                   # Use current directory
 	weed mini -dir=/data        # Custom data directory
 	weed mini -dir=/data -master.port=9444  # Custom master port
+	weed mini -dir=/data -bucket=my-bucket             # Pre-create an S3 bucket on startup
+	weed mini -dir=/data -bucket=bucket1,bucket2       # Pre-create multiple S3 buckets
+	weed mini -dir=/data -tableBucket=iceberg-tables   # Pre-create an S3 Tables bucket
 
 After starting, you can access:
 - Master UI:       http://localhost:9333
@@ -244,6 +251,8 @@ var (
 	miniS3Config                    = cmdMini.Flag.String("s3.config", "", "path to the S3 config file")
 	miniIamConfig                   = cmdMini.Flag.String("s3.iam.config", "", "path to the advanced IAM config file for S3")
 	miniS3AllowDeleteBucketNotEmpty = cmdMini.Flag.Bool("s3.allowDeleteBucketNotEmpty", true, "allow recursive deleting all entries along with bucket")
+	miniBucket                      = cmdMini.Flag.String("bucket", "", "comma-separated S3 bucket names to create on startup if they do not already exist; leave empty to skip. Falls back to S3_BUCKET env var.")
+	miniTableBucket                 = cmdMini.Flag.String("tableBucket", "", "comma-separated S3 Tables bucket names to create on startup if they do not already exist; leave empty to skip. Falls back to S3_TABLE_BUCKET env var.")
 )
 
 // getBindIp determines the bind IP address based on miniIp and miniBindIp flags
@@ -866,7 +875,7 @@ func saveMiniConfiguration(dataFolder string) error {
 }
 
 func runMini(cmd *Command, args []string) bool {
-	*miniDataFolders = util.ResolvePath(*miniDataFolders)
+	*miniDataFolders = util.ResolveCommaSeparatedPaths(*miniDataFolders)
 
 	// Capture which port flags were explicitly passed on CLI BEFORE config file is applied
 	// This is necessary to distinguish user-specified ports from defaults or config file options
@@ -891,6 +900,17 @@ func runMini(cmd *Command, args []string) bool {
 	util.LoadSecurityConfiguration()
 	util.LoadConfiguration("master", false)
 
+	// applyConfigFileOptions above may have overwritten -dir from the
+	// mini.options file, so re-resolve it here alongside the other paths.
+	*miniDataFolders = util.ResolveCommaSeparatedPaths(*miniDataFolders)
+	*miniOptions.cpuprofile = util.ResolvePath(*miniOptions.cpuprofile)
+	*miniOptions.memprofile = util.ResolvePath(*miniOptions.memprofile)
+	*miniS3Config = util.ResolvePath(*miniS3Config)
+	*miniIamConfig = util.ResolvePath(*miniIamConfig)
+	*miniMasterOptions.metaFolder = util.ResolvePath(*miniMasterOptions.metaFolder)
+	*miniAdminOptions.dataDir = util.ResolvePath(*miniAdminOptions.dataDir)
+	miniS3Options.resolvePaths()
+	miniWebDavOptions.resolvePaths()
 	grace.SetupProfiling(*miniOptions.cpuprofile, *miniOptions.memprofile)
 
 	// Determine bind IP
@@ -967,9 +987,13 @@ func runMini(cmd *Command, args []string) bool {
 	}
 
 	if *miniMasterOptions.metaFolder == "" {
-		*miniMasterOptions.metaFolder = *miniDataFolders
+		// -dir may be comma-separated (dir[,dir]...); the master expects a
+		// single directory, so default to the first entry. Both miniDataFolders
+		// and miniMasterOptions.metaFolder were already tilde-resolved at the
+		// top of runMini.
+		*miniMasterOptions.metaFolder = util.StringSplit(*miniDataFolders, ",")[0]
 	}
-	if err := util.TestFolderWritable(util.ResolvePath(*miniMasterOptions.metaFolder)); err != nil {
+	if err := util.TestFolderWritable(*miniMasterOptions.metaFolder); err != nil {
 		glog.Fatalf("Check Meta Folder (-dir=\"%s\") Writable: %s", *miniMasterOptions.metaFolder, err)
 	}
 	miniFilerOptions.defaultLevelDbDirectory = miniMasterOptions.metaFolder
@@ -978,9 +1002,9 @@ func runMini(cmd *Command, args []string) bool {
 	// Only auto-calculate if user didn't explicitly specify a value via -master.volumeSizeLimitMB
 	if !isFlagPassed("master.volumeSizeLimitMB") {
 		// User didn't override, use auto-calculated value
-		// The -dir flag can accept comma-separated directories; use the first one for disk space calculation
-		resolvedDataFolder := util.ResolvePath(util.StringSplit(*miniDataFolders, ",")[0])
-		optimalVolumeSizeMB := calculateOptimalVolumeSizeMB(resolvedDataFolder)
+		// The -dir flag can accept comma-separated directories; use the first one for disk space calculation.
+		// miniDataFolders was already tilde-resolved at the top of runMini.
+		optimalVolumeSizeMB := calculateOptimalVolumeSizeMB(util.StringSplit(*miniDataFolders, ",")[0])
 		miniMasterOptions.volumeSizeLimitMB = &optimalVolumeSizeMB
 		glog.Infof("Mini started with auto-calculated optimal volume size limit: %dMB", optimalVolumeSizeMB)
 	} else {
@@ -1019,6 +1043,22 @@ func runMini(cmd *Command, args []string) bool {
 	grace.OnInterrupt(func() {
 		triggerMiniClientsShutdown(10 * time.Second)
 	})
+
+	// Create the requested bucket(s) (if any) before announcing readiness.
+	bucketSpec := *miniBucket
+	if bucketSpec == "" {
+		bucketSpec = os.Getenv("S3_BUCKET")
+	}
+	if err := ensureMiniBuckets(bucketSpec); err != nil {
+		glog.Warningf("failed to ensure buckets %q: %v", bucketSpec, err)
+	}
+	tableBucketSpec := *miniTableBucket
+	if tableBucketSpec == "" {
+		tableBucketSpec = os.Getenv("S3_TABLE_BUCKET")
+	}
+	if err := ensureMiniTableBuckets(tableBucketSpec); err != nil {
+		glog.Warningf("failed to ensure table buckets %q: %v", tableBucketSpec, err)
+	}
 
 	// Print welcome message after all services are running
 	printWelcomeMessage()
@@ -1213,7 +1253,15 @@ func startMiniAdminWithWorker(allServicesReady chan struct{}) {
 	// Wait for admin server's HTTP port to be ready before launching worker
 	adminAddr := fmt.Sprintf("http://%s:%d", bindIp, *miniAdminOptions.port)
 	glog.V(1).Infof("Waiting for admin server to be ready at %s...", adminAddr)
-	if err := waitForAdminServerReady(adminAddr); err != nil {
+	if err := waitForAdminServerReady(ctx, adminAddr); err != nil {
+		// If the parent context was cancelled (e.g. a previous in-process
+		// mini run is being torn down), bail out gracefully instead of
+		// fataling — the test harness uses `cmd.Run` directly so a Fatalf
+		// would terminate the entire test binary.
+		if ctx.Err() != nil {
+			glog.Warningf("Admin server readiness wait aborted: %v", err)
+			return
+		}
 		glog.Fatalf("Admin server readiness check failed: %v", err)
 	}
 
@@ -1232,16 +1280,28 @@ func startMiniAdminWithWorker(allServicesReady chan struct{}) {
 	waitForWorkerReady(workerGrpcAddr)
 }
 
-// waitForAdminServerReady pings the admin server HTTP endpoint to check if it's ready
-func waitForAdminServerReady(adminAddr string) error {
+// waitForAdminServerReady pings the admin server HTTP endpoint to check if it's ready.
+// Returns ctx.Err() (typically context.Canceled) if the parent context is
+// cancelled mid-poll so a torn-down mini doesn't keep spinning for the full
+// timeout — relevant when tests embed mini in-process and reuse the same
+// goroutine pool across subtests.
+func waitForAdminServerReady(ctx context.Context, adminAddr string) error {
 	healthAddr := getHealthCheckAddr(fmt.Sprintf("%s/health", adminAddr))
-	maxAttempts := 60 // 60 * 500ms = 30 seconds max wait
+	// 240 * 500ms = 120 seconds max wait. The previous 30-second ceiling was
+	// too tight on busy CI runners where master + filer + volume + admin all
+	// initialise on a shared worker — the S3 Policy Shell Integration Tests
+	// flaked regularly even though the admin server still came up within a
+	// minute or two. Two minutes leaves headroom without being absurd locally.
+	maxAttempts := 240
 	attempt := 0
 	client := &http.Client{
 		Timeout: 1 * time.Second,
 	}
 
 	for attempt < maxAttempts {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		resp, err := client.Get(healthAddr)
 		if err == nil {
 			resp.Body.Close()
@@ -1249,7 +1309,11 @@ func waitForAdminServerReady(adminAddr string) error {
 			return nil
 		}
 		attempt++
-		time.Sleep(500 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
 	}
 
 	return fmt.Errorf("admin server did not become ready at %s after %d attempts", adminAddr, maxAttempts)
@@ -1373,7 +1437,7 @@ func startMiniPluginWorker(ctx context.Context, workerDir string) {
 	util.LoadConfiguration("security", false)
 	grpcDialOption := security.LoadClientTLS(util.GetViper(), "grpc.worker")
 
-	handlers, err := buildPluginWorkerHandlers(defaultMiniPluginJobTypes, grpcDialOption, int(pluginworker.DefaultMaxExecutionConcurrency), workerDir)
+	handlers, err := buildPluginWorkerHandlers(defaultMiniPluginJobTypes, grpcDialOption, int(vacuum.DefaultMaxExecutionConcurrency), workerDir)
 	if err != nil {
 		glog.Fatalf("Failed to build mini plugin worker handlers: %v", err)
 	}
@@ -1391,7 +1455,7 @@ func startMiniPluginWorker(ctx context.Context, workerDir string) {
 		HeartbeatInterval:       15 * time.Second,
 		ReconnectDelay:          5 * time.Second,
 		MaxDetectionConcurrency: 1,
-		MaxExecutionConcurrency: int(pluginworker.DefaultMaxExecutionConcurrency),
+		MaxExecutionConcurrency: int(vacuum.DefaultMaxExecutionConcurrency),
 		GrpcDialOption:          grpcDialOption,
 		Handlers:                handlers,
 	})
@@ -1483,4 +1547,112 @@ func printWelcomeMessage() {
 
 	fmt.Print(sb.String())
 	fmt.Println("")
+}
+
+// ensureMiniBuckets creates each named bucket on the embedded filer if it does
+// not already exist. bucketSpec is a comma-separated list (whitespace around
+// each name is trimmed); empty entries and an empty spec are no-ops so callers
+// who do not pass -bucket pay nothing. Per-bucket failures are logged and the
+// loop continues so a single bad name does not block creating the rest.
+func ensureMiniBuckets(bucketSpec string) error {
+	names := parseBucketList(bucketSpec)
+	if len(names) == 0 {
+		return nil
+	}
+
+	filerAddress := pb.NewServerAddress(*miniIp, *miniFilerOptions.port, *miniFilerOptions.portGrpc)
+	grpcDialOption := security.LoadClientTLS(util.GetViper(), "grpc.client")
+
+	const bucketsPath = "/buckets"
+	// Derive from miniClientsCtx so Ctrl+C cancels the bucket RPCs, and bound
+	// with a short timeout (per bucket) so a stalled filer cannot block the
+	// welcome message indefinitely.
+	return pb.WithGrpcFilerClient(false, 0, filerAddress, grpcDialOption, func(client filer_pb.SeaweedFilerClient) error {
+		for _, name := range names {
+			if err := s3bucket.VerifyS3BucketName(name); err != nil {
+				glog.Warningf("invalid bucket name %q: %v", name, err)
+				continue
+			}
+			ctx, cancel := context.WithTimeout(miniClientsCtx(), 5*time.Second)
+			_, err := filer_pb.LookupEntry(ctx, client, &filer_pb.LookupDirectoryEntryRequest{
+				Directory: bucketsPath,
+				Name:      name,
+			})
+			if err == nil {
+				glog.V(0).Infof("bucket %s already exists", name)
+				cancel()
+				continue
+			}
+			if !errors.Is(err, filer_pb.ErrNotFound) {
+				glog.Warningf("lookup bucket %s: %v", name, err)
+				cancel()
+				continue
+			}
+			if err := filer_pb.DoMkdir(ctx, client, bucketsPath, name, nil); err != nil {
+				glog.Warningf("create bucket %s: %v", name, err)
+				cancel()
+				continue
+			}
+			cancel()
+			glog.V(0).Infof("created bucket %s", name)
+		}
+		return nil
+	})
+}
+
+// ensureMiniTableBuckets creates each named S3 Tables bucket on the embedded
+// filer if it does not already exist. bucketSpec is comma-separated; whitespace
+// is trimmed and duplicates are dropped. Per-bucket failures are logged so one
+// bad name does not block the rest. Buckets are owned by s3tables.DefaultAccountID
+// since mini does not yet model multi-account ownership.
+func ensureMiniTableBuckets(bucketSpec string) error {
+	names := parseBucketList(bucketSpec)
+	if len(names) == 0 {
+		return nil
+	}
+
+	filerAddress := pb.NewServerAddress(*miniIp, *miniFilerOptions.port, *miniFilerOptions.portGrpc)
+	grpcDialOption := security.LoadClientTLS(util.GetViper(), "grpc.client")
+
+	return pb.WithGrpcFilerClient(false, 0, filerAddress, grpcDialOption, func(client filer_pb.SeaweedFilerClient) error {
+		manager := s3tables.NewManager()
+		mgrClient := s3tables.NewManagerClient(client)
+		for _, name := range names {
+			ctx, cancel := context.WithTimeout(miniClientsCtx(), 5*time.Second)
+			req := &s3tables.CreateTableBucketRequest{Name: name}
+			var resp s3tables.CreateTableBucketResponse
+			err := manager.Execute(ctx, mgrClient, "CreateTableBucket", req, &resp, s3tables.DefaultAccountID)
+			cancel()
+			if err == nil {
+				glog.V(0).Infof("created table bucket %s", name)
+				continue
+			}
+			var s3Err *s3tables.S3TablesError
+			if errors.As(err, &s3Err) && s3Err.Type == s3tables.ErrCodeBucketAlreadyExists {
+				glog.V(0).Infof("table bucket %s already exists", name)
+				continue
+			}
+			glog.Warningf("create table bucket %s: %v", name, err)
+		}
+		return nil
+	})
+}
+
+// parseBucketList splits a comma-separated bucket spec into a deduplicated list
+// of trimmed, non-empty names, preserving the order they were given.
+func parseBucketList(spec string) []string {
+	if spec == "" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var names []string
+	for _, raw := range strings.Split(spec, ",") {
+		name := strings.TrimSpace(raw)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return names
 }

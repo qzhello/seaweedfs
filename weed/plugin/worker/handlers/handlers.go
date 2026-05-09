@@ -5,5 +5,10 @@
 package handlers
 
 import (
-	_ "github.com/seaweedfs/seaweedfs/weed/plugin/worker/iceberg" // register iceberg_maintenance handler
+	_ "github.com/seaweedfs/seaweedfs/weed/worker/tasks/balance"        // register volume_balance handler
+	_ "github.com/seaweedfs/seaweedfs/weed/worker/tasks/ec_balance"     // register ec_balance handler
+	_ "github.com/seaweedfs/seaweedfs/weed/worker/tasks/erasure_coding" // register erasure_coding handler
+	_ "github.com/seaweedfs/seaweedfs/weed/worker/tasks/iceberg"        // register iceberg_maintenance handler
+	_ "github.com/seaweedfs/seaweedfs/weed/worker/tasks/s3_lifecycle"   // register s3_lifecycle handler
+	_ "github.com/seaweedfs/seaweedfs/weed/worker/tasks/vacuum"         // register vacuum handler
 )

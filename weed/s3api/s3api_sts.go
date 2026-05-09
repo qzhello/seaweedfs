@@ -53,6 +53,34 @@ const (
 // federationNameRegex validates the Name parameter for GetFederationToken per AWS spec
 var federationNameRegex = regexp.MustCompile(`^[\w+=,.@-]+$`)
 
+// roleSessionNameRegex validates RoleSessionName per AWS spec.
+// Same character class as federation Name, but the length bounds differ
+// (RoleSessionName is 2..64).
+var roleSessionNameRegex = regexp.MustCompile(`^[\w+=,.@-]+$`)
+
+const (
+	minRoleSessionNameLen = 2
+	maxRoleSessionNameLen = 64
+)
+
+// validateRoleSessionName enforces the AWS RoleSessionName contract:
+// length 2..64, characters [\w+=,.@-]+. Returns the STS error code and a
+// descriptive error suitable for callers to surface to the caller.
+func validateRoleSessionName(name string) (STSErrorCode, error) {
+	if name == "" {
+		return STSErrMissingParameter, fmt.Errorf("RoleSessionName is required")
+	}
+	if len(name) < minRoleSessionNameLen || len(name) > maxRoleSessionNameLen {
+		return STSErrInvalidParameterValue,
+			fmt.Errorf("RoleSessionName must be between %d and %d characters", minRoleSessionNameLen, maxRoleSessionNameLen)
+	}
+	if !roleSessionNameRegex.MatchString(name) {
+		return STSErrInvalidParameterValue,
+			fmt.Errorf(`RoleSessionName contains invalid characters; allowed: [\w+=,.@-]`)
+	}
+	return "", nil
+}
+
 // STS duration constants (AWS specification)
 const (
 	minDurationSeconds               = int64(900)    // 15 minutes
@@ -60,6 +88,27 @@ const (
 	defaultFederationDurationSeconds = int64(43200)  // 12 hours (GetFederationToken default)
 	maxFederationDurationSeconds     = int64(129600) // 36 hours (GetFederationToken max)
 )
+
+// AWS limits inline session policies to 2048 characters for AssumeRole,
+// AssumeRoleWithWebIdentity, and AssumeRoleWithSAML. PackedPolicySize is
+// returned as a percentage of that budget so callers can detect how close
+// they are to the limit.
+const sessionPolicyBudgetBytes = 2048
+
+// computePackedPolicySize returns the inline session policy size as a
+// percentage of the per-action budget, or nil when no session policy was
+// provided. Output is bounded to [0, 100] for AWS-compat reporting; the
+// actual policy size validation happens upstream in NormalizeSessionPolicy.
+func computePackedPolicySize(policyJSON string) *int64 {
+	if policyJSON == "" {
+		return nil
+	}
+	pct := int64(len(policyJSON)) * 100 / sessionPolicyBudgetBytes
+	if pct > 100 {
+		pct = 100
+	}
+	return &pct
+}
 
 // parseDurationSecondsWithBounds parses and validates the DurationSeconds parameter
 // against the given min and max bounds. Returns nil if the parameter is not provided.
@@ -110,6 +159,22 @@ func (h *STSHandlers) getAccountID() string {
 		return h.stsService.Config.AccountId
 	}
 	return defaultAccountID
+}
+
+// assumeRoleWithWebIdentity dispatches the request through the IAMManager
+// wrapper when one is wired so its cross-account provider scope check and
+// per-role MaxSessionDuration clamp run for the public AWS-SDK path. Without
+// this dispatch, both checks are silently skipped because they live on the
+// IAMManager, not on the bare STS service.
+func (h *STSHandlers) assumeRoleWithWebIdentity(ctx context.Context, request *sts.AssumeRoleWithWebIdentityRequest) (*sts.AssumeRoleResponse, error) {
+	if h.iam != nil && h.iam.iamIntegration != nil {
+		if provider, ok := h.iam.iamIntegration.(IAMManagerProvider); ok {
+			if mgr := provider.GetIAMManager(); mgr != nil {
+				return mgr.AssumeRoleWithWebIdentity(ctx, request)
+			}
+		}
+	}
+	return h.stsService.AssumeRoleWithWebIdentity(ctx, request)
 }
 
 // HandleSTSRequest is the main entry point for STS requests
@@ -164,15 +229,16 @@ func (h *STSHandlers) handleAssumeRoleWithWebIdentity(w http.ResponseWriter, r *
 		return
 	}
 
-	if roleArn == "" {
-		h.writeSTSErrorResponse(w, r, STSErrMissingParameter,
-			fmt.Errorf("RoleArn is required"))
-		return
-	}
+	// RoleArn is intentionally optional here: claim-based policy mode
+	// (Phase 3b) advertises that callers MAY omit RoleArn so the STS
+	// service derives the assumed-role ARN from the configured policy
+	// claim. The bare-STS path validates this — when the IDP isn't
+	// configured for claim-based mode (or fails to emit policies) it
+	// returns a precise error that this handler maps to the right STS
+	// error code below.
 
-	if roleSessionName == "" {
-		h.writeSTSErrorResponse(w, r, STSErrMissingParameter,
-			fmt.Errorf("RoleSessionName is required"))
+	if errCode, err := validateRoleSessionName(roleSessionName); err != nil {
+		h.writeSTSErrorResponse(w, r, errCode, err)
 		return
 	}
 
@@ -211,8 +277,11 @@ func (h *STSHandlers) handleAssumeRoleWithWebIdentity(w http.ResponseWriter, r *
 		Policy:           sessionPolicyPtr,
 	}
 
-	// Call STS service
-	response, err := h.stsService.AssumeRoleWithWebIdentity(ctx, request)
+	// Prefer the IAMManager wrapper so the cross-account provider scope
+	// (enforceProviderAccountScope) and per-role MaxSessionDuration clamp
+	// run for SDK callers too. Falling back to the bare STS service keeps
+	// embedded test setups (no IAM integration wired) working.
+	response, err := h.assumeRoleWithWebIdentity(ctx, request)
 	if err != nil {
 		glog.V(2).Infof("AssumeRoleWithWebIdentity failed: %v", err)
 
@@ -245,6 +314,7 @@ func (h *STSHandlers) handleAssumeRoleWithWebIdentity(w http.ResponseWriter, r *
 				Expiration:      response.Credentials.Expiration.Format(time.RFC3339),
 			},
 			SubjectFromWebIdentityToken: response.AssumedRoleUser.Subject,
+			PackedPolicySize:            computePackedPolicySize(sessionPolicyJSON),
 		},
 	}
 	xmlResponse.ResponseMetadata.RequestId = request_id.GetFromRequest(r)
@@ -264,9 +334,8 @@ func (h *STSHandlers) handleAssumeRole(w http.ResponseWriter, r *http.Request) {
 	// Validate required parameters
 	// RoleArn is optional to support S3-compatible clients that omit it
 
-	if roleSessionName == "" {
-		h.writeSTSErrorResponse(w, r, STSErrMissingParameter,
-			fmt.Errorf("RoleSessionName is required"))
+	if errCode, err := validateRoleSessionName(roleSessionName); err != nil {
+		h.writeSTSErrorResponse(w, r, errCode, err)
 		return
 	}
 
@@ -373,8 +442,9 @@ func (h *STSHandlers) handleAssumeRole(w http.ResponseWriter, r *http.Request) {
 	// Build and return response
 	xmlResponse := &AssumeRoleResponse{
 		Result: AssumeRoleResult{
-			Credentials:     stsCreds,
-			AssumedRoleUser: assumedUser,
+			Credentials:      stsCreds,
+			AssumedRoleUser:  assumedUser,
+			PackedPolicySize: computePackedPolicySize(sessionPolicyJSON),
 		},
 	}
 	xmlResponse.ResponseMetadata.RequestId = request_id.GetFromRequest(r)
@@ -397,9 +467,8 @@ func (h *STSHandlers) handleAssumeRoleWithLDAPIdentity(w http.ResponseWriter, r 
 		return
 	}
 
-	if roleSessionName == "" {
-		h.writeSTSErrorResponse(w, r, STSErrMissingParameter,
-			fmt.Errorf("RoleSessionName is required"))
+	if errCode, err := validateRoleSessionName(roleSessionName); err != nil {
+		h.writeSTSErrorResponse(w, r, errCode, err)
 		return
 	}
 
@@ -514,8 +583,9 @@ func (h *STSHandlers) handleAssumeRoleWithLDAPIdentity(w http.ResponseWriter, r 
 	// Build and return response
 	xmlResponse := &AssumeRoleWithLDAPIdentityResponse{
 		Result: LDAPIdentityResult{
-			Credentials:     stsCreds,
-			AssumedRoleUser: assumedUser,
+			Credentials:      stsCreds,
+			AssumedRoleUser:  assumedUser,
+			PackedPolicySize: computePackedPolicySize(sessionPolicyJSON),
 		},
 	}
 	xmlResponse.ResponseMetadata.RequestId = request_id.GetFromRequest(r)
@@ -906,6 +976,7 @@ type WebIdentityResult struct {
 	Credentials                 STSCredentials   `xml:"Credentials"`
 	SubjectFromWebIdentityToken string           `xml:"SubjectFromWebIdentityToken,omitempty"`
 	AssumedRoleUser             *AssumedRoleUser `xml:"AssumedRoleUser,omitempty"`
+	PackedPolicySize            *int64           `xml:"PackedPolicySize,omitempty"`
 }
 
 // STSCredentials represents temporary security credentials
@@ -933,8 +1004,9 @@ type AssumeRoleResponse struct {
 
 // AssumeRoleResult contains the result of AssumeRole
 type AssumeRoleResult struct {
-	Credentials     STSCredentials   `xml:"Credentials"`
-	AssumedRoleUser *AssumedRoleUser `xml:"AssumedRoleUser,omitempty"`
+	Credentials      STSCredentials   `xml:"Credentials"`
+	AssumedRoleUser  *AssumedRoleUser `xml:"AssumedRoleUser,omitempty"`
+	PackedPolicySize *int64           `xml:"PackedPolicySize,omitempty"`
 }
 
 // AssumeRoleWithLDAPIdentityResponse is the response for AssumeRoleWithLDAPIdentity
@@ -948,8 +1020,9 @@ type AssumeRoleWithLDAPIdentityResponse struct {
 
 // LDAPIdentityResult contains the result of AssumeRoleWithLDAPIdentity
 type LDAPIdentityResult struct {
-	Credentials     STSCredentials   `xml:"Credentials"`
-	AssumedRoleUser *AssumedRoleUser `xml:"AssumedRoleUser,omitempty"`
+	Credentials      STSCredentials   `xml:"Credentials"`
+	AssumedRoleUser  *AssumedRoleUser `xml:"AssumedRoleUser,omitempty"`
+	PackedPolicySize *int64           `xml:"PackedPolicySize,omitempty"`
 }
 
 // GetCallerIdentityResponse is the response for GetCallerIdentity

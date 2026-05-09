@@ -22,6 +22,11 @@ func (v *Volume) readNeedle(n *needle.Needle, readOption *ReadOption, onReadSize
 	v.dataFileAccessLock.RLock()
 	defer v.dataFileAccessLock.RUnlock()
 
+	if v.nm == nil {
+		glog.V(0).Infof("volume %d: needle map not loaded; read returns not-found", v.Id)
+		return -1, ErrorNotFound
+	}
+
 	nv, ok := v.nm.Get(n.Id)
 	if !ok || nv.Offset.IsZero() {
 		return -1, ErrorNotFound
@@ -108,6 +113,13 @@ func (v *Volume) readNeedleDataInto(n *needle.Needle, readOption *ReadOption, wr
 	if readOption.HasSlowRead {
 		v.dataFileAccessLock.RLock()
 	}
+	if v.nm == nil {
+		if readOption.HasSlowRead {
+			v.dataFileAccessLock.RUnlock()
+		}
+		glog.V(0).Infof("volume %d: needle map not loaded; read returns not-found", v.Id)
+		return ErrorNotFound
+	}
 	nv, ok := v.nm.Get(n.Id)
 	if readOption.HasSlowRead {
 		v.dataFileAccessLock.RUnlock()
@@ -146,6 +158,13 @@ func (v *Volume) readNeedleDataInto(n *needle.Needle, readOption *ReadOption, wr
 		}
 		// possibly re-read needle offset if volume is compacted
 		if readOption.VolumeRevision != v.SuperBlock.CompactionRevision {
+			if v.nm == nil {
+				if readOption.HasSlowRead {
+					v.dataFileAccessLock.RUnlock()
+				}
+				glog.V(0).Infof("volume %d: needle map not loaded mid-read", v.Id)
+				return ErrorNotFound
+			}
 			// the volume is compacted
 			nv, ok = v.nm.Get(n.Id)
 			if !ok || nv.Offset.IsZero() {
