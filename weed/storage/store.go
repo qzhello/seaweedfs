@@ -654,11 +654,19 @@ func (s *Store) MarkVolumeReadonly(i needle.VolumeId, persist bool) error {
 		return fmt.Errorf("volume %d not found", i)
 	}
 	v.noWriteLock.Lock()
+	defer v.noWriteLock.Unlock()
+	// Symmetric with MarkVolumeWritable: during shrink the volume's readonly
+	// state is owned by the shrink RPC. Refuse external state mutations so
+	// admins see a consistent "all toggles rejected during shrink" model. The
+	// volume is already explicitly readonly (TryEnterShrinkReadonly verified
+	// that), so refusing this call costs nothing.
+	if v.isShrinkInProgress.Load() {
+		return fmt.Errorf("volume %d cannot be marked readonly while shrink is in progress", i)
+	}
 	v.noWriteOrDelete = true
 	if persist {
 		v.PersistReadOnly(true)
 	}
-	v.noWriteLock.Unlock()
 	return nil
 }
 
@@ -668,9 +676,15 @@ func (s *Store) MarkVolumeWritable(i needle.VolumeId) error {
 		return fmt.Errorf("volume %d not found", i)
 	}
 	v.noWriteLock.Lock()
+	defer v.noWriteLock.Unlock()
+	// Refuse if a shrink is in flight. The shrink path sets isShrinkInProgress
+	// under this same lock (see TryEnterShrinkReadonly), so checking + flipping
+	// noWriteOrDelete here is atomic with respect to the shrink decision.
+	if v.isShrinkInProgress.Load() {
+		return fmt.Errorf("volume %d cannot be marked writable while shrink is in progress", i)
+	}
 	v.noWriteOrDelete = false
 	v.PersistReadOnly(false)
-	v.noWriteLock.Unlock()
 	return nil
 }
 

@@ -55,6 +55,9 @@ service VolumeServer {
     }
     rpc VolumeStatus (VolumeStatusRequest) returns (VolumeStatusResponse) {
     }
+    // shrink an over-preallocated .dat file in place by sparse-copying it
+    rpc VolumeShrinkPreallocated (VolumeShrinkPreallocatedRequest) returns (VolumeShrinkPreallocatedResponse) {
+    }
 
     rpc GetState (GetStateRequest) returns (GetStateResponse) {
     }
@@ -280,6 +283,26 @@ message VolumeStatusResponse {
     uint64 volume_size = 2;
     uint64 file_count = 3;
     uint64 file_deleted_count = 4;
+}
+
+message VolumeShrinkPreallocatedRequest {
+    uint32 volume_id = 1;
+    // skip when reclaimable space (allocated blocks - logical size) is below this
+    uint64 min_reclaim_bytes = 2;
+    // when true, only inspect and report; do not actually shrink
+    bool dry_run = 3;
+}
+message VolumeShrinkPreallocatedResponse {
+    uint64 logical_size = 1;
+    uint64 allocated_bytes_before = 2;
+    uint64 allocated_bytes_after = 3;
+    uint64 reclaimed_bytes = 4;
+    bool shrunk = 5;
+    string skip_reason = 6;
+    // shrink completed (data is on the new inode) but a follow-up step (such
+    // as fsync of the parent directory) failed. The new layout will survive a
+    // clean shutdown but may not survive an immediate kernel crash.
+    string durability_warning = 7;
 }
 
 message GetStateRequest {

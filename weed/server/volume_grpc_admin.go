@@ -195,6 +195,8 @@ func (vs *VolumeServer) makeVolumeWritable(ctx context.Context, v *storage.Volum
 		return err
 	}
 
+	// store.MarkVolumeWritable refuses (under v.noWriteLock) if a shrink is in
+	// flight, so the shrink-vs-writable race is closed at the storage layer.
 	if err := vs.store.MarkVolumeWritable(v.Id); err != nil {
 		glog.Errorf("mark volume %d writable: %v", v.Id, err)
 		return err

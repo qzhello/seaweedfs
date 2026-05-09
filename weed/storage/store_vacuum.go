@@ -19,11 +19,12 @@ func (s *Store) CheckCompactVolume(volumeId needle.VolumeId) (float64, error) {
 
 func (s *Store) CompactVolume(vid needle.VolumeId, preallocate int64, compactionBytePerSecond int64, progressFn ProgressFunc) error {
 	if v := s.findVolume(vid); v != nil {
-		if err := ensureCompactVolumeSpace(v, preallocate); err != nil {
+		effective := compactPreallocateBytes(v, preallocate)
+		if err := ensureCompactVolumeSpace(v, effective); err != nil {
 			return err
 		}
 		return v.CompactByIndex(&CompactOptions{
-			PreallocateBytes:  preallocate,
+			PreallocateBytes:  effective,
 			MaxBytesPerSecond: compactionBytePerSecond,
 			ProgressCallback:  progressFn,
 		})
@@ -98,12 +99,13 @@ func (s *Store) CompactVolumeFiles(vid needle.VolumeId, collection string, locat
 		tempVolume.doClose()
 	}()
 
-	if err := ensureCompactVolumeSpace(tempVolume, preallocate); err != nil {
+	effective := compactPreallocateBytes(tempVolume, preallocate)
+	if err := ensureCompactVolumeSpace(tempVolume, effective); err != nil {
 		return err
 	}
 
 	if err := tempVolume.CompactByIndex(&CompactOptions{
-		PreallocateBytes:  preallocate,
+		PreallocateBytes:  effective,
 		MaxBytesPerSecond: compactionBytePerSecond,
 	}); err != nil {
 		if cleanupErr := tempVolume.cleanupCompact(); cleanupErr != nil {

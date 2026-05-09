@@ -47,6 +47,7 @@ type Volume struct {
 	ldbTimeout             int64
 
 	isCompactionInProgress atomic.Bool
+	isShrinkInProgress     atomic.Bool
 
 	volumeInfoRWLock sync.RWMutex
 	volumeInfo       *volume_server_pb.VolumeInfo
@@ -220,6 +221,49 @@ func (v *Volume) SyncToDisk() {
 			glog.Warningf("Volume Close fail to sync volume %d", v.Id)
 		}
 	}
+}
+
+// TryEnterShrinkReadonly atomically verifies that the volume is explicitly
+// marked readonly (noWriteOrDelete or noWriteCanDelete) and that no shrink is
+// already running, then sets the shrink flag. Both checks and the flag
+// mutation happen under v.noWriteLock so they are atomic with respect to
+// MarkVolumeWritable / MarkVolumeReadonly, which acquire the same lock. The
+// caller MUST call ReleaseShrink when done.
+//
+// On success returns (true, ""). On failure returns (false, reason) without
+// mutating any state.
+//
+// This intentionally rejects "readonly only because the disk is low on
+// space" because that condition can flip back to false under our feet during
+// the shrink. Shrink requires a stable, explicitly marked readonly volume.
+//
+// The flag is independent from isCompactionInProgress: shrink internally
+// calls UnmountVolume, whose Close() path itself spins waiting for
+// isCompactionInProgress to release, so reusing that flag would self-deadlock.
+// Vacuum coordination is instead handled naturally inside Close().
+func (v *Volume) TryEnterShrinkReadonly() (ok bool, reason string) {
+	v.noWriteLock.Lock()
+	defer v.noWriteLock.Unlock()
+	if v.isShrinkInProgress.Load() {
+		return false, "another shrink is already in progress"
+	}
+	if !(v.noWriteOrDelete || v.noWriteCanDelete) {
+		return false, "volume is not explicitly marked readonly"
+	}
+	v.isShrinkInProgress.Store(true)
+	return true, ""
+}
+
+// ReleaseShrink releases the per-volume shrink flag claimed by
+// TryEnterShrinkReadonly.
+func (v *Volume) ReleaseShrink() {
+	v.isShrinkInProgress.Store(false)
+}
+
+// IsShrinkInProgress reports whether a shrink is currently running. Used by
+// MarkVolumeWritable, which holds noWriteLock while consulting it.
+func (v *Volume) IsShrinkInProgress() bool {
+	return v.isShrinkInProgress.Load()
 }
 
 // Close cleanly shuts down this volume
