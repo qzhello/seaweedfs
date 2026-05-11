@@ -3,10 +3,11 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  Terminal, Search, AlertTriangle, ShieldAlert, Eye, Loader2, Play, Activity,
-  ChevronRight, RefreshCw, HelpCircle, Sparkles,
+  Terminal, Search, AlertTriangle, ShieldAlert, Eye, Loader2, Play,
+  ChevronRight, HelpCircle, Sparkles,
 } from "lucide-react";
-import { useClusters, useShellCatalog, useClusterHealth, useShellHelp, api, getToken, type ShellCommand } from "@/lib/api";
+import { useShellCatalog, useShellHelp, api, getToken, type ShellCommand } from "@/lib/api";
+import { useCluster } from "@/lib/cluster-context";
 import { useT } from "@/lib/i18n";
 
 // ----------------------- types & helpers -----------------------
@@ -77,17 +78,8 @@ function buildArgString(
 
 export default function OpsPage() {
   const { t } = useT();
-  const { data: clustersData } = useClusters();
+  const { clusterID } = useCluster();
   const { data: catalogData, isLoading: catalogLoading } = useShellCatalog();
-
-  const clusters = clustersData?.items || [];
-  const enabledClusters = clusters.filter((c: { enabled: boolean }) => c.enabled);
-
-  const [clusterID, setClusterID] = useState<string>("");
-  // Auto-select first enabled cluster once they load.
-  if (!clusterID && enabledClusters.length > 0) {
-    setTimeout(() => setClusterID(enabledClusters[0].id), 0);
-  }
 
   const [category, setCategory] = useState<string>("volume");
   const [search, setSearch]     = useState("");
@@ -122,11 +114,6 @@ export default function OpsPage() {
           <Link href="/ops/templates" className="btn inline-flex items-center gap-2">
             <Sparkles size={14}/> {t("Templates")}
           </Link>
-          <ClusterPicker
-            clusters={enabledClusters}
-            value={clusterID}
-            onChange={setClusterID}
-          />
         </div>
       </header>
 
@@ -194,51 +181,9 @@ export default function OpsPage() {
   );
 }
 
-// ----------------------- cluster picker w/ health -----------------------
-
-function ClusterPicker({
-  clusters, value, onChange,
-}: { clusters: Array<{ id: string; name: string; master_addr: string }>; value: string; onChange: (id: string) => void; }) {
-  const { t } = useT();
-  return (
-    <div className="flex items-center gap-3">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="bg-panel2 border border-border rounded-md px-3 py-1.5 text-sm"
-      >
-        <option value="">{t("Select cluster…")}</option>
-        {clusters.map((c) => (
-          <option key={c.id} value={c.id}>{c.name} — {c.master_addr}</option>
-        ))}
-      </select>
-      {value && <HealthBadge clusterID={value} />}
-    </div>
-  );
-}
-
-function HealthBadge({ clusterID }: { clusterID: string }) {
-  const { t } = useT();
-  const { data, isLoading, mutate } = useClusterHealth(clusterID);
-  if (isLoading) {
-    return <span className="badge text-muted"><Loader2 size={12} className="animate-spin"/> {t("probing…")}</span>;
-  }
-  if (!data) return null;
-  const color = data.reachable
-    ? "border-emerald-400/40 text-emerald-300"
-    : "border-rose-400/40 text-rose-300";
-  return (
-    <button
-      onClick={() => mutate()}
-      title={data.error || `${data.latency_ms}ms`}
-      className={`badge ${color} inline-flex items-center gap-1.5`}
-    >
-      <Activity size={12}/>
-      {data.reachable ? `${data.latency_ms}ms` : t("unreachable")}
-      <RefreshCw size={10} className="opacity-50"/>
-    </button>
-  );
-}
+// Cluster picker + health badge moved to the global topbar
+// (components/cluster-switcher.tsx). The Run panel reads
+// the active cluster from ClusterContext.
 
 // ----------------------- run panel -----------------------
 

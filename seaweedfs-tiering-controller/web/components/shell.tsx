@@ -1,5 +1,7 @@
 "use client";
 import { Nav } from "@/components/nav";
+import { ClusterSwitcher } from "@/components/cluster-switcher";
+import { ClusterProvider } from "@/lib/cluster-context";
 import { usePathname } from "next/navigation";
 import { SWRConfig } from "swr";
 
@@ -33,10 +35,20 @@ export function Shell({ children }: { children: React.ReactNode }) {
         errorRetryInterval: 3_000,
       }}
     >
-      <div className="flex min-h-screen">
-        <Nav />
-        <main className="flex-1 px-8 py-6 max-w-[1600px]">{children}</main>
-      </div>
+      <ClusterProvider>
+        <div className="flex min-h-screen">
+          <Nav />
+          <div className="flex-1 flex flex-col min-w-0">
+            {/* Sticky topbar: global cluster picker on the right so the
+                operator can switch context from any page without
+                hunting for a per-page select. */}
+            <header className="sticky top-0 z-30 border-b border-border bg-panel/80 backdrop-blur px-8 py-2 flex items-center justify-end">
+              <ClusterSwitcher />
+            </header>
+            <main className="flex-1 px-8 py-6 max-w-[1600px]">{children}</main>
+          </div>
+        </div>
+      </ClusterProvider>
     </SWRConfig>
   );
 }

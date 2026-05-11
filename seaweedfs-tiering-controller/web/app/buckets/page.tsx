@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Plus, Loader2, Database } from "lucide-react";
-import { useClusters, useBuckets, type BucketRow } from "@/lib/api";
+import { useBuckets, type BucketRow } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { bytes } from "@/lib/utils";
 import { Pagination, usePagination } from "@/components/pagination";
@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/empty-state";
 import {
   ShellActionMenu, ShellActionDialog, type ShellAction,
 } from "@/components/shell-action";
+import { useCluster } from "@/lib/cluster-context";
 
 const BUCKET_ACTIONS: ShellAction<BucketRow>[] = [
   {
@@ -54,13 +55,7 @@ const BUCKET_ACTIONS: ShellAction<BucketRow>[] = [
 
 export default function BucketsPage() {
   const { t } = useT();
-  const { data: clustersData } = useClusters();
-  const clusters: Array<{ id: string; name: string; master_addr: string; enabled: boolean }> =
-    (clustersData?.items ?? []).filter((c: { enabled: boolean }) => c.enabled);
-
-  const [clusterID, setClusterID] = useState<string>("");
-  if (!clusterID && clusters.length > 0) setTimeout(() => setClusterID(clusters[0].id), 0);
-
+  const { clusterID } = useCluster();
   const { data, isLoading, isValidating, mutate, error } = useBuckets(clusterID || undefined);
   const items = data?.items ?? [];
   const [text, setText] = useState("");
@@ -88,16 +83,6 @@ export default function BucketsPage() {
           <p className="text-xs text-muted">{t("S3 buckets via weed shell s3.bucket.list. Row actions call s3.bucket.* commands.")}</p>
         </div>
         <div className="flex items-center gap-2">
-          <select
-            value={clusterID}
-            onChange={(e) => setClusterID(e.target.value)}
-            className="bg-panel2 border border-border rounded-md px-3 py-1.5 text-sm"
-          >
-            <option value="">{t("Select cluster…")}</option>
-            {clusters.map((c) => (
-              <option key={c.id} value={c.id}>{c.name} — {c.master_addr}</option>
-            ))}
-          </select>
           <input
             value={text} onChange={(e) => setText(e.target.value)}
             placeholder={t("Search name / owner…")}

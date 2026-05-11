@@ -13,6 +13,7 @@ import { RefreshButton } from "@/components/refresh-button";
 import {
   VolumeRowActions, VolumeBulkBar, VolumeActionDialog, type VolumeRowLike,
 } from "@/components/volume-actions";
+import { useCluster } from "@/lib/cluster-context";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
@@ -30,7 +31,10 @@ export default function VolumesPage() {
   const { t } = useT();
   const { data: clusters } = useClusters();
 
-  const [clusterID, setClusterID] = useState<string>("");
+  // Cluster context is global (topbar switcher). Empty string === all
+  // clusters, which the /volumes endpoint already handles by fanning
+  // out across enabled clusters.
+  const { clusterID, setClusterID } = useCluster();
   const [collection, setCollection] = useState<string>("");
   const [diskType, setDiskType] = useState<string>("");
   const [readFilter, setReadFilter] = useState<ReadFilter>("all");
@@ -146,17 +150,11 @@ export default function VolumesPage() {
         </div>
       </header>
 
-      {/* Compact filter strip — single row on desktop, wraps on mobile */}
+      {/* Compact filter strip — single row on desktop, wraps on mobile.
+          The cluster picker lives in the topbar; here we only have the
+          collection / disk / read-only filters. */}
       <section className="card px-4 py-3">
         <div className="flex items-center gap-2 flex-wrap">
-          <select className="select w-auto py-1 text-xs" value={clusterID} onChange={e => setClusterID(e.target.value)}>
-            <option value="">{t("All clusters")}</option>
-            {(clusters?.items ?? []).map((c: any) => (
-              <option key={c.id} value={c.id} disabled={c.enabled === false}>
-                {c.name}{c.enabled === false ? " (off)" : ""}
-              </option>
-            ))}
-          </select>
           <select className="select w-auto py-1 text-xs" value={collection} onChange={e => setCollection(e.target.value)}>
             <option value="">{t("All collections")}</option>
             {collections.map(c => <option key={c} value={c}>{c}</option>)}

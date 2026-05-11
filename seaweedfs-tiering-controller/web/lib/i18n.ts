@@ -202,6 +202,11 @@ const ZH: Dict = {
   "Inspect runtime state":          "查看运行时状态",
   "(no output)":                    "(无输出)",
   Chunks:                           "块数",
+  // Global cluster switcher
+  "aggregate views only":           "仅聚合视图",
+  "No enabled clusters.":           "没有启用的集群。",
+  "Pick a cluster in the topbar to run a template.":
+                                    "在顶栏选择集群以运行模板。",
   AI:           "AI",
   System:       "系统",
 

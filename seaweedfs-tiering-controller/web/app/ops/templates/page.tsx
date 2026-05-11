@@ -7,10 +7,11 @@ import {
   AlertTriangle, ShieldAlert, Eye, Loader2, Save, X, ChevronRight,
 } from "lucide-react";
 import {
-  useClusters, useShellCatalog, useOpsTemplates, useClusterHealth,
+  useShellCatalog, useOpsTemplates,
   api, getToken,
   type ShellCommand, type OpsTemplate, type OpsStep,
 } from "@/lib/api";
+import { useCluster } from "@/lib/cluster-context";
 import { useT } from "@/lib/i18n";
 
 // ---------------- helpers ----------------
@@ -42,16 +43,11 @@ function stepsOf(t: OpsTemplate | null | undefined): OpsStep[] {
 export default function OpsTemplatesPage() {
   const { t } = useT();
   const { data: tplData, mutate: refetchTpls } = useOpsTemplates();
-  const { data: clData } = useClusters();
   const { data: catData } = useShellCatalog();
+  const { clusterID } = useCluster();
 
   const templates: OpsTemplate[] = tplData?.items ?? [];
-  const clusters: Array<{ id: string; name: string; master_addr: string; enabled: boolean }> =
-    (clData?.items ?? []).filter((c: { enabled: boolean }) => c.enabled);
   const catalog: ShellCommand[] = catData?.items ?? [];
-
-  const [clusterID, setClusterID] = useState<string>("");
-  if (!clusterID && clusters.length > 0) setTimeout(() => setClusterID(clusters[0].id), 0);
 
   const [editing, setEditing]   = useState<OpsTemplate | null>(null);
   const [creating, setCreating] = useState(false);
@@ -80,20 +76,11 @@ export default function OpsTemplatesPage() {
         </div>
       </header>
 
-      <div className="card p-3 flex items-center gap-3">
-        <span className="text-xs text-muted">{t("Run against:")}</span>
-        <select
-          value={clusterID}
-          onChange={(e) => setClusterID(e.target.value)}
-          className="bg-panel2 border border-border rounded-md px-3 py-1.5 text-sm"
-        >
-          <option value="">{t("Select cluster…")}</option>
-          {clusters.map((c) => (
-            <option key={c.id} value={c.id}>{c.name} — {c.master_addr}</option>
-          ))}
-        </select>
-        {clusterID && <HealthBadgeSmall clusterID={clusterID}/>}
-      </div>
+      {!clusterID && (
+        <div className="card p-3 text-xs text-muted">
+          {t("Pick a cluster in the topbar to run a template.")}
+        </div>
+      )}
 
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {templates.length === 0 && (
@@ -144,18 +131,6 @@ export default function OpsTemplatesPage() {
 }
 
 // ---------------- pieces ----------------
-
-function HealthBadgeSmall({ clusterID }: { clusterID: string }) {
-  const { t } = useT();
-  const { data } = useClusterHealth(clusterID);
-  if (!data) return null;
-  const ok = data.reachable;
-  return (
-    <span className={`badge ${ok ? "border-emerald-400/40 text-emerald-300" : "border-rose-400/40 text-rose-300"}`}>
-      {ok ? `${data.latency_ms}ms` : t("unreachable")}
-    </span>
-  );
-}
 
 function TemplateCard({
   tpl, onEdit, onDelete, onRun, runDisabled,

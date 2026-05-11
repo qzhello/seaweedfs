@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react";
 import { Layers, Loader2 } from "lucide-react";
-import { useClusters, useCollections, type CollectionRow } from "@/lib/api";
+import { useCollections, type CollectionRow } from "@/lib/api";
+import { useCluster } from "@/lib/cluster-context";
 import { useT } from "@/lib/i18n";
 import { bytes } from "@/lib/utils";
 import { Pagination, usePagination } from "@/components/pagination";
@@ -26,13 +27,7 @@ const COLLECTION_ACTIONS: ShellAction<CollectionRow>[] = [
 
 export default function CollectionsPage() {
   const { t } = useT();
-  const { data: clustersData } = useClusters();
-  const clusters: Array<{ id: string; name: string; master_addr: string; enabled: boolean }> =
-    (clustersData?.items ?? []).filter((c: { enabled: boolean }) => c.enabled);
-
-  const [clusterID, setClusterID] = useState<string>("");
-  if (!clusterID && clusters.length > 0) setTimeout(() => setClusterID(clusters[0].id), 0);
-
+  const { clusterID } = useCluster();
   const { data, isLoading, isValidating, mutate, error } = useCollections(clusterID || undefined);
   const items = data?.items ?? [];
   const [text, setText] = useState("");
@@ -66,16 +61,6 @@ export default function CollectionsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <select
-            value={clusterID}
-            onChange={(e) => setClusterID(e.target.value)}
-            className="bg-panel2 border border-border rounded-md px-3 py-1.5 text-sm"
-          >
-            <option value="">{t("Select cluster…")}</option>
-            {clusters.map((c) => (
-              <option key={c.id} value={c.id}>{c.name} — {c.master_addr}</option>
-            ))}
-          </select>
           <input
             value={text} onChange={(e) => setText(e.target.value)}
             placeholder={t("Search name…")}
