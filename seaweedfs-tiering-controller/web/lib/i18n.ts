@@ -72,6 +72,9 @@ const ZH: Dict = {
   "Remote Tier":                  "远程后端",
   "Message Queue":                "消息队列",
   Mount:                          "挂载",
+  "Show flag reference":          "查看参数说明",
+  "Hide flag reference":          "收起参数说明",
+  "No help text returned.":       "未返回帮助文本。",
   AI:           "AI",
   System:       "系统",
 

@@ -3,9 +3,9 @@
 import { useMemo, useState } from "react";
 import {
   Terminal, Search, AlertTriangle, ShieldAlert, Eye, Loader2, Play, Activity,
-  ChevronRight, RefreshCw,
+  ChevronRight, RefreshCw, HelpCircle,
 } from "lucide-react";
-import { useClusters, useShellCatalog, useClusterHealth, api, getToken, type ShellCommand } from "@/lib/api";
+import { useClusters, useShellCatalog, useClusterHealth, useShellHelp, api, getToken, type ShellCommand } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
 // ----------------------- types & helpers -----------------------
@@ -309,6 +309,9 @@ function RunPanel({ cluster, cmd }: { cluster: string; cmd: ShellCommand }) {
         </span>
       </div>
 
+      <HelpToggle cluster={cluster} command={cmd.name} />
+
+
       {cmd.args && cmd.args.length > 0 && (
         <div className="space-y-3">
           <div className="text-xs uppercase tracking-wider text-muted/70">{t("Arguments")}</div>
@@ -432,6 +435,35 @@ async function streamShell(
       }
     }
   }
+}
+
+// HelpToggle fetches `help <cmd>` from the cluster on demand so the
+// operator can see the binary's authoritative flag list — useful for
+// commands the catalog hasn't enumerated every option for, or to
+// verify behaviour on a specific weed version.
+function HelpToggle({ cluster, command }: { cluster: string; command: string }) {
+  const { t } = useT();
+  const [open, setOpen] = useState(false);
+  const { data, error, isLoading } = useShellHelp(open && cluster ? cluster : undefined, command);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="text-[11px] text-muted hover:text-text inline-flex items-center gap-1"
+      >
+        <HelpCircle size={12}/> {open ? t("Hide flag reference") : t("Show flag reference")}
+      </button>
+      {open && (
+        <pre className="mt-2 text-[11px] font-mono bg-black/40 border border-border rounded-md p-3 max-h-60 overflow-auto whitespace-pre-wrap">
+          {isLoading
+            ? t("Loading…")
+            : error
+              ? String((error as Error).message ?? error)
+              : (data?.help || t("No help text returned."))}
+        </pre>
+      )}
+    </div>
+  );
 }
 
 function initValues(cmd: ShellCommand): Record<string, string | boolean> {
