@@ -1,0 +1,15 @@
+seaweedfs-tiering-controller/internal/api/shell_catalog.go
+  ai_agent 1-456
+seaweedfs-tiering-controller/internal/api/server.go
+  ai_agent 141-143
+seaweedfs-tiering-controller/internal/seaweed/preflight.go
+  ai_agent 63-69
+seaweedfs-tiering-controller/internal/api/clusters.go
+  ai_agent 99-103,136-138,140-146,179-256
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "0879e705f780a477c450d5eebe5b54981eb7db69",
+  "prompts": {}
+}
