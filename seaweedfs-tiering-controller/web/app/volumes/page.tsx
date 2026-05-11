@@ -4,8 +4,8 @@ import { useT } from "@/lib/i18n";
 import { chartColors as C, tooltipStyle, legendStyle } from "@/lib/chart-theme";
 import { bytes } from "@/lib/utils";
 import dynamic from "next/dynamic";
-import { useMemo, useState } from "react";
-import { HardDrive, X, Search, Database, Filter } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { HardDrive, X, Search, Database, Filter, Eye, EyeOff } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { TableSkeleton } from "@/components/table-skeleton";
 import { Pagination, usePagination } from "@/components/pagination";
@@ -20,12 +20,33 @@ const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 type ReadFilter = "all" | "writable" | "readonly";
 type DistMode = "node" | "rack" | "collection";
 
-// Bar chart sizing: render every row at a comfortable height so the user can
-// see all groups at a glance instead of scrolling a cramped 280px viewport.
-const ROW_H = 28;
-const CHART_PAD = 64;   // top + bottom (legend + axis breathing room)
-const MIN_CHART_H = 180;
-const MAX_CHART_H = 700; // safety cap for clusters with hundreds of nodes
+// Compact chart row: every card is one fixed height so the three sit on
+// one line without one growing taller than the others. Distribution
+// caps to the top 10 groups in compact mode; the operator's full list
+// is still in the detail table below.
+const COMPACT_CHART_H = 260;
+const DIST_TOP_N      = 10;
+
+// chart-visibility state lives in localStorage so each operator can
+// hide what they don't care about and the choice survives reloads.
+const VIS_KEY = "tier.volumes.chart_visible";
+type ChartKey = "distribution" | "heatmap" | "composition";
+const ALL_CHARTS: { key: ChartKey; label: string }[] = [
+  { key: "distribution", label: "Distribution" },
+  { key: "heatmap",      label: "7-day Read Heatmap" },
+  { key: "composition",  label: "Composition" },
+];
+function loadVisible(): Record<ChartKey, boolean> {
+  const base: Record<ChartKey, boolean> = { distribution: true, heatmap: true, composition: true };
+  if (typeof window === "undefined") return base;
+  try {
+    const raw = localStorage.getItem(VIS_KEY);
+    if (!raw) return base;
+    return { ...base, ...(JSON.parse(raw) as Partial<Record<ChartKey, boolean>>) };
+  } catch {
+    return base;
+  }
+}
 
 export default function VolumesPage() {
   const { t } = useT();
@@ -66,6 +87,22 @@ export default function VolumesPage() {
     }
     return true;
   }), [all, collection, diskType, readFilter, text]);
+
+  // Chart visibility — rehydrated from localStorage on mount so SSR
+  // and the first client render agree (no hydration mismatch).
+  const [visible, setVisible] = useState<Record<ChartKey, boolean>>({
+    distribution: true, heatmap: true, composition: true,
+  });
+  useEffect(() => { setVisible(loadVisible()); }, []);
+  const toggleChart = (k: ChartKey) => {
+    setVisible(prev => {
+      const next = { ...prev, [k]: !prev[k] };
+      try { localStorage.setItem(VIS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  const hiddenCharts = ALL_CHARTS.filter(c => !visible[c.key]);
+  const shownCount   = ALL_CHARTS.length - hiddenCharts.length;
 
   const pg = usePagination(filtered, 50);
 
@@ -194,82 +231,122 @@ export default function VolumesPage() {
         </div>
       </section>
 
-      {/* Distribution chart — compact, with mode switcher in the title bar */}
-      <section className="card">
-        <header className="flex items-center justify-between px-4 py-2.5 border-b border-border/60">
-          <h2 className="text-xs font-medium uppercase tracking-wider text-muted flex items-center gap-2">
-            <HardDrive size={12}/> {t("Distribution")}
-            <span className="text-text normal-case font-normal tracking-normal">
-              by {distMode}
-            </span>
-          </h2>
-          <div className="flex items-center gap-3">
-            <div className="text-[11px] text-muted">
-              {dist.totalGroups} {distMode}{dist.totalGroups === 1 ? "" : "s"}
-            </div>
-            <div className="inline-flex rounded-md border border-border overflow-hidden">
-              {(["node", "rack", "collection"] as const).map(m => (
-                <button key={m} onClick={() => setDistMode(m)}
-                  className={`px-2.5 py-1 text-[11px] transition-colors ${
-                    distMode === m ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2 hover:text-text"
-                  }`}>
-                  {m === "node" ? t("Node") : m === "rack" ? t("Rack") : t("Collection")}
-                </button>
-              ))}
-            </div>
-          </div>
-        </header>
-        {dist.bars.length === 0 ? (
-          <div className="text-sm text-muted py-10 text-center">No volumes match the current filter.</div>
-        ) : (
-          <div className="px-2 py-2">
-            <ReactECharts
-              style={{ height: Math.min(MAX_CHART_H, Math.max(MIN_CHART_H, dist.bars.length * ROW_H + CHART_PAD)) }}
-              option={buildDistOption(dist)}
-            />
-          </div>
-        )}
-      </section>
-
-      {/* Two-column lower section on desktop: heatmap | summary */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="card lg:col-span-2">
-          <header className="px-4 py-2.5 border-b border-border/60">
-            <h2 className="text-xs font-medium uppercase tracking-wider text-muted">
-              {t("7-day Read Heatmap")}
-            </h2>
-          </header>
-          {heat.volumes.length === 0 ? (
-            <div className="text-sm text-muted py-10 text-center">{t("No access events recorded yet — start the collector.")}</div>
-          ) : (
-            <div className="px-2 py-2">
-              <ReactECharts style={{ height: 280 }} option={{
-                backgroundColor: "transparent",
-                tooltip: { position: "top", formatter: (p: any) => `vol ${heat.volumes[p.data[1]]}<br/>${heat.hours[p.data[0]]}<br/>reads ${p.data[2]}` },
-                grid: { top: 10, left: 50, right: 20, bottom: 50 },
-                xAxis: { type: "category", data: heat.hours, axisLabel: { color: C.textMuted, fontSize: 11, rotate: 45 } },
-                yAxis: { type: "category", data: heat.volumes, axisLabel: { color: C.textMuted, fontSize: 11 } },
-                visualMap: { min: 0, max: heat.max, calculable: true, orient: "horizontal", left: "center", bottom: 0,
-                  inRange: { color: ["#1b2030", "#2a4d8f", "#74a4ff", "#ffd166", "#ef476f"] },
-                  textStyle: { color: C.textMuted, fontSize: 10 } },
-                series: [{ type: "heatmap", data: heat.points, progressive: 5000, itemStyle: { borderRadius: 1 } }],
-              }}/>
+      {/* Charts: one row of three compact cards. Each card has an
+          eye-toggle in its header so the operator can hide what they
+          don't want to look at. State persists per browser. */}
+      {shownCount > 0 && (
+        // Tailwind needs static class names — map shownCount → grid class.
+        <section className={`grid grid-cols-1 gap-4 ${
+          shownCount === 1 ? "lg:grid-cols-1"
+          : shownCount === 2 ? "lg:grid-cols-2"
+          : "lg:grid-cols-3"
+        }`}>
+          {visible.distribution && (
+            <div className="card flex flex-col">
+              <header className="flex items-center justify-between px-3 py-2 border-b border-border/60">
+                <h2 className="text-xs font-medium uppercase tracking-wider text-muted flex items-center gap-2 min-w-0">
+                  <HardDrive size={12}/>
+                  <span className="truncate">{t("Distribution")}</span>
+                  <span className="text-text normal-case font-normal tracking-normal text-[11px]">· {distMode}</span>
+                </h2>
+                <div className="flex items-center gap-1.5">
+                  <div className="inline-flex rounded-md border border-border overflow-hidden">
+                    {(["node", "rack", "collection"] as const).map(m => (
+                      <button key={m} onClick={() => setDistMode(m)}
+                        className={`px-2 py-0.5 text-[10px] transition-colors ${
+                          distMode === m ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2 hover:text-text"
+                        }`}>
+                        {m === "node" ? t("Node") : m === "rack" ? t("Rack") : t("Collection")}
+                      </button>
+                    ))}
+                  </div>
+                  <button onClick={() => toggleChart("distribution")} title={t("Hide")} className="p-1 text-muted hover:text-text">
+                    <EyeOff size={12}/>
+                  </button>
+                </div>
+              </header>
+              {dist.bars.length === 0 ? (
+                <div className="text-xs text-muted py-10 text-center flex-1">{t("No data.")}</div>
+              ) : (
+                <div className="px-1 py-1">
+                  <ReactECharts
+                    style={{ height: COMPACT_CHART_H }}
+                    option={buildDistOption({ ...dist, bars: dist.bars.slice(0, DIST_TOP_N) })}
+                  />
+                  {dist.bars.length > DIST_TOP_N && (
+                    <div className="text-[10px] text-muted text-center pb-1">
+                      top {DIST_TOP_N} of {dist.bars.length} — full list in the table below
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
-        </div>
 
-        {/* At-a-glance composition pie */}
-        <div className="card">
-          <header className="px-4 py-2.5 border-b border-border/60">
-            <h2 className="text-xs font-medium uppercase tracking-wider text-muted">
-              {t("Composition")}
-            </h2>
-          </header>
-          <div className="px-3 py-2">
-            <ReactECharts style={{ height: 280 }} option={buildCompositionOption(filtered)}/>
-          </div>
+          {visible.heatmap && (
+            <div className="card flex flex-col">
+              <header className="flex items-center justify-between px-3 py-2 border-b border-border/60">
+                <h2 className="text-xs font-medium uppercase tracking-wider text-muted truncate">
+                  {t("7-day Read Heatmap")}
+                </h2>
+                <button onClick={() => toggleChart("heatmap")} title={t("Hide")} className="p-1 text-muted hover:text-text">
+                  <EyeOff size={12}/>
+                </button>
+              </header>
+              {heat.volumes.length === 0 ? (
+                <div className="text-xs text-muted py-10 text-center flex-1">{t("No access events recorded yet — start the collector.")}</div>
+              ) : (
+                <div className="px-1 py-1">
+                  <ReactECharts style={{ height: COMPACT_CHART_H }} option={{
+                    backgroundColor: "transparent",
+                    tooltip: { position: "top", formatter: (p: any) => `vol ${heat.volumes[p.data[1]]}<br/>${heat.hours[p.data[0]]}<br/>reads ${p.data[2]}` },
+                    grid: { top: 8, left: 44, right: 12, bottom: 36 },
+                    xAxis: { type: "category", data: heat.hours, axisLabel: { color: C.textMuted, fontSize: 9, rotate: 45 } },
+                    yAxis: { type: "category", data: heat.volumes, axisLabel: { color: C.textMuted, fontSize: 9 } },
+                    visualMap: { min: 0, max: heat.max, calculable: false, orient: "horizontal", left: "center", bottom: 0,
+                      inRange: { color: ["#1b2030", "#2a4d8f", "#74a4ff", "#ffd166", "#ef476f"] },
+                      textStyle: { color: C.textMuted, fontSize: 9 }, itemWidth: 8, itemHeight: 6 },
+                    series: [{ type: "heatmap", data: heat.points, progressive: 5000, itemStyle: { borderRadius: 1 } }],
+                  }}/>
+                </div>
+              )}
+            </div>
+          )}
+
+          {visible.composition && (
+            <div className="card flex flex-col">
+              <header className="flex items-center justify-between px-3 py-2 border-b border-border/60">
+                <h2 className="text-xs font-medium uppercase tracking-wider text-muted truncate">
+                  {t("Composition")}
+                </h2>
+                <button onClick={() => toggleChart("composition")} title={t("Hide")} className="p-1 text-muted hover:text-text">
+                  <EyeOff size={12}/>
+                </button>
+              </header>
+              <div className="px-1 py-1">
+                <ReactECharts style={{ height: COMPACT_CHART_H }} option={buildCompositionOption(filtered)}/>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* "Show hidden chart" chips when at least one is hidden. */}
+      {hiddenCharts.length > 0 && (
+        <div className="flex items-center gap-2 text-xs text-muted">
+          <Eye size={12}/>
+          <span>{t("Hidden:")}</span>
+          {hiddenCharts.map(c => (
+            <button
+              key={c.key}
+              onClick={() => toggleChart(c.key)}
+              className="rounded-full border border-border bg-panel2 px-2 py-0.5 text-[11px] hover:bg-panel hover:text-text transition-colors"
+            >
+              {t(c.label)}
+            </button>
+          ))}
         </div>
-      </section>
+      )}
 
       <VolumeBulkBar
         selected={selectedRows}
@@ -411,7 +488,7 @@ function buildDist(items: Volume[], mode: DistMode) {
 function buildDistOption(dist: ReturnType<typeof buildDist>) {
   return {
     backgroundColor: "transparent",
-    grid: { left: 180, right: 24, top: 28, bottom: 8 },
+    grid: { left: 110, right: 12, top: 22, bottom: 8 },
     legend: {
       data: ["Writable", "Read-only"], top: 0, right: 24,
       textStyle: { color: C.textMuted, fontSize: 11 },

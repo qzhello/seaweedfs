@@ -207,6 +207,9 @@ const ZH: Dict = {
   "No enabled clusters.":           "没有启用的集群。",
   "Pick a cluster in the topbar to run a template.":
                                     "在顶栏选择集群以运行模板。",
+  Hide:                             "隐藏",
+  "Hidden:":                        "已隐藏:",
+  "No data.":                       "暂无数据。",
   AI:           "AI",
   System:       "系统",
 
