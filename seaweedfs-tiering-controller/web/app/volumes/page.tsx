@@ -114,11 +114,26 @@ export default function VolumesPage() {
   const shownCount   = ALL_CHARTS.length - hiddenCharts.length;
 
   const [chartsOpen, setChartsOpen] = useState(false);
-  useEffect(() => { setChartsOpen(loadDrawerOpen()); }, []);
+  useEffect(() => {
+    const open = loadDrawerOpen();
+    setChartsOpen(open);
+    // If the drawer was open last session, fold the nav now so the
+    // restored layout matches what the operator left behind.
+    if (open) {
+      window.dispatchEvent(new CustomEvent("tier:nav-collapse", { detail: { collapsed: true } }));
+    }
+  }, []);
+  // Opening the charts drawer auto-folds the left nav into icon-only
+  // mode so the table + drawer fit on one screen. We don't restore on
+  // close — operators who like the slim nav can keep it, those who
+  // want it back click the chevron themselves.
   const toggleDrawer = () => {
     setChartsOpen(o => {
       const next = !o;
       try { localStorage.setItem(DRAWER_KEY, next ? "1" : "0"); } catch { /* ignore */ }
+      if (next) {
+        window.dispatchEvent(new CustomEvent("tier:nav-collapse", { detail: { collapsed: true } }));
+      }
       return next;
     });
   };

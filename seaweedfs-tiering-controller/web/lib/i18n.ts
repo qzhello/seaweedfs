@@ -233,6 +233,8 @@ const ZH: Dict = {
   "Hide charts":                    "隐藏图表",
   "All charts are hidden. Click a chip above to bring one back.":
                                     "所有图表都已隐藏,点击上方任意 chip 恢复。",
+  "Collapse sidebar":               "收起侧边栏",
+  "Expand sidebar":                 "展开侧边栏",
   AI:           "AI",
   System:       "系统",
 

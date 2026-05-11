@@ -1,11 +1,11 @@
 "use client";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import {
-  LayoutDashboard, Database, Server, ShieldCheck, ListChecks, History, Sparkles, ScrollText, CalendarDays, SlidersHorizontal, Cloud, Activity, Bell, ShieldAlert, Tv, Wrench, Layers, Brain, Languages, Terminal, Box, Boxes,
+  LayoutDashboard, Database, Server, ShieldCheck, ListChecks, History, Sparkles, ScrollText, CalendarDays, SlidersHorizontal, Cloud, Activity, Bell, ShieldAlert, Tv, Wrench, Layers, Brain, Languages, Terminal, Box, Boxes, PanelLeftClose, PanelLeftOpen,
   type LucideIcon,
 } from "lucide-react";
 
@@ -88,10 +88,37 @@ const GROUPS: NavGroup[] = [
   },
 ];
 
+const NAV_COLLAPSED_KEY = "tier.nav.collapsed";
+
 export function Nav() {
   const path = usePathname();
   const router = useRouter();
   const { lang, setLang, t } = useT();
+
+  // Collapsed = icon-only rail. Surfaces like /volumes that open a
+  // right-side drawer want all the horizontal room they can get, so
+  // they dispatch `tier:nav-collapse` to request a fold. The operator
+  // can also toggle it manually via the chevron at the top of the nav.
+  const [collapsed, setCollapsedRaw] = useState(false);
+  useEffect(() => {
+    try { setCollapsedRaw(localStorage.getItem(NAV_COLLAPSED_KEY) === "1"); } catch { /* ignore */ }
+    const handler = (e: Event) => {
+      const v = (e as CustomEvent<{ collapsed: boolean }>).detail?.collapsed;
+      if (typeof v === "boolean") {
+        setCollapsedRaw(v);
+        try { localStorage.setItem(NAV_COLLAPSED_KEY, v ? "1" : "0"); } catch { /* ignore */ }
+      }
+    };
+    window.addEventListener("tier:nav-collapse", handler);
+    return () => window.removeEventListener("tier:nav-collapse", handler);
+  }, []);
+  const toggleCollapsed = () => {
+    setCollapsedRaw(c => {
+      const next = !c;
+      try { localStorage.setItem(NAV_COLLAPSED_KEY, next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+  };
   // Routes we've already asked Next to compile/prefetch this session. In
   // dev mode <Link> does NOT prefetch, so the first click on a route eats
   // the on-demand webpack/Turbopack compile cost (~300–1500ms). We bypass
@@ -120,17 +147,34 @@ export function Nav() {
   };
 
   return (
-    <aside className="w-56 shrink-0 border-r border-border bg-panel/60 backdrop-blur min-h-screen p-3 flex flex-col">
-      <div className="px-3 py-4">
-        <div className="text-sm font-semibold tracking-tight">Tiering Console</div>
-        <div className="text-xs text-muted">SeaweedFS · v0.1</div>
+    <aside className={cn(
+      "shrink-0 border-r border-border bg-panel/60 backdrop-blur min-h-screen flex flex-col transition-[width] duration-150",
+      collapsed ? "w-14 p-1" : "w-56 p-3",
+    )}>
+      <div className={cn("flex items-center justify-between", collapsed ? "px-1 py-3" : "px-3 py-4")}>
+        {!collapsed && (
+          <div className="min-w-0">
+            <div className="text-sm font-semibold tracking-tight truncate">Tiering Console</div>
+            <div className="text-xs text-muted">SeaweedFS · v0.1</div>
+          </div>
+        )}
+        <button
+          onClick={toggleCollapsed}
+          className="p-1 text-muted hover:text-text"
+          title={collapsed ? t("Expand sidebar") : t("Collapse sidebar")}
+          aria-label={collapsed ? t("Expand sidebar") : t("Collapse sidebar")}
+        >
+          {collapsed ? <PanelLeftOpen size={16}/> : <PanelLeftClose size={16}/>}
+        </button>
       </div>
-      <nav className="flex flex-col gap-3 flex-1 overflow-y-auto">
+      <nav className={cn("flex flex-col flex-1 overflow-y-auto", collapsed ? "gap-1 items-center" : "gap-3")}>
         {GROUPS.map((g) => (
-          <div key={g.label} className="flex flex-col gap-0.5">
-            <div className="px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted/70">
-              {t(g.label)}
-            </div>
+          <div key={g.label} className={cn("flex flex-col w-full", collapsed ? "gap-0.5 items-center" : "gap-0.5")}>
+            {!collapsed && (
+              <div className="px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted/70">
+                {t(g.label)}
+              </div>
+            )}
             {g.items.map((it) => {
               const active = path === it.href || (it.href !== "/" && path.startsWith(it.href));
               const I = it.icon;
@@ -139,12 +183,16 @@ export function Nav() {
                   onMouseEnter={() => warm(it.href)}
                   onFocus={() => warm(it.href)}
                   onTouchStart={() => warm(it.href)}
+                  title={collapsed ? t(it.label) : undefined}
                   className={cn(
-                    "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors",
+                    "rounded-md text-sm transition-colors",
+                    collapsed
+                      ? "flex items-center justify-center w-10 h-9"
+                      : "flex items-center gap-2 px-3 py-1.5",
                     active ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2 hover:text-text"
                   )}>
                   <I size={16} />
-                  {t(it.label)}
+                  {!collapsed && t(it.label)}
                 </Link>
               );
             })}
@@ -152,15 +200,26 @@ export function Nav() {
         ))}
       </nav>
       {/* Language toggle pinned to the bottom of the sidebar. */}
-      <div className="mt-3 px-1">
+      <div className={cn("mt-3", collapsed ? "px-1" : "px-1")}>
         <button
           onClick={() => setLang(lang === "zh" ? "en" : "zh")}
-          className="w-full flex items-center justify-center gap-2 rounded-md border border-border px-3 py-2 text-xs text-muted hover:text-text hover:bg-panel2 transition-colors"
+          className={cn(
+            "rounded-md border border-border text-xs text-muted hover:text-text hover:bg-panel2 transition-colors",
+            collapsed
+              ? "w-10 h-9 mx-auto flex items-center justify-center"
+              : "w-full flex items-center justify-center gap-2 px-3 py-2",
+          )}
           title={lang === "zh" ? "Switch to English" : "切换到中文"}>
-          <Languages size={14}/>
-          <span className={lang === "zh" ? "text-accent" : ""}>中</span>
-          <span className="text-muted">/</span>
-          <span className={lang === "en" ? "text-accent" : ""}>EN</span>
+          {collapsed ? (
+            <span className="text-[11px]">{lang === "zh" ? "中" : "EN"}</span>
+          ) : (
+            <>
+              <Languages size={14}/>
+              <span className={lang === "zh" ? "text-accent" : ""}>中</span>
+              <span className="text-muted">/</span>
+              <span className={lang === "en" ? "text-accent" : ""}>EN</span>
+            </>
+          )}
         </button>
       </div>
     </aside>
