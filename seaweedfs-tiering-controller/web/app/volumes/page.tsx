@@ -278,139 +278,6 @@ export default function VolumesPage() {
         </div>
       </section>
 
-      {/* Charts panel — see the flex row below that wraps the table.
-          When open it docks inline to the right of the table instead
-          of floating over it, so the operator can scan visuals + row
-          actions on the same page. */}
-      {chartsOpen && (
-        // col-start-2 placement comes from the parent's arbitrary
-        // variant; sticky keeps the chart panel pinned while the
-        // operator scrolls the table on the left.
-        <aside className="card flex flex-col sticky top-16 max-h-[calc(100vh-5rem)]">
-          <header className="flex items-center justify-between px-4 py-3 border-b border-border/60">
-            <h2 className="text-sm font-medium inline-flex items-center gap-2">
-              <BarChart3 size={14}/> {t("Charts")}
-              <span className="text-[11px] text-muted">{shownCount}/{ALL_CHARTS.length}</span>
-            </h2>
-            <button onClick={toggleDrawer} className="p-1 text-muted hover:text-text" title={t("Close")}>
-              <X size={16}/>
-            </button>
-          </header>
-          <div className="flex-1 overflow-y-auto p-3 space-y-3">
-            {visible.distribution && (
-              <div className="card flex flex-col">
-                <header className="flex items-center justify-between px-3 py-2 border-b border-border/60">
-                  <h2 className="text-xs font-medium uppercase tracking-wider text-muted flex items-center gap-2 min-w-0">
-                    <HardDrive size={12}/>
-                    <span className="truncate">{t("Distribution")}</span>
-                    <span className="text-text normal-case font-normal tracking-normal text-[11px]">· {distMode}</span>
-                  </h2>
-                  <div className="flex items-center gap-1.5">
-                    <div className="inline-flex rounded-md border border-border overflow-hidden">
-                      {(["node", "rack", "collection"] as const).map(m => (
-                        <button key={m} onClick={() => setDistMode(m)}
-                          className={`px-2 py-0.5 text-[10px] transition-colors ${
-                            distMode === m ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2 hover:text-text"
-                          }`}>
-                          {m === "node" ? t("Node") : m === "rack" ? t("Rack") : t("Collection")}
-                        </button>
-                      ))}
-                    </div>
-                    <button onClick={() => toggleChart("distribution")} title={t("Hide")} className="p-1 text-muted hover:text-text">
-                      <EyeOff size={12}/>
-                    </button>
-                  </div>
-                </header>
-                {dist.bars.length === 0 ? (
-                  <div className="text-xs text-muted py-10 text-center flex-1">{t("No data.")}</div>
-                ) : (
-                  <div className="px-1 py-1">
-                    <ReactECharts
-                      style={{ height: COMPACT_CHART_H }}
-                      option={buildDistOption({ ...dist, bars: dist.bars.slice(0, DIST_TOP_N) })}
-                    />
-                    {dist.bars.length > DIST_TOP_N && (
-                      <div className="text-[10px] text-muted text-center pb-1">
-                        top {DIST_TOP_N} of {dist.bars.length} — full list in the table below
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {visible.heatmap && (
-              <div className="card flex flex-col">
-                <header className="flex items-center justify-between px-3 py-2 border-b border-border/60">
-                  <h2 className="text-xs font-medium uppercase tracking-wider text-muted truncate">
-                    {t("7-day Read Heatmap")}
-                  </h2>
-                  <button onClick={() => toggleChart("heatmap")} title={t("Hide")} className="p-1 text-muted hover:text-text">
-                    <EyeOff size={12}/>
-                  </button>
-                </header>
-                {heat.volumes.length === 0 ? (
-                  <div className="text-xs text-muted py-10 text-center flex-1">{t("No access events recorded yet — start the collector.")}</div>
-                ) : (
-                  <div className="px-1 py-1">
-                    <ReactECharts style={{ height: COMPACT_CHART_H }} option={{
-                      backgroundColor: "transparent",
-                      tooltip: { position: "top", formatter: (p: any) => `vol ${heat.volumes[p.data[1]]}<br/>${heat.hours[p.data[0]]}<br/>reads ${p.data[2]}` },
-                      grid: { top: 8, left: 44, right: 12, bottom: 36 },
-                      xAxis: { type: "category", data: heat.hours, axisLabel: { color: C.textMuted, fontSize: 9, rotate: 45 } },
-                      yAxis: { type: "category", data: heat.volumes, axisLabel: { color: C.textMuted, fontSize: 9 } },
-                      visualMap: { min: 0, max: heat.max, calculable: false, orient: "horizontal", left: "center", bottom: 0,
-                        inRange: { color: ["#1b2030", "#2a4d8f", "#74a4ff", "#ffd166", "#ef476f"] },
-                        textStyle: { color: C.textMuted, fontSize: 9 }, itemWidth: 8, itemHeight: 6 },
-                      series: [{ type: "heatmap", data: heat.points, progressive: 5000, itemStyle: { borderRadius: 1 } }],
-                    }}/>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {visible.composition && (
-              <div className="card flex flex-col">
-                <header className="flex items-center justify-between px-3 py-2 border-b border-border/60">
-                  <h2 className="text-xs font-medium uppercase tracking-wider text-muted truncate">
-                    {t("Composition")}
-                  </h2>
-                  <button onClick={() => toggleChart("composition")} title={t("Hide")} className="p-1 text-muted hover:text-text">
-                    <EyeOff size={12}/>
-                  </button>
-                </header>
-                <div className="px-1 py-1">
-                  <ReactECharts style={{ height: COMPACT_CHART_H }} option={buildCompositionOption(filtered)}/>
-                </div>
-              </div>
-            )}
-
-            {/* Restore hidden charts inside the drawer so the operator
-                doesn't lose access to any of them once collapsed. */}
-            {hiddenCharts.length > 0 && (
-              <div className="flex items-center gap-2 text-xs text-muted flex-wrap">
-                <Eye size={12}/>
-                <span>{t("Hidden:")}</span>
-                {hiddenCharts.map(c => (
-                  <button
-                    key={c.key}
-                    onClick={() => toggleChart(c.key)}
-                    className="rounded-full border border-border bg-panel2 px-2 py-0.5 text-[11px] hover:bg-panel hover:text-text transition-colors"
-                  >
-                    {t(c.label)}
-                  </button>
-                ))}
-              </div>
-            )}
-            {shownCount === 0 && hiddenCharts.length > 0 && (
-              <div className="text-xs text-muted py-6 text-center">
-                {t("All charts are hidden. Click a chip above to bring one back.")}
-              </div>
-            )}
-          </div>
-        </aside>
-      )}
-
       {/* VolumeBulkBar renders null when nothing is selected. We only
           wrap it when it has something to show AND charts are open so
           we don't leave an empty grid row. */}
@@ -515,6 +382,136 @@ export default function VolumesPage() {
           </div>
         ) : null}
       </section>
+
+      {/* Charts panel. Declared *after* the table so CSS Grid auto-flow
+          places it in the same row as the table (col 2) — otherwise
+          the aside would land in an earlier row and push the table
+          down. col-start-2 placement comes from the parent's arbitrary
+          variant; sticky keeps the panel pinned while the operator
+          scrolls the table on the left. */}
+      {chartsOpen && (
+        <aside className="card flex flex-col sticky top-16 max-h-[calc(100vh-5rem)]">
+          <header className="flex items-center justify-between px-4 py-3 border-b border-border/60">
+            <h2 className="text-sm font-medium inline-flex items-center gap-2">
+              <BarChart3 size={14}/> {t("Charts")}
+              <span className="text-[11px] text-muted">{shownCount}/{ALL_CHARTS.length}</span>
+            </h2>
+            <button onClick={toggleDrawer} className="p-1 text-muted hover:text-text" title={t("Close")}>
+              <X size={16}/>
+            </button>
+          </header>
+          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+            {visible.distribution && (
+              <div className="card flex flex-col">
+                <header className="flex items-center justify-between px-3 py-2 border-b border-border/60">
+                  <h2 className="text-xs font-medium uppercase tracking-wider text-muted flex items-center gap-2 min-w-0">
+                    <HardDrive size={12}/>
+                    <span className="truncate">{t("Distribution")}</span>
+                    <span className="text-text normal-case font-normal tracking-normal text-[11px]">· {distMode}</span>
+                  </h2>
+                  <div className="flex items-center gap-1.5">
+                    <div className="inline-flex rounded-md border border-border overflow-hidden">
+                      {(["node", "rack", "collection"] as const).map(m => (
+                        <button key={m} onClick={() => setDistMode(m)}
+                          className={`px-2 py-0.5 text-[10px] transition-colors ${
+                            distMode === m ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2 hover:text-text"
+                          }`}>
+                          {m === "node" ? t("Node") : m === "rack" ? t("Rack") : t("Collection")}
+                        </button>
+                      ))}
+                    </div>
+                    <button onClick={() => toggleChart("distribution")} title={t("Hide")} className="p-1 text-muted hover:text-text">
+                      <EyeOff size={12}/>
+                    </button>
+                  </div>
+                </header>
+                {dist.bars.length === 0 ? (
+                  <div className="text-xs text-muted py-10 text-center flex-1">{t("No data.")}</div>
+                ) : (
+                  <div className="px-1 py-1">
+                    <ReactECharts
+                      style={{ height: COMPACT_CHART_H }}
+                      option={buildDistOption({ ...dist, bars: dist.bars.slice(0, DIST_TOP_N) })}
+                    />
+                    {dist.bars.length > DIST_TOP_N && (
+                      <div className="text-[10px] text-muted text-center pb-1">
+                        top {DIST_TOP_N} of {dist.bars.length} — full list in the table below
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {visible.heatmap && (
+              <div className="card flex flex-col">
+                <header className="flex items-center justify-between px-3 py-2 border-b border-border/60">
+                  <h2 className="text-xs font-medium uppercase tracking-wider text-muted truncate">
+                    {t("7-day Read Heatmap")}
+                  </h2>
+                  <button onClick={() => toggleChart("heatmap")} title={t("Hide")} className="p-1 text-muted hover:text-text">
+                    <EyeOff size={12}/>
+                  </button>
+                </header>
+                {heat.volumes.length === 0 ? (
+                  <div className="text-xs text-muted py-10 text-center flex-1">{t("No access events recorded yet — start the collector.")}</div>
+                ) : (
+                  <div className="px-1 py-1">
+                    <ReactECharts style={{ height: COMPACT_CHART_H }} option={{
+                      backgroundColor: "transparent",
+                      tooltip: { position: "top", formatter: (p: any) => `vol ${heat.volumes[p.data[1]]}<br/>${heat.hours[p.data[0]]}<br/>reads ${p.data[2]}` },
+                      grid: { top: 8, left: 44, right: 12, bottom: 36 },
+                      xAxis: { type: "category", data: heat.hours, axisLabel: { color: C.textMuted, fontSize: 9, rotate: 45 } },
+                      yAxis: { type: "category", data: heat.volumes, axisLabel: { color: C.textMuted, fontSize: 9 } },
+                      visualMap: { min: 0, max: heat.max, calculable: false, orient: "horizontal", left: "center", bottom: 0,
+                        inRange: { color: ["#1b2030", "#2a4d8f", "#74a4ff", "#ffd166", "#ef476f"] },
+                        textStyle: { color: C.textMuted, fontSize: 9 }, itemWidth: 8, itemHeight: 6 },
+                      series: [{ type: "heatmap", data: heat.points, progressive: 5000, itemStyle: { borderRadius: 1 } }],
+                    }}/>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {visible.composition && (
+              <div className="card flex flex-col">
+                <header className="flex items-center justify-between px-3 py-2 border-b border-border/60">
+                  <h2 className="text-xs font-medium uppercase tracking-wider text-muted truncate">
+                    {t("Composition")}
+                  </h2>
+                  <button onClick={() => toggleChart("composition")} title={t("Hide")} className="p-1 text-muted hover:text-text">
+                    <EyeOff size={12}/>
+                  </button>
+                </header>
+                <div className="px-1 py-1">
+                  <ReactECharts style={{ height: COMPACT_CHART_H }} option={buildCompositionOption(filtered)}/>
+                </div>
+              </div>
+            )}
+
+            {hiddenCharts.length > 0 && (
+              <div className="flex items-center gap-2 text-xs text-muted flex-wrap">
+                <Eye size={12}/>
+                <span>{t("Hidden:")}</span>
+                {hiddenCharts.map(c => (
+                  <button
+                    key={c.key}
+                    onClick={() => toggleChart(c.key)}
+                    className="rounded-full border border-border bg-panel2 px-2 py-0.5 text-[11px] hover:bg-panel hover:text-text transition-colors"
+                  >
+                    {t(c.label)}
+                  </button>
+                ))}
+              </div>
+            )}
+            {shownCount === 0 && hiddenCharts.length > 0 && (
+              <div className="text-xs text-muted py-6 text-center">
+                {t("All charts are hidden. Click a chip above to bring one back.")}
+              </div>
+            )}
+          </div>
+        </aside>
+      )}
     </div>
   );
 }
