@@ -142,6 +142,15 @@ func Router(d Deps) *gin.Engine {
 		v1.GET("/clusters/:id/shell/help", clusterShellHelp(d))
 		v1.GET("/clusters/:id/health", clusterHealth(d))
 		v1.GET("/shell/catalog", shellCatalogList(d))
+
+		// --- Ops templates (021) ---
+		v1.GET("/ops/templates", listOpsTemplates(d))
+		v1.GET("/ops/templates/:id", getOpsTemplate(d))
+		admin.PUT("/ops/templates", upsertOpsTemplate(d))
+		admin.DELETE("/ops/templates/:id", deleteOpsTemplate(d))
+		admin.POST("/ops/templates/draft", draftOpsTemplate(d))
+		admin.GET("/clusters/:id/ops/templates/:tid/run", runOpsTemplateBridge(d))
+
 		v1.GET("/clusters/:id/topology", clusterTopology(d))
 		v1.GET("/clusters/:id/tags", listTags(d))
 		admin.PUT("/clusters/:id/tags", upsertTag(d))
