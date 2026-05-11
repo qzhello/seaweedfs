@@ -5,6 +5,9 @@ import { ArrowLeft, ChevronRight, ChevronDown, Tag, Trash2, Terminal, Loader2, A
 import { Breadcrumb } from "@/components/breadcrumb";
 import { useState } from "react";
 import { bytes } from "@/lib/utils";
+import {
+  ShellActionMenu, ShellActionDialog, type ShellAction,
+} from "@/components/shell-action";
 
 const DOMAINS = ["flight","train","hotel","car_rental","attraction","logs","finance","backup","other"];
 const DTYPES  = ["", "metadata","media","log","report","compliance"];
@@ -60,7 +63,7 @@ export default function ClusterDetail() {
       <section className="card p-5">
         <h2 className="text-sm font-medium mb-3">Topology</h2>
         <div className="space-y-2">
-          {topo.data_centers?.map((dc: any) => <DCNode key={dc.id} dc={dc}/>)}
+          {topo.data_centers?.map((dc: any) => <DCNode key={dc.id} dc={dc} clusterId={id}/>)}
           {(!topo.data_centers || !topo.data_centers.length) &&
             <div className="text-sm text-muted">Empty topology — master returned no data centers.</div>}
         </div>
@@ -226,7 +229,7 @@ function ShellConsole({ clusterId, binPath }: { clusterId: string; binPath?: str
   );
 }
 
-function DCNode({ dc }: { dc: any }) {
+function DCNode({ dc, clusterId }: { dc: any; clusterId: string }) {
   const [open, setOpen] = useState(true);
   return (
     <div>
@@ -235,13 +238,13 @@ function DCNode({ dc }: { dc: any }) {
         <span className="text-muted text-xs ml-2">{dc.racks?.length || 0} racks</span>
       </button>
       {open && <div className="ml-5 mt-2 space-y-1">
-        {dc.racks?.map((r: any) => <RackNode key={r.id} rack={r}/>)}
+        {dc.racks?.map((r: any) => <RackNode key={r.id} rack={r} clusterId={clusterId}/>)}
       </div>}
     </div>
   );
 }
 
-function RackNode({ rack }: { rack: any }) {
+function RackNode({ rack, clusterId }: { rack: any; clusterId: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div>
@@ -250,16 +253,62 @@ function RackNode({ rack }: { rack: any }) {
         <span className="ml-2">{rack.nodes?.length || 0} nodes</span>
       </button>
       {open && <div className="ml-5 mt-1 space-y-1">
-        {rack.nodes?.map((n: any) => <NodeRow key={n.id} node={n}/>)}
+        {rack.nodes?.map((n: any) => <NodeRow key={n.id} node={n} clusterId={clusterId}/>)}
       </div>}
     </div>
   );
 }
 
-function NodeRow({ node }: { node: any }) {
+interface NodeShellRow { id: string }
+
+const NODE_ACTIONS: ShellAction<NodeShellRow>[] = [
+  // Drain a node so it can be taken offline. force triggers the actual
+  // moves; without it the operator gets a dry-run summary.
+  {
+    key: "evacuate", label: "Drain (evacuate)", command: "volumeServer.evacuate", risk: "mutate",
+    fields: [
+      { key: "force", label: "Apply (skip dry-run)", default: "true", help: "Set to false to see what would move without doing it." },
+      { key: "skipNonMoveable", label: "Skip non-moveable", default: "false", help: "True to ignore volumes that can't move (e.g. EC shards)." },
+    ],
+    buildArgs: (n, x) => {
+      const parts = [`-node=${n.id}`];
+      if ((x.force || "true") === "true") parts.push("-force");
+      if (x.skipNonMoveable === "true") parts.push("-skipNonMoveable");
+      return parts.join(" ");
+    },
+  },
+  {
+    key: "leave", label: "Mark as leaving", command: "volumeServer.leave", risk: "mutate",
+    buildArgs: (n) => `-node=${n.id}`,
+  },
+  {
+    key: "balance-node", label: "Balance volumes here", command: "volume.balance", risk: "mutate",
+    fields: [
+      { key: "collection", label: "Collection (optional)" },
+      { key: "force", label: "Apply (skip dry-run)", default: "true" },
+    ],
+    buildArgs: (n, x) => {
+      const parts = [`-nodes=${n.id}`];
+      if (x.collection) parts.push(`-collection=${x.collection}`);
+      if ((x.force || "true") === "true") parts.push("-force");
+      return parts.join(" ");
+    },
+  },
+  {
+    key: "state", label: "Inspect runtime state", command: "volumeServer.state", risk: "read",
+    buildArgs: (n) => `-node=${n.id}`,
+  },
+];
+
+function NodeRow({ node, clusterId }: { node: any; clusterId: string }) {
+  const [dialog, setDialog] = useState<{ action: ShellAction<NodeShellRow> } | null>(null);
+  const row: NodeShellRow = { id: node.id };
   return (
     <div className="card p-3">
-      <div className="text-xs font-mono text-muted mb-2">{node.id}</div>
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-xs font-mono text-muted">{node.id}</div>
+        <ShellActionMenu row={row} actions={NODE_ACTIONS} onPick={(a) => setDialog({ action: a })}/>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         {node.disks?.map((d: any, i: number) => (
           <div key={i} className="flex items-center gap-2 text-xs">
@@ -272,6 +321,14 @@ function NodeRow({ node }: { node: any }) {
           </div>
         ))}
       </div>
+      {dialog && (
+        <ShellActionDialog
+          clusterID={clusterId}
+          row={row}
+          action={dialog.action}
+          onClose={() => setDialog(null)}
+        />
+      )}
     </div>
   );
 }

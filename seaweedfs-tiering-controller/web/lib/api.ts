@@ -207,6 +207,36 @@ export function useOpsTemplates() {
   return useSWR<{ items: OpsTemplate[] }>(`${BASE}/ops/templates`, fetcher);
 }
 
+export interface BucketRow {
+  name: string;
+  size: number;
+  chunks: number;
+  quota?: number;
+  usage_pc?: number;
+  owner?: string;
+}
+export function useBuckets(clusterID?: string) {
+  return useSWR<{ items: BucketRow[] }>(
+    clusterID ? `${BASE}/clusters/${clusterID}/buckets` : null,
+    fetcher,
+  );
+}
+
+export interface CollectionRow {
+  name: string;
+  volume_count: number;
+  size: number;
+  file_count: number;
+  deleted_bytes: number;
+  delete_count: number;
+}
+export function useCollections(clusterID?: string) {
+  return useSWR<{ items: CollectionRow[] }>(
+    clusterID ? `${BASE}/clusters/${clusterID}/collections` : null,
+    fetcher,
+  );
+}
+
 export function useShellHelp(clusterID?: string, cmd?: string) {
   return useSWR<{ command: string; help: string }>(
     clusterID && cmd ? `${BASE}/clusters/${clusterID}/shell/help?cmd=${encodeURIComponent(cmd)}` : null,

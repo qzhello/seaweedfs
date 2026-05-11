@@ -5,13 +5,24 @@ import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import {
-  LayoutDashboard, Database, Server, ShieldCheck, ListChecks, History, Sparkles, ScrollText, CalendarDays, SlidersHorizontal, Cloud, Activity, Bell, ShieldAlert, Tv, Wrench, Layers, Brain, Languages, Terminal,
+  LayoutDashboard, Database, Server, ShieldCheck, ListChecks, History, Sparkles, ScrollText, CalendarDays, SlidersHorizontal, Cloud, Activity, Bell, ShieldAlert, Tv, Wrench, Layers, Brain, Languages, Terminal, Box, Boxes,
   type LucideIcon,
 } from "lucide-react";
 
 type NavItem = { href: string; label: string; icon: LucideIcon };
 type NavGroup = { label: string; items: NavItem[] };
 
+// Nav groups follow the operator's mental model:
+//   Overview      — read-only big picture
+//   Storage       — primary resources you manage on a daily basis
+//   Operations    — *do things* surface: ad-hoc shell + saved playbooks
+//   Automation    — policies, skills, schedule
+//   Activity      — what the system is doing / has done
+//   Monitoring    — passive watchers + alerts + safety
+//   AI            — provider config + learning insights
+//   System        — meta config + audit
+//
+// Order within a group goes from most-frequently-used to least.
 const GROUPS: NavGroup[] = [
   {
     label: "Overview",
@@ -21,27 +32,14 @@ const GROUPS: NavGroup[] = [
     ],
   },
   {
-    label: "Resources",
+    label: "Storage",
     items: [
-      { href: "/clusters", label: "Clusters", icon: Server },
-      { href: "/backends", label: "Backends", icon: Cloud },
-      { href: "/volumes",  label: "Volumes",  icon: Database },
-      { href: "/cohort",   label: "Cohort",   icon: Layers },
-    ],
-  },
-  {
-    label: "Policy",
-    items: [
-      { href: "/policies", label: "Policies", icon: ShieldCheck },
-      { href: "/skills",   label: "Skills",   icon: Wrench },
-      { href: "/holidays", label: "Holidays", icon: CalendarDays },
-    ],
-  },
-  {
-    label: "Execution",
-    items: [
-      { href: "/tasks",      label: "Tasks",      icon: ListChecks },
-      { href: "/executions", label: "Executions", icon: History },
+      { href: "/clusters",    label: "Clusters",    icon: Server },
+      { href: "/volumes",     label: "Volumes",     icon: Database },
+      { href: "/buckets",     label: "Buckets",     icon: Box },
+      { href: "/collections", label: "Collections", icon: Boxes },
+      { href: "/backends",    label: "Backends",    icon: Cloud },
+      { href: "/cohort",      label: "Cohort",      icon: Layers },
     ],
   },
   {
@@ -49,6 +47,26 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: "/ops",           label: "Ops Console",   icon: Terminal },
       { href: "/ops/templates", label: "Ops Templates", icon: Sparkles },
+    ],
+  },
+  {
+    label: "Automation",
+    items: [
+      { href: "/policies", label: "Policies", icon: ShieldCheck },
+      { href: "/skills",   label: "Skills",   icon: Wrench },
+      { href: "/holidays", label: "Holidays", icon: CalendarDays },
+    ],
+  },
+  {
+    label: "Activity",
+    items: [
+      { href: "/tasks",      label: "Tasks",      icon: ListChecks },
+      { href: "/executions", label: "Executions", icon: History },
+    ],
+  },
+  {
+    label: "Monitoring",
+    items: [
       { href: "/health", label: "Health", icon: Activity },
       { href: "/alerts", label: "Alerts", icon: Bell },
       { href: "/safety", label: "Safety", icon: ShieldAlert },
