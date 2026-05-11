@@ -175,17 +175,21 @@ export default function VolumesPage() {
   const clearAll = () => { setClusterID(""); setCollection(""); setDiskType(""); setReadFilter("all"); setText(""); };
 
   return (
-    // When charts are open we lay out the page as a 2-column grid:
-    // every direct child stays in col 1 (stacked with row gap = 1.25rem,
-    // matching space-y-5) except the <aside> charts panel, which the
-    // arbitrary-variant rules below pull into col 2 spanning every row.
-    // When closed we fall back to the original space-y-5 stack so the
-    // aside (which renders to null) doesn't leave a hole.
+    // Layout when charts are open: header / filter strip / bulk bar
+    // run full width across both columns; only the *table* and the
+    // chart aside sit on the same row, side-by-side. Achieved with a
+    // 2-col grid where the top sections explicitly col-span-2 and the
+    // aside drops into col 2 next to the table.
+    //
+    // `[&>aside]:col-start-2` keeps the aside pinned to the right column
+    // regardless of JSX order, so I can leave the aside at its current
+    // declaration site (between the filter strip and the bulk bar) and
+    // CSS handles placement.
     <div className={chartsOpen
-      ? "grid grid-cols-[minmax(0,1fr)_minmax(0,440px)] gap-5 items-start [&>*]:col-start-1 [&>aside]:col-start-2 [&>aside]:row-start-1 [&>aside]:row-span-full"
+      ? "grid grid-cols-[minmax(0,1fr)_minmax(0,440px)] gap-5 items-start [&>aside]:col-start-2"
       : "space-y-5"
     }>
-      <header className="flex items-end justify-between gap-4 flex-wrap">
+      <header className={`flex items-end justify-between gap-4 flex-wrap ${chartsOpen ? "col-span-2" : ""}`}>
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{t("Volumes")}</h1>
           <div className="text-xs text-muted mt-1">
@@ -233,7 +237,7 @@ export default function VolumesPage() {
       {/* Compact filter strip — single row on desktop, wraps on mobile.
           The cluster picker lives in the topbar; here we only have the
           collection / disk / read-only filters. */}
-      <section className="card px-4 py-3">
+      <section className={`card px-4 py-3 ${chartsOpen ? "col-span-2" : ""}`}>
         <div className="flex items-center gap-2 flex-wrap">
           <select className="select w-auto py-1 text-xs" value={collection} onChange={e => setCollection(e.target.value)}>
             <option value="">{t("All collections")}</option>
@@ -407,13 +411,28 @@ export default function VolumesPage() {
         </aside>
       )}
 
-      <VolumeBulkBar
-        selected={selectedRows}
-        onClear={() => setSelectedKeys(new Set())}
-        onPick={(actionKey, rows) => setActionDialog({ action: actionKey, rows })}
-      />
+      {/* VolumeBulkBar renders null when nothing is selected. We only
+          wrap it when it has something to show AND charts are open so
+          we don't leave an empty grid row. */}
+      {selectedRows.length > 0 && (
+        chartsOpen ? (
+          <div className="col-span-2">
+            <VolumeBulkBar
+              selected={selectedRows}
+              onClear={() => setSelectedKeys(new Set())}
+              onPick={(actionKey, rows) => setActionDialog({ action: actionKey, rows })}
+            />
+          </div>
+        ) : (
+          <VolumeBulkBar
+            selected={selectedRows}
+            onClear={() => setSelectedKeys(new Set())}
+            onPick={(actionKey, rows) => setActionDialog({ action: actionKey, rows })}
+          />
+        )
+      )}
 
-      {/* Detail table */}
+      {/* Detail table — sits in col 1 next to the chart aside on the right. */}
       <section className="card overflow-hidden">
         {vd === undefined ? (
           <TableSkeleton rows={6} headers={["ID", "Cluster", "Collection", "Server", "Rack", "Disk", "Size", "Files", "R/O", "Modified"]}/>
