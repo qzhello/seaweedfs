@@ -17,20 +17,92 @@ import (
 // opsStep is the wire shape for one step inside an ops template. Mirrors
 // the /clusters/:id/shell body so the runner can hand each step straight
 // to clusterShellExec's underlying logic.
+//
+// Placeholders: Args may contain `{{name}}` references that resolve from
+// the template's declared Variables, the previous step's full stdout
+// (`{{step1.output}}`), or a named regex capture from a previous step
+// (`{{step1.capture.bucket}}`). See ops_template_render.go.
 type opsStep struct {
 	Command      string `json:"command"`
 	Args         string `json:"args,omitempty"`
 	Reason       string `json:"reason,omitempty"`
 	PauseOnError bool   `json:"pause_on_error,omitempty"`
+	// Capture pulls named regex matches off this step's stdout into the
+	// rendering scope so later steps can reference them.
+	Capture []opsCapture `json:"capture,omitempty"`
 	// Streaming hint mirrors shellCommand.Streams; populated server-side
 	// from the catalog so the UI can decide whether to render a per-step
 	// streaming tail or wait for the buffered output.
 	Streams bool `json:"streams,omitempty"`
 }
 
-// listOpsTemplates returns every saved template. Read for any authenticated
-// principal so non-admins can at least see what templates exist before
-// asking for permission to run one.
+// stepsBlob is the shape we marshal into the OpsTemplate.Steps jsonb
+// column. Older rows persisted as a bare JSON array — decodeStepsBlob
+// handles both forms so we don't need a backfill migration.
+type stepsBlob struct {
+	Steps     []opsStep        `json:"steps"`
+	Variables []opsTemplateVar `json:"variables,omitempty"`
+}
+
+// decodeStepsBlob accepts either the new envelope shape ({"steps":[...],
+// "variables":[...]}) or the legacy bare array form and returns both
+// slices. Empty / null input yields empty slices, not an error, so old
+// templates without variables keep loading.
+func decodeStepsBlob(raw json.RawMessage) ([]opsStep, []opsTemplateVar, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil, nil
+	}
+	trim := strings.TrimSpace(string(raw))
+	if strings.HasPrefix(trim, "[") {
+		var legacy []opsStep
+		if err := json.Unmarshal(raw, &legacy); err != nil {
+			return nil, nil, err
+		}
+		return legacy, nil, nil
+	}
+	var env stepsBlob
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return nil, nil, err
+	}
+	return env.Steps, env.Variables, nil
+}
+
+// opsTemplatePayload is the wire JSON we accept on PUT /ops/templates.
+type opsTemplatePayload struct {
+	ID          string           `json:"id,omitempty"`
+	Name        string           `json:"name"`
+	Description string           `json:"description,omitempty"`
+	Category    string           `json:"category,omitempty"`
+	Steps       []opsStep        `json:"steps"`
+	Variables   []opsTemplateVar `json:"variables,omitempty"`
+}
+
+// renderTemplate flattens a stored OpsTemplate into the shape the UI
+// consumes: top-level name + steps + variables instead of an opaque
+// jsonb blob. Read by list / get so older legacy-array rows render the
+// same as new envelope-shaped rows.
+func renderTemplate(t store.OpsTemplate) gin.H {
+	steps, vars, _ := decodeStepsBlob(t.Steps)
+	if steps == nil {
+		steps = []opsStep{}
+	}
+	if vars == nil {
+		vars = []opsTemplateVar{}
+	}
+	return gin.H{
+		"id":          t.ID,
+		"name":        t.Name,
+		"description": t.Description,
+		"category":    t.Category,
+		"steps":       steps,
+		"variables":   vars,
+		"created_by":  t.CreatedBy,
+		"updated_by":  t.UpdatedBy,
+		"created_at":  t.CreatedAt,
+		"updated_at":  t.UpdatedAt,
+	}
+}
+
 func listOpsTemplates(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ts, err := d.PG.ListOpsTemplates(c.Request.Context())
@@ -38,7 +110,11 @@ func listOpsTemplates(d Deps) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"items": ts})
+		out := make([]gin.H, 0, len(ts))
+		for _, t := range ts {
+			out = append(out, renderTemplate(t))
+		}
+		c.JSON(http.StatusOK, gin.H{"items": out})
 	}
 }
 
@@ -54,37 +130,30 @@ func getOpsTemplate(d Deps) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, t)
+		c.JSON(http.StatusOK, renderTemplate(*t))
 	}
 }
 
-// upsertOpsTemplate validates each step against the shell catalog before
-// saving. Catching an unknown command at save time means the operator
-// never gets the surprise of a half-completed run failing on step 3
-// because they typo'd a command name.
+// upsertOpsTemplate validates that every step has a real catalog
+// command AND that every {{placeholder}} in step args resolves to a
+// declared variable or a prior step's capture. Catching both at save
+// time means the operator never gets the surprise of a half-completed
+// run failing because of a typo'd reference.
 func upsertOpsTemplate(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var t store.OpsTemplate
-		if err := c.BindJSON(&t); err != nil {
+		var body opsTemplatePayload
+		if err := c.BindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		if strings.TrimSpace(t.Name) == "" {
+		if strings.TrimSpace(body.Name) == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "name required"})
 			return
 		}
-		// Decode steps so we can re-encode after validation (also strips
-		// any unknown fields the client snuck in).
-		var steps []opsStep
-		if len(t.Steps) > 0 {
-			if err := json.Unmarshal(t.Steps, &steps); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "steps: " + err.Error()})
-				return
-			}
-		}
+
 		allow := shellAllowedNames()
-		clean := make([]opsStep, 0, len(steps))
-		for i, s := range steps {
+		clean := make([]opsStep, 0, len(body.Steps))
+		for i, s := range body.Steps {
 			s.Command = strings.TrimSpace(s.Command)
 			if s.Command == "" {
 				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("step %d: command required", i+1)})
@@ -98,14 +167,33 @@ func upsertOpsTemplate(d Deps) gin.HandlerFunc {
 			s.Streams = cat.Streams
 			clean = append(clean, s)
 		}
-		buf, _ := json.Marshal(clean)
-		t.Steps = buf
+		if err := validateTemplatePlaceholders(body.Variables, clean); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		// Persist envelope: {steps, variables}. decodeStepsBlob keeps
+		// legacy bare-array rows readable so this is forward-only —
+		// no migration of existing rows needed.
+		blob, _ := json.Marshal(stepsBlob{Steps: clean, Variables: body.Variables})
+
+		t := store.OpsTemplate{
+			Name:        body.Name,
+			Description: body.Description,
+			Category:    body.Category,
+			Steps:       blob,
+		}
+		if body.ID != "" {
+			if parsed, err := uuid.Parse(body.ID); err == nil {
+				t.ID = parsed
+			}
+		}
 		id, err := d.PG.UpsertOpsTemplate(c.Request.Context(), t, userOf(c))
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		_ = d.PG.Audit(c.Request.Context(), userOf(c), "upsert", "ops_template", id.String(), t)
+		_ = d.PG.Audit(c.Request.Context(), userOf(c), "upsert", "ops_template", id.String(), body)
 		c.JSON(http.StatusOK, gin.H{"id": id})
 	}
 }
@@ -167,14 +255,34 @@ func runOpsTemplateBridge(d Deps) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
-		var steps []opsStep
-		if err := json.Unmarshal(tpl.Steps, &steps); err != nil {
+		steps, vars, err := decodeStepsBlob(tpl.Steps)
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "decode steps: " + err.Error()})
 			return
 		}
 
+		// Variable values come in as ?var.<key>=<value> on the SSE URL.
+		// The query string is the only practical input channel for SSE
+		// (request body is awkward over EventSource-style fetch readers)
+		// and it matches how continue_on_error is already wired.
+		scope := map[string]string{}
+		for _, v := range vars {
+			val := c.Query("var." + v.Key)
+			if val == "" {
+				val = v.Default
+			}
+			if v.Required && strings.TrimSpace(val) == "" {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": fmt.Sprintf("variable %q is required", v.Key),
+				})
+				return
+			}
+			scope[v.Key] = val
+		}
+
 		_ = d.PG.Audit(c.Request.Context(), userOf(c), "ops_template.run", "ops_template", tpl.ID.String(), map[string]any{
 			"cluster_id": clusterID, "template": tpl.Name, "steps": len(steps),
+			"variables": scope,
 		})
 
 		c.Writer.Header().Set("Content-Type", "text/event-stream")
@@ -216,11 +324,14 @@ func runOpsTemplateBridge(d Deps) gin.HandlerFunc {
 				s.Reason = fmt.Sprintf("ops_template %s step %d", tpl.Name, i+1)
 			}
 
+			// Render placeholders against the running scope (declared
+			// variables + prior step captures + prior step outputs).
+			renderedArgs := substituteArgs(s.Args, scope)
 			var args []string
-			if a := strings.TrimSpace(s.Args); a != "" {
+			if a := strings.TrimSpace(renderedArgs); a != "" {
 				args = strings.Fields(a)
 			}
-			flush("step_start", gin.H{"index": i, "command": s.Command, "args": s.Args, "streams": cat.Streams})
+			flush("step_start", gin.H{"index": i, "command": s.Command, "args": renderedArgs, "streams": cat.Streams})
 
 			var (
 				out  string
@@ -234,9 +345,23 @@ func runOpsTemplateBridge(d Deps) gin.HandlerFunc {
 					}
 				}
 			} else {
-				out, rErr = d.Sw.RunShellCommandAtWithBin(ctx, cl.MasterAddr, cl.WeedBinPath, s.Command, args, flushLine)
-				_ = out
+				// Tee streamed output into a buffer too so capture regexes
+				// can still run after the step finishes.
+				var captureBuf strings.Builder
+				teeSink := func(ln string) {
+					captureBuf.WriteString(ln)
+					captureBuf.WriteByte('\n')
+					flushLine(ln)
+				}
+				out, rErr = d.Sw.RunShellCommandAtWithBin(ctx, cl.MasterAddr, cl.WeedBinPath, s.Command, args, teeSink)
+				if out == "" {
+					out = captureBuf.String()
+				}
 			}
+			// Make this step's stdout addressable as {{step<N>.output}}
+			// and apply any declared captures into the running scope.
+			scope[fmt.Sprintf("step%d.output", i+1)] = out
+			applyCaptures(i+1, out, s.Capture, scope)
 			if rErr != nil {
 				flush("step_error", gin.H{"index": i, "error": rErr.Error()})
 				if !continueOnError && !s.PauseOnError {
@@ -307,10 +432,11 @@ func draftOpsTemplate(d Deps) gin.HandlerFunc {
 
 // opsTemplateDraft is the contract the AI must satisfy.
 type opsTemplateDraft struct {
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Category    string    `json:"category"`
-	Steps       []opsStep `json:"steps"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Category    string           `json:"category"`
+	Steps       []opsStep        `json:"steps"`
+	Variables   []opsTemplateVar `json:"variables,omitempty"`
 }
 
 func tryParseOpsDraft(text string) (*opsTemplateDraft, bool) {
@@ -327,6 +453,11 @@ func tryParseOpsDraft(text string) (*opsTemplateDraft, bool) {
 		if _, ok := allow[d.Steps[i].Command]; !ok {
 			return nil, false
 		}
+	}
+	// Reject drafts whose placeholders don't resolve so a bad model
+	// hallucination can't slip past as "valid JSON."
+	if err := validateTemplatePlaceholders(d.Variables, d.Steps); err != nil {
+		return nil, false
 	}
 	if d.Category == "" {
 		d.Category = "general"
@@ -352,12 +483,18 @@ Output schema:
   "name": "short kebab-or-snake operator-readable name",
   "description": "one paragraph explaining what this template does and when to run it",
   "category": "bucket|iam|volume|tier|cluster|general",
+  "variables": [
+    { "key": "bucket_name", "label": "Bucket name", "required": true, "default": "" }
+  ],
   "steps": [
     {
       "command": "exact dotted weed shell name from the catalog below",
-      "args": "single string of flags, e.g. \"-name=foo -quotaMB=10240\"",
+      "args": "single string of flags, e.g. \"-name={{bucket_name}} -quotaMB={{quota_mb}}\"",
       "reason": "short reason recorded in the audit log",
-      "pause_on_error": false
+      "pause_on_error": false,
+      "capture": [
+        { "as": "owner_id", "regex": "owner:\"([^\"]+)\"" }
+      ]
     }
   ]
 }
@@ -365,7 +502,10 @@ Output schema:
 Rules:
 - Only emit commands that appear in the catalog below. Never invent.
 - Use the dotted catalog name verbatim (e.g. "s3.bucket.create", not "create bucket").
-- args is a single string in the form weed shell expects: "-flag=value" pairs separated by spaces. Use double quotes inside the string only when needed.
+- args is a single string in the form weed shell expects: "-flag=value" pairs separated by spaces.
+- For values the operator should supply at run time (bucket name, target node, quota, etc.) declare a "variables" entry and reference it as "{{var_key}}" inside args. Use snake_case keys. Prefer placeholders over hard-coding values the operator would obviously want to vary.
+- To use the previous step's stdout in args, reference "{{stepN.output}}" or extract a piece via "capture" + "{{stepN.capture.alias}}".
+- Every "{{...}}" in args MUST resolve to a declared variable or a prior step's capture/output, otherwise the template is rejected.
 - Keep the steps minimal — the operator can add follow-ups later.
 - If the user mentions cluster names, hostnames, or things outside weed shell, ignore them; weed shell already knows the cluster context.
 - If you don't know how to express the user's intent with the catalog, return {"name":"","description":"","category":"","steps":[]}.
