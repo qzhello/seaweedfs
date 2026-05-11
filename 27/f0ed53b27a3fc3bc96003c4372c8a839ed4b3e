@@ -1,0 +1,13 @@
+seaweedfs-tiering-controller/web/app/ops/page.tsx
+  ai_agent 8,277-289,393-434
+seaweedfs-tiering-controller/internal/api/clusters.go
+  ai_agent 107,260-354
+seaweedfs-tiering-controller/internal/api/server.go
+  ai_agent 141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "27f0ed53b27a3fc3bc96003c4372c8a839ed4b3e",
+  "prompts": {}
+}
