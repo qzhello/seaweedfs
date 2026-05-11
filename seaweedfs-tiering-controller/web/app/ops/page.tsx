@@ -5,7 +5,7 @@ import {
   Terminal, Search, AlertTriangle, ShieldAlert, Eye, Loader2, Play, Activity,
   ChevronRight, RefreshCw,
 } from "lucide-react";
-import { useClusters, useShellCatalog, useClusterHealth, api, type ShellCommand } from "@/lib/api";
+import { useClusters, useShellCatalog, useClusterHealth, api, getToken, type ShellCommand } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
 // ----------------------- types & helpers -----------------------
@@ -274,8 +274,20 @@ function RunPanel({ cluster, cmd }: { cluster: string; cmd: ShellCommand }) {
     setRunning(true);
     setError("");
     setOutput("");
+    const args = buildArgString(cmd.args, values, rawExtra);
+    if (cmd.streams) {
+      // Long-running commands: stream stdout via SSE so the operator sees
+      // each progress line live instead of waiting for the buffered POST.
+      try {
+        await streamShell(cluster, cmd.name, args, reason, (ln) => setOutput((s) => s + ln + "\n"));
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setRunning(false);
+      }
+      return;
+    }
     try {
-      const args = buildArgString(cmd.args, values, rawExtra);
       const r = await api.runClusterShell(cluster, { command: cmd.name, args, reason });
       setOutput(r.output || "");
     } catch (e: unknown) {
@@ -376,6 +388,50 @@ function RunPanel({ cluster, cmd }: { cluster: string; cmd: ShellCommand }) {
       )}
     </div>
   );
+}
+
+// streamShell opens an SSE stream against /clusters/:id/shell/stream and
+// dispatches each "line" event to onLine. EventSource can't attach an
+// Authorization header, so we use fetch + manual SSE parsing instead.
+// Resolves on event "done", rejects on event "error" with the server's
+// message — matches the same backend contract as runClusterShell.
+async function streamShell(
+  clusterID: string,
+  command: string,
+  args: string,
+  reason: string,
+  onLine: (line: string) => void,
+): Promise<void> {
+  const qs = new URLSearchParams({ command });
+  if (args)   qs.set("args", args);
+  if (reason) qs.set("reason", reason);
+  const url = `/api/v1/clusters/${clusterID}/shell/stream?${qs.toString()}`;
+  const headers: Record<string, string> = {};
+  const tok = getToken();
+  if (tok) headers["Authorization"] = `Bearer ${tok}`;
+  const r = await fetch(url, { headers });
+  if (!r.ok || !r.body) throw new Error(`${r.status} ${await r.text()}`);
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let event = "line";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const raw of lines) {
+      if (raw.startsWith("event: ")) {
+        event = raw.slice(7).trim();
+      } else if (raw.startsWith("data: ")) {
+        const payload = raw.slice(6);
+        if (event === "line") onLine(payload);
+        else if (event === "error") throw new Error(payload);
+        else if (event === "done") return;
+      }
+    }
+  }
 }
 
 function initValues(cmd: ShellCommand): Record<string, string | boolean> {

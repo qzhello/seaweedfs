@@ -104,7 +104,7 @@ func clusterTopology(d Deps) gin.HandlerFunc {
 
 // clusterShellExec runs a single `weed shell` command against the named
 // cluster's master and returns its captured stdout. The command name is
-// validated against clusterShellAllow; args are passed verbatim.
+// validated against the shellCatalog; args are passed verbatim.
 //
 // Body: {"command": "volume.list", "args": "-collection=images", "dry_run": true}
 //
@@ -254,6 +254,104 @@ func clusterHealth(d Deps) gin.HandlerFunc {
 			resp["error"] = err.Error()
 		}
 		c.JSON(http.StatusOK, resp)
+	}
+}
+
+// clusterShellStream is the SSE variant of clusterShellExec for commands
+// flagged Streams=true in the catalog (volume.balance, ec.encode,
+// volume.fix.replication, …). Each stdout line from `weed shell` arrives
+// as an SSE `data:` event so the UI can render a live tail instead of
+// waiting up to 10 minutes for the buffered POST to return.
+//
+// GET /api/v1/clusters/:id/shell/stream?command=X&args=...&reason=Y
+//
+// Same auth + allowlist + reason rules as clusterShellExec. The reason
+// is required up-front because once the SSE stream opens we no longer
+// have a request body.
+func clusterShellStream(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad cluster id"})
+			return
+		}
+		name := strings.TrimSpace(c.Query("command"))
+		argsRaw := strings.TrimSpace(c.Query("args"))
+		reason := strings.TrimSpace(c.Query("reason"))
+		if name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "command required"})
+			return
+		}
+		cmd, ok := shellAllowedNames()[name]
+		if !ok {
+			c.JSON(http.StatusForbidden, gin.H{"error": "command not in catalog"})
+			return
+		}
+		if (cmd.Risk == "mutate" || cmd.Risk == "destructive") && reason == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "reason required"})
+			return
+		}
+		cl, err := d.PG.GetCluster(c.Request.Context(), id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		var args []string
+		if argsRaw != "" {
+			args = strings.Fields(argsRaw)
+		}
+
+		_ = d.PG.Audit(c.Request.Context(), userOf(c), "shell.stream", "cluster", id.String(), map[string]any{
+			"command": name, "args": args, "reason": reason,
+			"master": cl.MasterAddr, "bin_path": cl.WeedBinPath,
+		})
+
+		// SSE prelude
+		c.Writer.Header().Set("Content-Type", "text/event-stream")
+		c.Writer.Header().Set("Cache-Control", "no-cache, no-transform")
+		c.Writer.Header().Set("X-Accel-Buffering", "no")
+		c.Writer.Header().Set("Connection", "keep-alive")
+		c.Writer.WriteHeader(http.StatusOK)
+		c.Writer.Flush()
+
+		flush := func(event, payload string) {
+			// SSE: lines starting with "data:" form one event ending in blank line.
+			// We also support custom event types so the client can distinguish
+			// stdout lines ("line") from terminal status ("done" / "error").
+			_, _ = fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", event, payload)
+			c.Writer.Flush()
+		}
+
+		sink := func(ln string) { flush("line", ln) }
+
+		// Detach from the request context so the operator navigating away
+		// doesn't kill a 10-minute volume.balance. SSE write failures (client
+		// disconnect) become no-ops; the subprocess continues until its own
+		// completion or the shell-runner timeout.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+
+		var (
+			out    string
+			runErr error
+		)
+		if cmd.ReadOnly {
+			out, runErr = d.Sw.RunShellReadOnly(ctx, cl.MasterAddr, cl.WeedBinPath, name, args)
+			// RunShellReadOnly buffers — replay it as one big line for the UI.
+			for _, ln := range strings.Split(out, "\n") {
+				if ln != "" {
+					sink(ln)
+				}
+			}
+		} else {
+			out, runErr = d.Sw.RunShellCommandAtWithBin(ctx, cl.MasterAddr, cl.WeedBinPath, name, args, sink)
+			_ = out // already emitted via sink
+		}
+		if runErr != nil {
+			flush("error", runErr.Error())
+		} else {
+			flush("done", "ok")
+		}
 	}
 }
 

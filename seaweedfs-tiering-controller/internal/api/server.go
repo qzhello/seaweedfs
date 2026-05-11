@@ -138,6 +138,7 @@ func Router(d Deps) *gin.Engine {
 		admin.PUT("/clusters", upsertCluster(d))
 		admin.DELETE("/clusters/:id", deleteCluster(d))
 		admin.POST("/clusters/:id/shell", clusterShellExec(d))
+		admin.GET("/clusters/:id/shell/stream", clusterShellStream(d))
 		v1.GET("/clusters/:id/shell/help", clusterShellHelp(d))
 		v1.GET("/clusters/:id/health", clusterHealth(d))
 		v1.GET("/shell/catalog", shellCatalogList(d))
