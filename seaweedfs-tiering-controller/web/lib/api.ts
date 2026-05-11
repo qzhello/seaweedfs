@@ -184,6 +184,29 @@ export function useClusterHealth(id?: string) {
     fetcher,
   );
 }
+export interface OpsStep {
+  command: string;
+  args?: string;
+  reason?: string;
+  pause_on_error?: boolean;
+  streams?: boolean;
+}
+export interface OpsTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  steps: OpsStep[] | string;  // server returns json.RawMessage; some envelopes serialize as string
+  created_by?: string;
+  updated_by?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export function useOpsTemplates() {
+  return useSWR<{ items: OpsTemplate[] }>(`${BASE}/ops/templates`, fetcher);
+}
+
 export function useShellHelp(clusterID?: string, cmd?: string) {
   return useSWR<{ command: string; help: string }>(
     clusterID && cmd ? `${BASE}/clusters/${clusterID}/shell/help?cmd=${encodeURIComponent(cmd)}` : null,
@@ -248,4 +271,11 @@ export const api = {
   deleteAIProvider: (id: string) => jpost(`${BASE}/ai/providers/${id}`, undefined, "DELETE"),
   testAIProvider:   (id: string) => jpost(`${BASE}/ai/providers/${id}/test`),
   runTaskReview:    (taskId: string) => jpost(`${BASE}/tasks/${taskId}/review`),
+  upsertOpsTemplate: (b: Partial<OpsTemplate> & { name: string; steps: OpsStep[] }) =>
+                     jpost(`${BASE}/ops/templates`, b, "PUT"),
+  deleteOpsTemplate: (id: string) => jpost(`${BASE}/ops/templates/${id}`, undefined, "DELETE"),
+  draftOpsTemplate:  (text: string) =>
+                     jpost(`${BASE}/ops/templates/draft`, { text }) as Promise<{
+                       ok: boolean; mode: "json" | "ai"; draft?: OpsTemplate; error?: string; raw?: string;
+                     }>,
 };

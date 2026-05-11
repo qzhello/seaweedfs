@@ -75,6 +75,43 @@ const ZH: Dict = {
   "Show flag reference":          "查看参数说明",
   "Hide flag reference":          "收起参数说明",
   "No help text returned.":       "未返回帮助文本。",
+  // Ops templates
+  "Ops Templates":                "运维模板",
+  Templates:                      "模板",
+  "Save and reuse multi-step weed shell playbooks. AI can draft one from a description.":
+                                  "保存并复用多步骤的 weed shell 运维剧本。可用 AI 自动起草。",
+  "Single-command console":       "单命令控制台",
+  "Generate with AI":             "用 AI 生成",
+  "New template":                 "新建模板",
+  "Run against:":                 "执行目标:",
+  "No templates yet. Create one or ask the AI to draft a sample.":
+                                  "暂无模板。新建一个,或让 AI 生成一个示例。",
+  "Delete this template?":        "确认删除这个模板?",
+  "Edit template":                "编辑模板",
+  "What does this playbook do and when should an operator run it?":
+                                  "这个剧本做什么?在什么场景下使用?",
+  "Add step":                     "添加步骤",
+  "— pick a command —":           "— 选择命令 —",
+  "Continue on error":            "出错后继续",
+  "Reason (recorded in audit)":   "原因(记入审计)",
+  "No steps yet.":                "暂未添加步骤。",
+  "Name required.":               "请填写名称。",
+  "Add at least one step.":       "至少添加一个步骤。",
+  "Step {n}: pick a command.":    "第 {n} 步:请选择命令。",
+  "Draft a template with AI":     "AI 起草模板",
+  "Describe what you want the playbook to do, in your own words. The AI will pick commands from the catalog and propose a draft you can review and edit before saving.":
+                                  "用自然语言描述你想要的剧本流程。AI 会从命令目录中挑选合适的命令生成草稿,你可以审核并调整后再保存。",
+  "e.g. Create an S3 bucket called acme-logs for tenant Acme, give it a 50GB quota, enable versioning, then create a service account scoped to it.":
+                                  "例:为租户 Acme 创建一个名为 acme-logs 的 S3 桶,配额 50GB,开启版本控制,然后为它创建一个受限的服务账号。",
+  "AI returned no usable draft.": "AI 未返回可用的草稿。",
+  "Show raw AI response":         "查看 AI 原始响应",
+  Draft:                          "起草",
+  "Run again":                    "再次执行",
+  "Not started yet.":             "尚未开始。",
+  pending:                        "待运行",
+  running:                        "运行中",
+  done:                           "完成",
+  error:                          "错误",
   AI:           "AI",
   System:       "系统",
 
@@ -520,7 +557,7 @@ const ZH: Dict = {
   "Filter by this kind":   "按此类型筛选",
   events:                  "条事件",
   vols:                    "卷",
-  steps:                   "步",
+  steps:                   "步骤",
 };
 
 const DICTS: Record<Lang, Dict> = {

@@ -1,9 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Terminal, Search, AlertTriangle, ShieldAlert, Eye, Loader2, Play, Activity,
-  ChevronRight, RefreshCw, HelpCircle,
+  ChevronRight, RefreshCw, HelpCircle, Sparkles,
 } from "lucide-react";
 import { useClusters, useShellCatalog, useClusterHealth, useShellHelp, api, getToken, type ShellCommand } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -117,11 +118,16 @@ export default function OpsPage() {
           </h1>
           <p className="text-sm text-muted">{t("Run any weed shell command against a cluster with guided forms and audit.")}</p>
         </div>
-        <ClusterPicker
-          clusters={enabledClusters}
-          value={clusterID}
-          onChange={setClusterID}
-        />
+        <div className="flex items-center gap-2">
+          <Link href="/ops/templates" className="btn inline-flex items-center gap-2">
+            <Sparkles size={14}/> {t("Templates")}
+          </Link>
+          <ClusterPicker
+            clusters={enabledClusters}
+            value={clusterID}
+            onChange={setClusterID}
+          />
+        </div>
       </header>
 
       <div className="grid grid-cols-12 gap-4">

@@ -47,7 +47,8 @@ const GROUPS: NavGroup[] = [
   {
     label: "Operations",
     items: [
-      { href: "/ops",    label: "Ops Console", icon: Terminal },
+      { href: "/ops",           label: "Ops Console",   icon: Terminal },
+      { href: "/ops/templates", label: "Ops Templates", icon: Sparkles },
       { href: "/health", label: "Health", icon: Activity },
       { href: "/alerts", label: "Alerts", icon: Bell },
       { href: "/safety", label: "Safety", icon: ShieldAlert },
