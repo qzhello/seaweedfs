@@ -1,0 +1,32 @@
+{
+  "key": "volume.ec_decode",
+  "name": "卷 EC 解码(还原)",
+  "category": "ec",
+  "risk_level": "high",
+  "version": 1,
+  "definition": {
+    "summary": "Reverse erasure coding: rebuild a normal .dat replica volume from EC shards.",
+    "description": "High risk because it temporarily doubles disk usage (.dat + shards) and is rarely needed in production. Use cases: re-enable writes on an EC volume, debug a corrupt shard set, or migrate off EC after policy change.",
+    "params": [
+      { "name": "cluster_id", "type": "string", "required": true },
+      { "name": "volume_id",  "type": "int",    "required": true, "min": 1 },
+      { "name": "replication", "type": "string", "required": false, "default": "001", "doc": "Replication string after decode" }
+    ],
+    "preconditions": [
+      { "check": "volume_is_ec",               "fatal": true },
+      { "check": "all_shards_present",         "fatal": true, "doc": "All 10+4 shards reachable" },
+      { "check": "min_free_pct_dst",           "args": { "min_pct": 30 }, "doc": "Need significant headroom for double-write window" },
+      { "check": "not_in_blocklist",           "fatal": true }
+    ],
+    "steps": [
+      { "id": "lock",       "op": "acquire_volume_lock", "timeout_seconds": 30 },
+      { "id": "decode",     "op": "ec_rebuild_dat",      "timeout_seconds": 7200, "on_failure": "abort" },
+      { "id": "replicate",  "op": "volume_replicate",    "doc": "Place replicas per replication string", "timeout_seconds": 3600 },
+      { "id": "drop_shards", "op": "ec_remove_shards",   "doc": "Remove EC shards once .dat is replicated" },
+      { "id": "audit",      "op": "audit_log",           "args": { "action": "ec_decode" } }
+    ],
+    "postchecks": [
+      { "check": "volume_replica_count_min",  "args": { "min": 1 } }
+    ]
+  }
+}

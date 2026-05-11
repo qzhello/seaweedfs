@@ -1,0 +1,38 @@
+{
+  "key": "collection.move",
+  "name": "Collection 整体迁移",
+  "category": "topology",
+  "risk_level": "high",
+  "version": 1,
+  "definition": {
+    "summary": "Move every volume of a collection to a target rack/cluster, in batches with rate limiting.",
+    "description": "Operator-driven bulk migration. Splits work into per-volume sub-tasks throttled by executor.parallel_limit. Used when consolidating a tenant onto dedicated hardware or evacuating a rack.",
+    "params": [
+      { "name": "cluster_id",   "type": "string", "required": true },
+      { "name": "collection",   "type": "string", "required": true },
+      { "name": "target_rack",  "type": "string", "required": true },
+      { "name": "max_parallel", "type": "int",    "required": false, "default": 2, "min": 1, "max": 8 },
+      { "name": "dry_run",      "type": "bool",   "required": false, "default": true, "doc": "Plan only; emit a preview report" }
+    ],
+    "preconditions": [
+      { "check": "cluster_healthy",        "fatal": true },
+      { "check": "target_rack_capacity",   "fatal": true, "doc": "Target rack can hold the collection's bytes" },
+      { "check": "in_change_window_or_emergency", "fatal": true }
+    ],
+    "steps": [
+      { "id": "plan",    "op": "collection_plan_moves", "timeout_seconds": 300 },
+      { "id": "preview", "op": "emit_dry_run_report",   "doc": "Skip remaining steps if dry_run=true", "on_failure": "abort" },
+      { "id": "move",    "op": "collection_execute_moves",
+        "timeout_seconds": 86400,
+        "retry": { "max_attempts": 2, "backoff_seconds": 60 },
+        "on_failure": "rollback" },
+      { "id": "audit",   "op": "audit_log", "args": { "action": "collection_move" } }
+    ],
+    "postchecks": [
+      { "check": "all_volumes_on_target_rack" }
+    ],
+    "rollback": [
+      { "op": "collection_revert_partial_moves", "doc": "Best-effort: move already-migrated volumes back" }
+    ]
+  }
+}

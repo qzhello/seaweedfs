@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tier
+      POSTGRES_PASSWORD: tier
+      POSTGRES_DB: tiering
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    ports: ["8123:8123", "9001:9000"]   # host 9001 -> container 9000 (host 9000 occupied locally)
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    volumes:
+      - chdata:/var/lib/clickhouse
+      - ./config/clickhouse/external-default.xml:/etc/clickhouse-server/users.d/external-default.xml:ro
+
+  controller:
+    build: { context: ., dockerfile: Dockerfile }
+    depends_on: [postgres, clickhouse]
+    environment:
+      TIER_CONFIG: /app/config/config.docker.yaml
+    ports: ["8080:8080"]
+    volumes:
+      - ./config:/app/config:ro
+
+  web:
+    build: { context: ./web, dockerfile: Dockerfile }
+    depends_on: [controller]
+    environment:
+      NEXT_PUBLIC_API_BASE: http://controller:8080
+    ports: ["3000:3000"]
+
+volumes:
+  pgdata:
+  chdata:

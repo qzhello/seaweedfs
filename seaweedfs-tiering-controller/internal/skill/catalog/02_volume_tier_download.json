@@ -1,0 +1,33 @@
+{
+  "key": "volume.tier_download",
+  "name": "卷回源(分层下载)",
+  "category": "tiering",
+  "risk_level": "medium",
+  "version": 1,
+  "definition": {
+    "summary": "Restore a tiered volume's .dat from remote storage back to the local volume server.",
+    "description": "Reverse of tier_upload. Used for crash recovery, planned tier-back, or when access pattern flips hot. After completion the volume serves reads locally and the remote object can be optionally deleted.",
+    "params": [
+      { "name": "cluster_id",      "type": "string", "required": true },
+      { "name": "volume_id",       "type": "int",    "required": true, "min": 1 },
+      { "name": "delete_remote",   "type": "bool",   "required": false, "default": false, "doc": "Delete remote object after successful download" }
+    ],
+    "preconditions": [
+      { "check": "volume_is_tiered",       "fatal": true, "doc": "Volume must currently have RemoteStorageName set" },
+      { "check": "min_free_pct_dst",       "args": { "min_pct": 10 }, "doc": "Local disk has room for full .dat" },
+      { "check": "not_in_blocklist",       "fatal": true }
+    ],
+    "steps": [
+      { "id": "lock",     "op": "acquire_volume_lock",     "timeout_seconds": 30 },
+      { "id": "download", "op": "tier_move_dat_from_remote",
+        "timeout_seconds": 14400,
+        "retry": { "max_attempts": 2, "backoff_seconds": 30 },
+        "on_failure": "abort" },
+      { "id": "verify",   "op": "verify_local_dat",        "doc": ".dat size matches index expectations" },
+      { "id": "audit",    "op": "audit_log",               "args": { "action": "tier_download" } }
+    ],
+    "postchecks": [
+      { "check": "volume_serves_reads_locally" }
+    ]
+  }
+}

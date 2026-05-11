@@ -1,0 +1,29 @@
+{
+  "key": "volume.shrink",
+  "name": "卷预分配收缩",
+  "category": "maintenance",
+  "risk_level": "low",
+  "version": 1,
+  "definition": {
+    "summary": "Shrink a volume's preallocated .dat file down to its actual used size.",
+    "description": "Wraps the new VolumeShrinkPreallocated RPC (commit 84563ea7f). Useful after retention cleanup or when a volume was over-allocated. Volume must be read-only and not currently being written.",
+    "params": [
+      { "name": "cluster_id", "type": "string", "required": true },
+      { "name": "volume_id",  "type": "int",    "required": true, "min": 1 },
+      { "name": "min_savings_bytes", "type": "int", "required": false, "default": 1073741824, "doc": "Skip shrink unless we'd reclaim at least this much (default 1GiB)" }
+    ],
+    "preconditions": [
+      { "check": "volume_is_readonly",     "fatal": true },
+      { "check": "volume_is_preallocated", "fatal": true, "doc": "Only meaningful for sparsely-filled preallocated volumes" },
+      { "check": "expected_savings_min",   "args": { "min_bytes": 1073741824 } }
+    ],
+    "steps": [
+      { "id": "lock",   "op": "acquire_volume_lock", "timeout_seconds": 30 },
+      { "id": "shrink", "op": "volume_shrink_preallocated", "timeout_seconds": 1800, "on_failure": "abort" },
+      { "id": "audit",  "op": "audit_log", "args": { "action": "shrink" } }
+    ],
+    "postchecks": [
+      { "check": "volume_size_reduced", "args": { "min_delta_bytes": 1073741824 } }
+    ]
+  }
+}

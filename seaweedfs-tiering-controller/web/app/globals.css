@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+html, body { background: oklch(14% 0.01 255); color: oklch(96% 0 0); }
+body { font-feature-settings: "ss01", "cv11"; }
+
+.card {
+  @apply rounded-xl border border-border bg-panel shadow-soft;
+}
+.kbd {
+  @apply rounded border border-border bg-panel2 px-1.5 py-0.5 text-xs text-muted;
+}
+.badge {
+  @apply inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs;
+}
+.btn {
+  @apply inline-flex items-center gap-2 rounded-md border border-border bg-panel2 px-3 py-1.5 text-sm
+         hover:bg-panel hover:border-border/80 disabled:opacity-50 disabled:cursor-not-allowed
+         transition-colors shadow-sm;
+}
+.btn:focus-visible {
+  @apply outline-none ring-2 ring-accent/50;
+}
+.btn-primary { @apply bg-accent/15 border-accent/40 text-accent hover:bg-accent/25 hover:border-accent/60; }
+.btn-danger  { @apply bg-danger/15  border-danger/40  text-danger  hover:bg-danger/25  hover:border-danger/60; }
+.btn-ghost   { @apply bg-transparent border-transparent hover:bg-panel2 hover:border-border; }
+
+/* Form controls — declared inside @layer components so per-element utility
+   classes (e.g. w-72, w-auto) can still override .input's defaults. */
+@layer components {
+.input, .select, .textarea {
+  @apply w-full rounded-md border border-border bg-bg/60 px-3 py-1.5 text-sm
+         text-text placeholder:text-muted/60
+         hover:border-border/80
+         disabled:opacity-50 disabled:cursor-not-allowed
+         transition-colors;
+  font-variant-numeric: tabular-nums;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+}
+.input:focus, .select:focus, .textarea:focus {
+  @apply outline-none border-accent/60 ring-2 ring-accent/40;
+}
+.input[aria-invalid="true"], .select[aria-invalid="true"], .textarea[aria-invalid="true"] {
+  @apply border-danger/60 ring-2 ring-danger/30;
+}
+.textarea { @apply min-h-[6rem] font-mono leading-relaxed; }
+
+/* Native chevron for selects — neutral so it works on dark surfaces */
+.select {
+  background-image:
+    linear-gradient(45deg,  transparent 50%, oklch(70% 0 0) 50%),
+    linear-gradient(135deg, oklch(70% 0 0) 50%, transparent 50%);
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 1.75rem;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+/* Form layout helpers */
+.field-label  { @apply block text-xs font-medium text-muted mb-1; }
+.field-helper { @apply mt-1 text-[11px] text-muted; }
+.field-error  { @apply mt-1 text-[11px] text-danger; }
+} /* end @layer components */
+
+/* Global fallback: any input/select/textarea that hasn't opted into .input or
+   .btn still gets a visible focus ring — keyboard users should never be lost. */
+@layer base {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not(.btn):focus-visible,
+  select:not(.btn):focus-visible,
+  textarea:not(.btn):focus-visible {
+    @apply outline-none ring-2 ring-accent/40;
+  }
+}
+
+/* Tailwind ships a `.grid { display: grid }` utility — override here so that
+   <table class="grid"> stays a real table. Specificity (table.grid) wins. */
+table.grid { display: table !important; @apply w-full text-sm border-collapse; }
+table.grid thead { display: table-header-group; }
+table.grid tbody { display: table-row-group; }
+table.grid tr    { display: table-row; }
+table.grid th, table.grid td { display: table-cell; }
+table.grid th {
+  @apply text-left text-muted font-medium px-3 py-2 border-b border-border;
+  position: sticky; top: 0; z-index: 1;
+  background: oklch(18% 0.015 255);
+  backdrop-filter: saturate(140%) blur(6px);
+}
+table.grid td { @apply px-3 py-2 border-b border-border/60; }
+table.grid tr:hover td { background: oklch(20% 0.02 255); }
+
+/* Numeric column convention — right aligned + tabular figures + monospace
+   so values line up cleanly. Apply with className="num" on <th> and <td>. */
+table.grid th.num, table.grid td.num { text-align: right; }
+table.grid td.num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; @apply font-mono text-xs; }

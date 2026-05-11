@@ -1,0 +1,25 @@
+{
+  "key": "cluster.failover_check",
+  "name": "集群容灾就绪检查",
+  "category": "integrity",
+  "risk_level": "low",
+  "version": 1,
+  "definition": {
+    "summary": "Read-only audit verifying the cluster can survive a rack/node loss without breaching replication targets.",
+    "description": "Walks every volume's replica placement and computes worst-case loss scenarios. Flags volumes where rack diversity is insufficient or where a single node failure would trigger under-replication. Output feeds the Health page red-light panel.",
+    "params": [
+      { "name": "cluster_id",   "type": "string", "required": true },
+      { "name": "loss_scenario", "type": "enum",  "required": false, "default": "single_rack", "enum": ["single_node","single_rack","two_racks"] }
+    ],
+    "preconditions": [
+      { "check": "cluster_reachable", "fatal": true }
+    ],
+    "steps": [
+      { "id": "scan",   "op": "compute_failover_matrix", "timeout_seconds": 600 },
+      { "id": "report", "op": "emit_failover_report",    "doc": "Persist findings to executions table for the UI to render" },
+      { "id": "alert",  "op": "alert_if_at_risk",        "args": { "min_severity": "warning" }, "on_failure": "continue" },
+      { "id": "audit",  "op": "audit_log",               "args": { "action": "failover_check" } }
+    ],
+    "postchecks": []
+  }
+}

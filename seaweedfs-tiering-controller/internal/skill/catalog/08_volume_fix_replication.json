@@ -1,0 +1,33 @@
+{
+  "key": "volume.fix_replication",
+  "name": "副本修复",
+  "category": "recovery",
+  "risk_level": "low",
+  "version": 2,
+  "definition": {
+    "summary": "Restore missing replicas of a volume so live count matches the replication string.",
+    "description": "Detects under-replicated volumes (e.g. after a node failure) and copies replicas to healthy nodes obeying rack-aware placement. Critical for durability — preferred over manual replica copy.",
+    "params": [
+      { "name": "cluster_id",   "type": "string", "required": true },
+      { "name": "volume_id",    "type": "int",    "required": false, "doc": "Specific volume; omit to scan whole cluster" },
+      { "name": "max_parallel", "type": "int",    "required": false, "default": 2, "min": 1, "max": 8 }
+    ],
+    "preconditions": [
+      { "check": "cluster_healthy",        "fatal": true },
+      { "check": "candidate_nodes_exist",  "fatal": true, "doc": "At least one healthy node has free capacity" },
+      { "check": "cluster_admin_lock_acquirable", "fatal": true, "doc": "Probe `weed shell` admin lock with 15s timeout — fails fast if a stale session is holding it instead of letting the long-running step block" }
+    ],
+    "steps": [
+      { "id": "lock",    "op": "acquire_cluster_repair_lock", "timeout_seconds": 30 },
+      { "id": "scan",    "op": "find_under_replicated",       "timeout_seconds": 600 },
+      { "id": "repair",  "op": "shell_volume_fix_replication",
+        "timeout_seconds": 14400,
+        "retry": { "max_attempts": 2, "backoff_seconds": 60 },
+        "on_failure": "abort" },
+      { "id": "audit",   "op": "audit_log",                   "args": { "action": "fix_replication" } }
+    ],
+    "postchecks": [
+      { "check": "no_under_replicated_volumes" }
+    ]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "key": "volume.tier_upload",
+  "name": "卷上云(分层上传)",
+  "category": "tiering",
+  "risk_level": "medium",
+  "version": 1,
+  "definition": {
+    "summary": "Upload a read-only volume's .dat to a remote tier (S3/OSS/OBS/COS/MinIO) and keep .idx local.",
+    "description": "Hot→Warm/Cold migration via SeaweedFS VolumeTierMoveDatToRemote. Source volume must be read-only. After upload the volume serves reads from remote storage transparently while keeping local index for low-latency lookups.",
+    "params": [
+      { "name": "cluster_id",  "type": "string", "required": true,  "doc": "Target cluster UUID" },
+      { "name": "volume_id",   "type": "int",    "required": true,  "min": 1, "doc": "Volume ID to upload" },
+      { "name": "collection",  "type": "string", "required": false, "doc": "Collection name (for routing)" },
+      { "name": "backend_id",  "type": "string", "required": true,  "doc": "Configured remote backend UUID" },
+      { "name": "keep_local",  "type": "bool",   "required": false, "default": true, "doc": "Retain local .dat after upload (recommended for rollback window)" }
+    ],
+    "preconditions": [
+      { "check": "volume_is_readonly",         "doc": "Volume must be read-only", "fatal": true },
+      { "check": "volume_size_min",            "args": { "min_bytes": 1048576 }, "doc": "Skip tiny volumes <1MB", "fatal": true },
+      { "check": "backend_reachable",          "doc": "Test backend bucket HEAD before starting", "fatal": true },
+      { "check": "min_free_pct_dst",           "args": { "min_pct": 5 }, "doc": "Destination has free quota" },
+      { "check": "not_in_blocklist",           "fatal": true },
+      { "check": "in_change_window_or_emergency", "fatal": true }
+    ],
+    "steps": [
+      { "id": "lock",     "op": "acquire_volume_lock",  "doc": "pg_advisory_lock on (action,volume_id)", "timeout_seconds": 30 },
+      { "id": "upload",   "op": "tier_move_dat_to_remote", "doc": "Stream .dat to remote bucket via volume server",
+        "timeout_seconds": 14400,
+        "retry": { "max_attempts": 2, "backoff_seconds": 30 },
+        "on_failure": "rollback" },
+      { "id": "verify",   "op": "verify_remote_tier",   "doc": "Volume RemoteStorageName/Key/Size>0" },
+      { "id": "audit",    "op": "audit_log",            "args": { "action": "tier_upload" } }
+    ],
+    "postchecks": [
+      { "check": "volume_serves_reads",   "doc": "Read a small object via the volume to confirm transparent fetch" },
+      { "check": "remote_object_exists",  "doc": "HEAD on remote object returns 200" }
+    ],
+    "rollback": [
+      { "op": "tier_move_dat_from_remote", "doc": "Pull .dat back from remote and detach tier" }
+    ]
+  }
+}

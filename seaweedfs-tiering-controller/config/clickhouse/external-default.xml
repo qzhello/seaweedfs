@@ -1,0 +1,17 @@
+<!--
+  Dev-only: allow the host-side controller to authenticate as `default` from
+  any IP. The CH 24.x docker image ships a hardened users.d/default-user.xml
+  that only accepts loopback, which breaks docker-compose -> host connections.
+
+  Production should create a dedicated user with a password and a CIDR
+  allowlist, NOT use this file.
+-->
+<clickhouse>
+  <users>
+    <default>
+      <networks replace="replace">
+        <ip>::/0</ip>
+      </networks>
+    </default>
+  </users>
+</clickhouse>

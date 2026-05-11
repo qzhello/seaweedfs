@@ -1,0 +1,29 @@
+{
+  "key": "volume.vacuum",
+  "name": "卷空间回收(vacuum)",
+  "category": "maintenance",
+  "risk_level": "low",
+  "version": 1,
+  "definition": {
+    "summary": "Reclaim disk space from deleted/overwritten needles in volumes whose garbage ratio exceeds threshold.",
+    "description": "Compacts .dat files in-place. Background-only, never blocks writes. Default threshold 30% garbage matches SeaweedFS recommendation.",
+    "params": [
+      { "name": "cluster_id",     "type": "string", "required": true },
+      { "name": "garbage_threshold", "type": "string", "required": false, "default": "0.30", "doc": "Vacuum when deleted ratio exceeds this (0..1)" },
+      { "name": "volume_id",      "type": "int",    "required": false, "doc": "Specific volume; omit for cluster-wide pass" }
+    ],
+    "preconditions": [
+      { "check": "cluster_healthy" },
+      { "check": "cluster_admin_lock_acquirable", "fatal": true }
+    ],
+    "steps": [
+      { "id": "vacuum", "op": "shell_volume_vacuum",
+        "timeout_seconds": 14400,
+        "on_failure": "continue" },
+      { "id": "audit",  "op": "audit_log", "args": { "action": "vacuum" } }
+    ],
+    "postchecks": [
+      { "check": "garbage_ratio_below", "args": { "max_ratio": 0.30 } }
+    ]
+  }
+}

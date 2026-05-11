@@ -1,0 +1,26 @@
+{
+  "key": "volume.fsck",
+  "name": "卷一致性检查(fsck)",
+  "category": "integrity",
+  "risk_level": "low",
+  "version": 1,
+  "definition": {
+    "summary": "Cross-check volume index vs needle store for orphaned needles, missing entries, and replica divergence.",
+    "description": "Read-only audit. Reports inconsistencies but does not auto-fix; failures escalate to alerts.",
+    "params": [
+      { "name": "cluster_id", "type": "string", "required": true },
+      { "name": "collection", "type": "string", "required": false, "doc": "Limit scan to one collection" }
+    ],
+    "preconditions": [
+      { "check": "cluster_healthy" },
+      { "check": "cluster_admin_lock_acquirable", "fatal": true }
+    ],
+    "steps": [
+      { "id": "scan",  "op": "shell_volume_fsck", "timeout_seconds": 14400, "on_failure": "continue" },
+      { "id": "audit", "op": "audit_log", "args": { "action": "fsck" } }
+    ],
+    "postchecks": [
+      { "check": "fsck_report_clean", "doc": "Zero inconsistencies; alert otherwise" }
+    ]
+  }
+}

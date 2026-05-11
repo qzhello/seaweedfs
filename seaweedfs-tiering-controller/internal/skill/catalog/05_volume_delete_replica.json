@@ -1,0 +1,31 @@
+{
+  "key": "volume.delete_replica",
+  "name": "删除多余副本",
+  "category": "topology",
+  "risk_level": "high",
+  "version": 1,
+  "definition": {
+    "summary": "Remove one replica of a volume from a specific volume server, keeping at least min_replicas alive.",
+    "description": "Used when a node is being drained, replication is reduced (e.g. 3→2), or a stale replica is detected. Refuses to drop below min_replicas under any circumstance.",
+    "params": [
+      { "name": "cluster_id",     "type": "string", "required": true },
+      { "name": "volume_id",      "type": "int",    "required": true, "min": 1 },
+      { "name": "from_server",    "type": "string", "required": true, "doc": "host:port of the replica to remove" },
+      { "name": "min_replicas",   "type": "int",    "required": false, "default": 2, "min": 1 }
+    ],
+    "preconditions": [
+      { "check": "replica_count_min",    "args": { "min_after_delete": 2 }, "fatal": true, "doc": "Refuse to violate min_replicas" },
+      { "check": "replica_is_stale_or_excess", "doc": "Either above replication target or marked stale" },
+      { "check": "not_in_blocklist",     "fatal": true },
+      { "check": "in_change_window_or_emergency", "fatal": true }
+    ],
+    "steps": [
+      { "id": "lock",   "op": "acquire_volume_lock", "timeout_seconds": 30 },
+      { "id": "delete", "op": "volume_delete",       "args": { "scope": "single_replica" }, "timeout_seconds": 600, "on_failure": "abort" },
+      { "id": "audit",  "op": "audit_log",           "args": { "action": "delete_replica" } }
+    ],
+    "postchecks": [
+      { "check": "replica_count_min", "args": { "min": 2 } }
+    ]
+  }
+}

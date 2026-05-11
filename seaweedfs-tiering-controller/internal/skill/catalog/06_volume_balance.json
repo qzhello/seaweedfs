@@ -1,0 +1,31 @@
+{
+  "key": "volume.balance",
+  "name": "卷再均衡",
+  "category": "topology",
+  "risk_level": "medium",
+  "version": 1,
+  "definition": {
+    "summary": "Rebalance volumes across racks/nodes so per-node fullness deviates by less than threshold_pct.",
+    "description": "Wraps SeaweedFS `volume.balance` shell command. Targets a specific scope (rack/node CSV) and stops once standard deviation falls below threshold. Safe to run during change windows.",
+    "params": [
+      { "name": "cluster_id",     "type": "string", "required": true },
+      { "name": "racks",          "type": "string", "required": false, "doc": "Comma-separated racks to consider; empty = all" },
+      { "name": "nodes",          "type": "string", "required": false, "doc": "Comma-separated host:port; empty = all" },
+      { "name": "threshold_pct",  "type": "int",    "required": false, "default": 5, "min": 1, "max": 30 },
+      { "name": "force",          "type": "bool",   "required": false, "default": false, "doc": "Skip read-only-only check" }
+    ],
+    "preconditions": [
+      { "check": "cluster_healthy",           "fatal": true },
+      { "check": "in_change_window_or_emergency", "fatal": true },
+      { "check": "cluster_admin_lock_acquirable", "fatal": true }
+    ],
+    "steps": [
+      { "id": "lock",    "op": "acquire_cluster_balance_lock", "timeout_seconds": 60 },
+      { "id": "balance", "op": "shell_volume_balance",         "timeout_seconds": 14400, "on_failure": "abort" },
+      { "id": "audit",   "op": "audit_log",                    "args": { "action": "balance" } }
+    ],
+    "postchecks": [
+      { "check": "fullness_stddev_below", "args": { "max_pct": 5 } }
+    ]
+  }
+}

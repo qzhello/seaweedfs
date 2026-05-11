@@ -1,0 +1,10 @@
+server: { http_addr: ":8081", log_level: debug }
+postgres:  { dsn: "postgres://tier:tier@localhost:5432/tiering?sslmode=disable", max_conns: 10 }
+clickhouse: { addr: ["localhost:9001"], database: tiering, username: default, password: "" }
+seaweed:   { master: "localhost:9333", filer: "localhost:8888", grpc_dial_timeout: 5s }
+scheduler: { enabled: false, scoring_cron: "0 * * * *", execution_cron: "*/15 * * * *", cooldown_days: 14, dry_run_global: true }
+scoring:
+  weights: { last_access_decay: 0.40, access_count_30d: 0.25, object_size: 0.10, is_readonly: 0.15, quiet_for_days: 0.10 }
+  thresholds: { to_ec: 0.55, to_cloud: 0.75, to_archive: 0.90 }
+ai: { provider: rule, request_timeout: 30s, max_concurrency: 2 }
+executor: { parallel_limit: 2, retain_local_dat: true }

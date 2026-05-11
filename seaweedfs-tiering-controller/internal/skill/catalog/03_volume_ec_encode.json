@@ -1,0 +1,39 @@
+{
+  "key": "volume.ec_encode",
+  "name": "卷 EC 编码",
+  "category": "ec",
+  "risk_level": "medium",
+  "version": 1,
+  "definition": {
+    "summary": "Convert a read-only volume to 10+4 erasure-coded shards distributed across racks.",
+    "description": "Saves ~40% disk vs 3-replica without losing durability. Source must be read-only. After encoding, the original .dat replicas are removed and shards are placed by rack-aware placement.",
+    "params": [
+      { "name": "cluster_id",  "type": "string", "required": true },
+      { "name": "volume_id",   "type": "int",    "required": true, "min": 1 },
+      { "name": "data_shards", "type": "int",    "required": false, "default": 10, "min": 1, "max": 16 },
+      { "name": "parity_shards","type": "int",   "required": false, "default": 4,  "min": 1, "max": 6 }
+    ],
+    "preconditions": [
+      { "check": "volume_is_readonly",          "fatal": true },
+      { "check": "racks_at_least",              "args": { "min": 4 }, "doc": "Need >= data+parity racks for safe placement", "fatal": true },
+      { "check": "volume_size_min",             "args": { "min_bytes": 104857600 }, "doc": "Skip volumes <100MB; encoding overhead dominates" },
+      { "check": "not_in_blocklist",            "fatal": true },
+      { "check": "in_change_window_or_emergency", "fatal": true }
+    ],
+    "steps": [
+      { "id": "lock",        "op": "acquire_volume_lock", "timeout_seconds": 30 },
+      { "id": "generate",    "op": "ec_generate_shards",  "timeout_seconds": 7200, "on_failure": "rollback" },
+      { "id": "distribute",  "op": "ec_distribute_shards", "doc": "Spread shards across racks with placement constraints",
+        "timeout_seconds": 1800, "on_failure": "rollback" },
+      { "id": "remove_dat",  "op": "ec_remove_dat",       "doc": "Drop original .dat replicas after shards verified" },
+      { "id": "audit",       "op": "audit_log",           "args": { "action": "ec_encode" } }
+    ],
+    "postchecks": [
+      { "check": "ec_shard_count",   "args": { "expected": 14 } },
+      { "check": "rack_diversity",   "args": { "min_racks": 4 } }
+    ],
+    "rollback": [
+      { "op": "ec_remove_shards", "doc": "Delete partial shards if encoding aborted" }
+    ]
+  }
+}
