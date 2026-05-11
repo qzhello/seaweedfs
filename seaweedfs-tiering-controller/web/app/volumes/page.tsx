@@ -10,6 +10,9 @@ import { EmptyState } from "@/components/empty-state";
 import { TableSkeleton } from "@/components/table-skeleton";
 import { Pagination, usePagination } from "@/components/pagination";
 import { RefreshButton } from "@/components/refresh-button";
+import {
+  VolumeRowActions, VolumeBulkBar, VolumeActionDialog, type VolumeRowLike,
+} from "@/components/volume-actions";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
@@ -61,6 +64,36 @@ export default function VolumesPage() {
   }), [all, collection, diskType, readFilter, text]);
 
   const pg = usePagination(filtered, 50);
+
+  // ---- selection + action dialog state -----------------------------------
+  // Selection keys = "<cluster_id>:<id>:<server>" so the same volume on
+  // different replicas is selectable independently (volume.delete is
+  // node-scoped). Set is rebuilt as a fresh object so React notices.
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const keyOf = (v: Volume) => `${v.cluster_id || ""}:${v.ID}:${v.Server}`;
+  const toggleRow = (v: Volume) => {
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      const k = keyOf(v);
+      if (next.has(k)) next.delete(k); else next.add(k);
+      return next;
+    });
+  };
+  const togglePage = () => {
+    const allOn = pg.slice.every((v) => selectedKeys.has(keyOf(v)));
+    setSelectedKeys((prev) => {
+      const next = new Set(prev);
+      for (const v of pg.slice) {
+        if (allOn) next.delete(keyOf(v));
+        else next.add(keyOf(v));
+      }
+      return next;
+    });
+  };
+  const selectedRows: VolumeRowLike[] = filtered.filter((v) => selectedKeys.has(keyOf(v)));
+
+  const [actionDialog, setActionDialog] = useState<{ action: string; rows: VolumeRowLike[] } | null>(null);
+
   const dist = useMemo(() => buildDist(filtered, distMode), [filtered, distMode]);
   const heat = useMemo(() => buildHeatmap(hm?.items || []), [hm]);
 
@@ -240,6 +273,12 @@ export default function VolumesPage() {
         </div>
       </section>
 
+      <VolumeBulkBar
+        selected={selectedRows}
+        onClear={() => setSelectedKeys(new Set())}
+        onPick={(actionKey, rows) => setActionDialog({ action: actionKey, rows })}
+      />
+
       {/* Detail table */}
       <section className="card overflow-hidden">
         {vd === undefined ? (
@@ -258,13 +297,26 @@ export default function VolumesPage() {
           <div className="overflow-x-auto">
             <table className="grid">
               <thead><tr>
+                <th style={{ width: 28 }}>
+                  <input
+                    type="checkbox"
+                    checked={pg.slice.length > 0 && pg.slice.every((v) => selectedKeys.has(keyOf(v)))}
+                    onChange={togglePage}
+                    aria-label="select page"
+                  />
+                </th>
                 <th>ID</th><th>{t("Clusters")}</th><th>{t("Collection")}</th><th>{t("Server")}</th>
                 <th>{t("Rack")}</th><th>{t("Disk")}</th><th className="num">{t("Size")}</th>
                 <th className="num">{t("Files")}</th><th>{t("R/O")}</th><th>{t("Modified")}</th>
+                <th style={{ width: 36 }}></th>
               </tr></thead>
               <tbody>
-                {pg.slice.map(v => (
-                  <tr key={`${v.cluster_id || ""}-${v.ID}-${v.Server}`}>
+                {pg.slice.map(v => {
+                  const k = keyOf(v);
+                  const checked = selectedKeys.has(k);
+                  return (
+                  <tr key={k} className={checked ? "bg-accent/5" : undefined}>
+                    <td><input type="checkbox" checked={checked} onChange={() => toggleRow(v)} aria-label={`select volume ${v.ID}`}/></td>
                     <td className="font-mono">
                       <a href={`/volumes/${v.ID}`} className="text-accent hover:underline">{v.ID}</a>
                     </td>
@@ -277,12 +329,27 @@ export default function VolumesPage() {
                     <td className="num">{v.FileCount.toLocaleString()}</td>
                     <td>{v.ReadOnly ? <span className="text-warning text-xs">●</span> : <span className="text-muted/40 text-xs">○</span>}</td>
                     <td className="text-muted text-xs">{v.ModifiedAtSec ? new Date(v.ModifiedAtSec * 1000).toLocaleString() : "—"}</td>
+                    <td><VolumeRowActions v={v as VolumeRowLike} onPick={(a, rows) => setActionDialog({ action: a, rows })}/></td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             <Pagination {...pg}/>
           </div>
+        )}
+        {actionDialog && (
+          <VolumeActionDialog
+            actionKey={actionDialog.action}
+            rows={actionDialog.rows}
+            onClose={(didRun) => {
+              setActionDialog(null);
+              if (didRun) {
+                setSelectedKeys(new Set());
+                mutateVolumes();
+              }
+            }}
+          />
         )}
         {vd?.cluster_errors?.length ? (
           <div className="px-4 py-3 border-t border-border/60 text-xs text-warning">

@@ -112,6 +112,41 @@ const ZH: Dict = {
   running:                        "运行中",
   done:                           "完成",
   error:                          "错误",
+  // Volume row actions
+  Actions:                          "操作",
+  Move:                             "迁移",
+  "Copy to node":                   "复制到节点",
+  "Delete on this node":            "删除此节点上的副本",
+  "Mark read-only":                 "标记为只读",
+  "Mark writable":                  "标记为可写",
+  "Vacuum (compact)":               "压缩 (Vacuum)",
+  "Tier upload":                    "上传到分层后端",
+  "Tier download":                  "从分层后端下载",
+  "Target node":                    "目标节点",
+  "Destination volume server. Must be a different node.":
+                                    "目标卷服务器,必须与源节点不同。",
+  "Destination volume server. The source stays in place.":
+                                    "目标卷服务器(源副本保留)。",
+  "Disk type (optional)":           "磁盘类型(可选)",
+  "Garbage threshold":              "垃圾阈值",
+  "Float 0..1. Lower = more aggressive.":
+                                    "0 到 1 之间的小数,值越小越激进。",
+  "Remote backend name":            "远程后端名称",
+  "Name configured under /backends, e.g. s3-cold-tier.":
+                                    "在 /backends 中配置的名称,例:s3-cold-tier。",
+  "Collection (optional)":          "Collection(可选)",
+  "volume(s) selected":             "个卷已选中",
+  "volume(s)":                      "个卷",
+  "Clear selection":                "清空选择",
+  "This action is destructive and cannot be undone.":
+                                    "此操作不可逆,请谨慎!",
+  "{n} volume(s) will be skipped (action does not apply).":
+                                    "{n} 个卷将被跳过(动作不适用)。",
+  "Affected volumes":               "受影响的卷",
+  skip:                             "跳过",
+  "Skipped (no-op).":               "已跳过(无须操作)。",
+  "No cluster id on row.":          "该行缺少集群标识。",
+  "Run on {n} volume(s)":           "在 {n} 个卷上执行",
   AI:           "AI",
   System:       "系统",
 
