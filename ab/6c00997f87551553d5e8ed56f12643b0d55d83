@@ -1,0 +1,13 @@
+seaweedfs-tiering-controller/web/app/volumes/page.tsx
+  ai_agent 13-15,67-96,276-281,300-307,311,314-319,332,334-335,341-352
+seaweedfs-tiering-controller/web/components/volume-actions.tsx
+  ai_agent 1-418
+seaweedfs-tiering-controller/web/lib/i18n.ts
+  ai_agent 115-149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "ab6c00997f87551553d5e8ed56f12643b0d55d83",
+  "prompts": {}
+}
