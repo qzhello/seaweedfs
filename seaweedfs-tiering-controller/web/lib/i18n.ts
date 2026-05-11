@@ -227,6 +227,12 @@ const ZH: Dict = {
                                     "变量 key 需要是 snake_case 标识符:{key}",
   "Missing required input(s): {keys}": "缺少必填输入:{keys}",
   Resolved:                         "渲染后的命令",
+  // Volumes: charts drawer
+  Charts:                           "图表",
+  "Show charts":                    "显示图表",
+  "Hide charts":                    "隐藏图表",
+  "All charts are hidden. Click a chip above to bring one back.":
+                                    "所有图表都已隐藏,点击上方任意 chip 恢复。",
   AI:           "AI",
   System:       "系统",
 
