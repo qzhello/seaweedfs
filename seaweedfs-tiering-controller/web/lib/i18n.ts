@@ -210,6 +210,23 @@ const ZH: Dict = {
   Hide:                             "隐藏",
   "Hidden:":                        "已隐藏:",
   "No data.":                       "暂无数据。",
+  // Ops templates — variables + captures
+  Variables:                        "变量",
+  "Add variable":                   "添加变量",
+  "Display label":                  "显示名称",
+  "Default (optional)":             "默认值(可选)",
+  Required:                         "必填",
+  "Declare named inputs the operator fills in at run time, then reference them in step args as ":
+                                    "声明运行时由操作员填写的输入,然后在步骤参数里通过下面这种方式引用:",
+  "Insert:":                        "插入:",
+  "Capture from output":            "从输出中捕获",
+  alias:                            "别名",
+  "Add capture":                    "添加捕获",
+  "Variable key is required.":      "变量 key 不能为空。",
+  "Variable key must be a snake_case identifier: {key}":
+                                    "变量 key 需要是 snake_case 标识符:{key}",
+  "Missing required input(s): {keys}": "缺少必填输入:{keys}",
+  Resolved:                         "渲染后的命令",
   AI:           "AI",
   System:       "系统",
 

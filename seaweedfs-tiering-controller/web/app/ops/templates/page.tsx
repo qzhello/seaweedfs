@@ -9,7 +9,7 @@ import {
 import {
   useShellCatalog, useOpsTemplates,
   api, getToken,
-  type ShellCommand, type OpsTemplate, type OpsStep,
+  type ShellCommand, type OpsTemplate, type OpsStep, type OpsVariable, type OpsCapture,
 } from "@/lib/api";
 import { useCluster } from "@/lib/cluster-context";
 import { useT } from "@/lib/i18n";
@@ -189,6 +189,7 @@ function TemplateEditor({
   const [description, setDescription] = useState(initial?.description ?? "");
   const [category, setCategory]       = useState(initial?.category ?? "general");
   const [steps, setSteps]             = useState<OpsStep[]>(() => stepsOf(initial));
+  const [variables, setVariables]     = useState<OpsVariable[]>(() => initial?.variables ?? []);
   const [saving, setSaving]           = useState(false);
   const [error, setError]             = useState("");
 
@@ -199,7 +200,7 @@ function TemplateEditor({
   }, [catalog]);
 
   function addStep() {
-    setSteps((s) => [...s, { command: "", args: "", reason: "", pause_on_error: false }]);
+    setSteps((s) => [...s, { command: "", args: "", reason: "", pause_on_error: false, capture: [] }]);
   }
   function updateStep(idx: number, patch: Partial<OpsStep>) {
     setSteps((s) => s.map((x, i) => (i === idx ? { ...x, ...patch } : x)));
@@ -215,12 +216,44 @@ function TemplateEditor({
     setSteps((s) => s.filter((_, i) => i !== idx));
   }
 
+  function addVar() {
+    setVariables((vs) => [...vs, { key: "", label: "", required: false, default: "" }]);
+  }
+  function updateVar(idx: number, patch: Partial<OpsVariable>) {
+    setVariables((vs) => vs.map((x, i) => (i === idx ? { ...x, ...patch } : x)));
+  }
+  function removeVar(idx: number) {
+    setVariables((vs) => vs.filter((_, i) => i !== idx));
+  }
+
+  // Placeholder palette: every {{name}} the operator could reference
+  // from a step's args, derived from declared variables + every prior
+  // step's output + captures. Surfacing it as clickable chips means
+  // the operator doesn't have to remember the syntax.
+  function palettesFor(stepIdx: number): string[] {
+    const out: string[] = variables.filter(v => v.key).map(v => `{{${v.key}}}`);
+    for (let i = 0; i < stepIdx; i++) {
+      out.push(`{{step${i + 1}.output}}`);
+      for (const cap of steps[i].capture ?? []) {
+        if (cap.as) out.push(`{{step${i + 1}.capture.${cap.as}}}`);
+      }
+    }
+    return out;
+  }
+
   async function save() {
     setError("");
     if (!name.trim()) { setError(t("Name required.")); return; }
     if (steps.length === 0) { setError(t("Add at least one step.")); return; }
     for (let i = 0; i < steps.length; i++) {
       if (!steps[i].command) { setError(t("Step {n}: pick a command.").replace("{n}", String(i + 1))); return; }
+    }
+    for (const v of variables) {
+      if (!v.key.trim()) { setError(t("Variable key is required.")); return; }
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(v.key)) {
+        setError(t("Variable key must be a snake_case identifier: {key}").replace("{key}", v.key));
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -230,6 +263,7 @@ function TemplateEditor({
         description: description.trim(),
         category: category.trim() || "general",
         steps,
+        variables,
       } as unknown as { name: string; steps: OpsStep[] });
       onSaved();
     } catch (e: unknown) {
@@ -265,6 +299,50 @@ function TemplateEditor({
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2}
             className="w-full bg-panel2 border border-border rounded-md px-3 py-1.5 text-sm"
             placeholder={t("What does this playbook do and when should an operator run it?")}/>
+        </div>
+
+        {/* ---------- Variables ----------------------------------- */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-wider text-muted/70">{t("Variables")}</span>
+            <button onClick={addVar} className="btn inline-flex items-center gap-1 text-xs">
+              <Plus size={12}/> {t("Add variable")}
+            </button>
+          </div>
+          {variables.length === 0 && (
+            <p className="text-[11px] text-muted">
+              {t("Declare named inputs the operator fills in at run time, then reference them in step args as ")}
+              <code className="text-text">{"{{name}}"}</code>.
+            </p>
+          )}
+          {variables.map((v, i) => (
+            <div key={i} className="card p-2 bg-panel/40 grid grid-cols-12 gap-2 items-center">
+              <input
+                value={v.key} onChange={(e) => updateVar(i, { key: e.target.value })}
+                placeholder="bucket_name"
+                className="col-span-3 bg-panel2 border border-border rounded-md px-2 py-1 text-xs font-mono"
+              />
+              <input
+                value={v.label ?? ""} onChange={(e) => updateVar(i, { label: e.target.value })}
+                placeholder={t("Display label")}
+                className="col-span-3 bg-panel2 border border-border rounded-md px-2 py-1 text-xs"
+              />
+              <input
+                value={v.default ?? ""} onChange={(e) => updateVar(i, { default: e.target.value })}
+                placeholder={t("Default (optional)")}
+                className="col-span-3 bg-panel2 border border-border rounded-md px-2 py-1 text-xs font-mono"
+              />
+              <label className="col-span-2 text-[11px] text-muted inline-flex items-center gap-1">
+                <input type="checkbox"
+                  checked={!!v.required}
+                  onChange={(e) => updateVar(i, { required: e.target.checked })}/>
+                {t("Required")}
+              </label>
+              <button onClick={() => removeVar(i)} className="col-span-1 p-1 text-muted hover:text-rose-300 justify-self-end">
+                <Trash2 size={14}/>
+              </button>
+            </div>
+          ))}
         </div>
 
         <div className="space-y-2">
@@ -320,6 +398,25 @@ function TemplateEditor({
                     {t("Continue on error")}
                   </label>
                 </div>
+                {/* Placeholder palette: click to append into args. */}
+                {(() => {
+                  const palette = palettesFor(i);
+                  if (palette.length === 0) return null;
+                  return (
+                    <div className="ml-8 flex items-center flex-wrap gap-1">
+                      <span className="text-[10px] text-muted/60">{t("Insert:")}</span>
+                      {palette.map((p) => (
+                        <button
+                          key={p} type="button"
+                          onClick={() => updateStep(i, { args: `${s.args ?? ""}${(s.args ?? "").endsWith(" ") || !s.args ? "" : " "}${p}` })}
+                          className="text-[10px] font-mono rounded border border-border bg-panel2 px-1.5 py-0.5 hover:border-accent/50 hover:text-accent"
+                        >
+                          {p}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
                 {cat && (cat.risk === "mutate" || cat.risk === "destructive") && (
                   <input
                     value={s.reason ?? ""}
@@ -329,6 +426,52 @@ function TemplateEditor({
                     style={{ width: "calc(100% - 2rem)" }}
                   />
                 )}
+                {/* Capture editor: regex → alias. Surfaces this step's
+                    stdout to subsequent steps as {{stepN.capture.alias}}. */}
+                <details className="ml-8">
+                  <summary className="text-[11px] text-muted cursor-pointer">
+                    {t("Capture from output")} {(s.capture?.length ?? 0) > 0 && <span className="text-accent">({s.capture!.length})</span>}
+                  </summary>
+                  <div className="space-y-1 mt-2">
+                    {(s.capture ?? []).map((cap, ci) => (
+                      <div key={ci} className="grid grid-cols-12 gap-2">
+                        <input
+                          value={cap.as}
+                          onChange={(e) => {
+                            const next: OpsCapture[] = [...(s.capture ?? [])];
+                            next[ci] = { ...next[ci], as: e.target.value };
+                            updateStep(i, { capture: next });
+                          }}
+                          placeholder={t("alias")}
+                          className="col-span-3 bg-panel2 border border-border rounded-md px-2 py-1 text-[11px] font-mono"
+                        />
+                        <input
+                          value={cap.regex}
+                          onChange={(e) => {
+                            const next: OpsCapture[] = [...(s.capture ?? [])];
+                            next[ci] = { ...next[ci], regex: e.target.value };
+                            updateStep(i, { capture: next });
+                          }}
+                          placeholder={'owner:"([^"]+)"'}
+                          className="col-span-8 bg-panel2 border border-border rounded-md px-2 py-1 text-[11px] font-mono"
+                        />
+                        <button onClick={() => {
+                          const next = (s.capture ?? []).filter((_, j) => j !== ci);
+                          updateStep(i, { capture: next });
+                        }} className="col-span-1 p-1 text-muted hover:text-rose-300 justify-self-end">
+                          <Trash2 size={12}/>
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => updateStep(i, { capture: [...(s.capture ?? []), { as: "", regex: "" }] })}
+                      className="text-[11px] text-muted hover:text-text inline-flex items-center gap-1"
+                    >
+                      <Plus size={10}/> {t("Add capture")}
+                    </button>
+                  </div>
+                </details>
               </div>
             );
           })}
@@ -440,22 +583,48 @@ function RunDialog({
 }: { template: OpsTemplate; clusterID: string; onClose: () => void; }) {
   const { t } = useT();
   const steps = stepsOf(template);
+  const vars  = template.variables ?? [];
   const [statuses, setStatuses] = useState<StepStatus[]>(() => steps.map(() => "pending"));
   const [outputs, setOutputs]   = useState<string[]>(() => steps.map(() => ""));
   const [errors, setErrors]     = useState<string[]>(() => steps.map(() => ""));
+  // Server-side rendered args (placeholders → values) per step, so the
+  // operator can see exactly what was about to fire.
+  const [resolved, setResolved] = useState<string[]>(() => steps.map(() => ""));
   const [running, setRunning]   = useState(false);
   const [done, setDone]         = useState(false);
   const [continueOnError, setContinueOnError] = useState(false);
+  // Variable values come from the operator before the run starts.
+  // Initialize from each variable's declared default so common values
+  // are one click away.
+  const [varInputs, setVarInputs] = useState<Record<string, string>>(() => {
+    const v: Record<string, string> = {};
+    for (const x of vars) v[x.key] = x.default ?? "";
+    return v;
+  });
+
+  // Required variables must all be filled before we let the operator
+  // hit Run. Computed every render so the button state is always live.
+  const missingRequired = vars
+    .filter(v => v.required && !(varInputs[v.key] ?? "").trim())
+    .map(v => v.key);
 
   async function run() {
     if (running) return;
+    if (missingRequired.length > 0) return;
     setRunning(true); setDone(false);
     setStatuses(steps.map(() => "pending"));
     setOutputs(steps.map(() => ""));
     setErrors(steps.map(() => ""));
+    setResolved(steps.map(() => ""));
 
-    const url = `/api/v1/clusters/${clusterID}/ops/templates/${template.id}/run` +
-                (continueOnError ? "?continue_on_error=true" : "");
+    const qs = new URLSearchParams();
+    if (continueOnError) qs.set("continue_on_error", "true");
+    for (const v of vars) {
+      const val = varInputs[v.key];
+      if (val !== undefined && val !== "") qs.set(`var.${v.key}`, val);
+    }
+    const url = `/api/v1/clusters/${clusterID}/ops/templates/${template.id}/run`
+              + (qs.toString() ? `?${qs.toString()}` : "");
     const headers: Record<string, string> = {};
     const tok = getToken();
     if (tok) headers["Authorization"] = `Bearer ${tok}`;
@@ -481,9 +650,12 @@ function RunDialog({
             const payload = raw.slice(6);
             if (event === "step_start") {
               try {
-                const { index } = JSON.parse(payload) as { index: number };
+                const { index, args } = JSON.parse(payload) as { index: number; args?: string };
                 currentIdx = index;
                 setStatuses((s) => s.map((x, i) => (i === index ? "running" : x)));
+                if (args !== undefined) {
+                  setResolved((r) => r.map((x, i) => (i === index ? args : x)));
+                }
               } catch { /* ignore */ }
             } else if (event === "line") {
               if (currentIdx >= 0) {
@@ -538,6 +710,29 @@ function RunDialog({
           </label>
         </div>
 
+        {vars.length > 0 && (
+          <div className="card p-3 space-y-2 bg-panel/40">
+            <div className="text-xs uppercase tracking-wider text-muted/70">{t("Inputs")}</div>
+            {vars.map((v) => (
+              <div key={v.key} className="grid grid-cols-12 gap-2 items-center">
+                <label className="col-span-3 text-xs text-muted">
+                  {v.label || v.key}
+                  {v.required && <span className="text-rose-400 ml-1">*</span>}
+                  <span className="block text-[10px] font-mono text-muted/60">{`{{${v.key}}}`}</span>
+                </label>
+                <input
+                  value={varInputs[v.key] ?? ""}
+                  onChange={(e) => setVarInputs((s) => ({ ...s, [v.key]: e.target.value }))}
+                  placeholder={v.default || ""}
+                  disabled={running}
+                  className="col-span-9 bg-panel2 border border-border rounded-md px-2 py-1 text-sm font-mono"
+                />
+                {v.help && <p className="col-span-12 col-start-4 text-[11px] text-muted">{v.help}</p>}
+              </div>
+            ))}
+          </div>
+        )}
+
         <div className="space-y-2 max-h-[60vh] overflow-y-auto">
           {steps.map((s, i) => (
             <StepRow
@@ -547,13 +742,19 @@ function RunDialog({
               status={statuses[i]}
               output={outputs[i]}
               error={errors[i]}
+              resolvedArgs={resolved[i]}
             />
           ))}
         </div>
 
         <div className="flex justify-end gap-2 pt-1">
           <button onClick={onClose} className="btn">{done ? t("Close") : t("Cancel")}</button>
-          <button onClick={run} disabled={running}
+          {missingRequired.length > 0 && (
+            <span className="text-[11px] text-rose-300 self-center mr-2">
+              {t("Missing required input(s): {keys}").replace("{keys}", missingRequired.join(", "))}
+            </span>
+          )}
+          <button onClick={run} disabled={running || missingRequired.length > 0}
             className="btn bg-accent text-accent-fg inline-flex items-center gap-2">
             {running ? <Loader2 size={14} className="animate-spin"/> : <Play size={14}/>}
             {done && !running ? t("Run again") : t("Run")}
@@ -565,8 +766,8 @@ function RunDialog({
 }
 
 function StepRow({
-  idx, step, status, output, error,
-}: { idx: number; step: OpsStep; status: StepStatus; output: string; error: string; }) {
+  idx, step, status, output, error, resolvedArgs,
+}: { idx: number; step: OpsStep; status: StepStatus; output: string; error: string; resolvedArgs?: string; }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const statusBadge: Record<StepStatus, string> = {
@@ -590,6 +791,14 @@ function StepRow({
       </button>
       {open && (
         <div className="mt-3 space-y-2">
+          {resolvedArgs !== undefined && resolvedArgs !== "" && resolvedArgs !== step.args && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-muted/70 mb-1">{t("Resolved")}</div>
+              <pre className="text-[11px] font-mono bg-panel2 border border-border rounded-md p-2 whitespace-pre-wrap break-all">
+                {step.command} {resolvedArgs}
+              </pre>
+            </div>
+          )}
           {error && (
             <pre className="text-[11px] font-mono text-rose-300 bg-rose-400/10 border border-rose-400/30 rounded-md p-2 whitespace-pre-wrap break-all">
               {error}

@@ -184,12 +184,24 @@ export function useClusterHealth(id?: string) {
     fetcher,
   );
 }
+export interface OpsCapture {
+  as: string;
+  regex: string;
+}
 export interface OpsStep {
   command: string;
   args?: string;
   reason?: string;
   pause_on_error?: boolean;
+  capture?: OpsCapture[];
   streams?: boolean;
+}
+export interface OpsVariable {
+  key: string;
+  label?: string;
+  required?: boolean;
+  default?: string;
+  help?: string;
 }
 export interface OpsTemplate {
   id: string;
@@ -197,6 +209,7 @@ export interface OpsTemplate {
   description: string;
   category: string;
   steps: OpsStep[] | string;  // server returns json.RawMessage; some envelopes serialize as string
+  variables?: OpsVariable[];
   created_by?: string;
   updated_by?: string;
   created_at?: string;
