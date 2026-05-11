@@ -154,6 +154,43 @@ export function useAILearning(hours = 24) {
   return useSWR(`${BASE}/ai/learning?hours=${hours}`, fetcher);
 }
 
+// ---------------- ops / weed shell ----------------
+
+export interface ShellArg {
+  flag: string;
+  label: string;
+  kind: "string" | "int" | "bool" | "enum";
+  required?: boolean;
+  default?: string;
+  help?: string;
+  enum?: string[];
+}
+export interface ShellCommand {
+  name: string;
+  category: string;
+  risk: "read" | "mutate" | "destructive";
+  summary: string;
+  args?: ShellArg[];
+  read_only?: boolean;
+  streams?: boolean;
+}
+
+export function useShellCatalog() {
+  return useSWR<{ items: ShellCommand[] }>(`${BASE}/shell/catalog`, fetcher);
+}
+export function useClusterHealth(id?: string) {
+  return useSWR<{ reachable: boolean; latency_ms: number; error?: string; master: string }>(
+    id ? `${BASE}/clusters/${id}/health` : null,
+    fetcher,
+  );
+}
+export function useShellHelp(clusterID?: string, cmd?: string) {
+  return useSWR<{ command: string; help: string }>(
+    clusterID && cmd ? `${BASE}/clusters/${clusterID}/shell/help?cmd=${encodeURIComponent(cmd)}` : null,
+    fetcher,
+  );
+}
+
 // ---------------- mutations ----------------
 
 export const api = {

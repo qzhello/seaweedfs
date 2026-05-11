@@ -5,7 +5,7 @@ import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import {
-  LayoutDashboard, Database, Server, ShieldCheck, ListChecks, History, Sparkles, ScrollText, CalendarDays, SlidersHorizontal, Cloud, Activity, Bell, ShieldAlert, Tv, Wrench, Layers, Brain, Languages,
+  LayoutDashboard, Database, Server, ShieldCheck, ListChecks, History, Sparkles, ScrollText, CalendarDays, SlidersHorizontal, Cloud, Activity, Bell, ShieldAlert, Tv, Wrench, Layers, Brain, Languages, Terminal,
   type LucideIcon,
 } from "lucide-react";
 
@@ -47,6 +47,7 @@ const GROUPS: NavGroup[] = [
   {
     label: "Operations",
     items: [
+      { href: "/ops",    label: "Ops Console", icon: Terminal },
       { href: "/health", label: "Health", icon: Activity },
       { href: "/alerts", label: "Alerts", icon: Bell },
       { href: "/safety", label: "Safety", icon: ShieldAlert },
