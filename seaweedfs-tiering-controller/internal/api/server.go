@@ -151,6 +151,10 @@ func Router(d Deps) *gin.Engine {
 		admin.POST("/ops/templates/draft", draftOpsTemplate(d))
 		admin.GET("/clusters/:id/ops/templates/:tid/run", runOpsTemplateBridge(d))
 
+		// Resource listings used by per-resource pages.
+		v1.GET("/clusters/:id/buckets", listBuckets(d))
+		v1.GET("/clusters/:id/collections", listCollections(d))
+
 		v1.GET("/clusters/:id/topology", clusterTopology(d))
 		v1.GET("/clusters/:id/tags", listTags(d))
 		admin.PUT("/clusters/:id/tags", upsertTag(d))
