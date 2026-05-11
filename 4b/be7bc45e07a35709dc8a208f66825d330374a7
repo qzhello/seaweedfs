@@ -1,0 +1,379 @@
+seaweedfs-tiering-controller/migrations/pg/012_ai_auto_approve.sql
+  ai_agent 1-29
+seaweedfs-tiering-controller/internal/skill/catalog.go
+  ai_agent 1-101
+seaweedfs-tiering-controller/internal/autonomy/pipeline.go
+  ai_agent 1-288
+seaweedfs-tiering-controller/web/app/holidays/page.tsx
+  ai_agent 1-56
+seaweedfs-tiering-controller/internal/seaweed/client.go
+  ai_agent 1-254
+seaweedfs-tiering-controller/migrations/pg/011_ai_reviews.sql
+  ai_agent 1-56
+seaweedfs-tiering-controller/go.sum
+  ai_agent 1-245
+seaweedfs-tiering-controller/internal/ai/anthropic.go
+  ai_agent 1-145
+seaweedfs-tiering-controller/internal/analytics/cyclical.go
+  ai_agent 1-204
+seaweedfs-tiering-controller/internal/api/handlers.go
+  ai_agent 1-766
+seaweedfs-tiering-controller/web/lib/op-catalog.ts
+  ai_agent 1-264
+seaweedfs-tiering-controller/web/components/skill-wizard.tsx
+  ai_agent 1-949
+seaweedfs-tiering-controller/internal/crypto/aesgcm.go
+  ai_agent 1-64
+seaweedfs-tiering-controller/config/clickhouse/external-default.xml
+  ai_agent 1-17
+seaweedfs-tiering-controller/internal/skill/schema.go
+  ai_agent 1-181
+seaweedfs-tiering-controller/web/Dockerfile
+  ai_agent 1-20
+seaweedfs-tiering-controller/internal/autonomy/worker.go
+  ai_agent 1-81
+seaweedfs-tiering-controller/internal/store/ai_providers.go
+  ai_agent 1-200
+seaweedfs-tiering-controller/migrations/clickhouse/002_patterns.sql
+  ai_agent 1-46
+seaweedfs-tiering-controller/migrations/pg/017_execution_postmortem.sql
+  ai_agent 1-16
+seaweedfs-tiering-controller/web/app/login/page.tsx
+  ai_agent 1-54
+seaweedfs-tiering-controller/web/components/refresh-button.tsx
+  ai_agent 1-51
+seaweedfs-tiering-controller/web/next.config.mjs
+  ai_agent 1-13
+seaweedfs-tiering-controller/internal/store/config.go
+  ai_agent 1-129
+seaweedfs-tiering-controller/internal/store/trend.go
+  ai_agent 1-142
+seaweedfs-tiering-controller/internal/store/ai_outcomes.go
+  ai_agent 1-209
+seaweedfs-tiering-controller/migrations/pg/002_clusters_tags_holidays.sql
+  ai_agent 1-138
+seaweedfs-tiering-controller/web/app/ai-config/page.tsx
+  ai_agent 1-380
+seaweedfs-tiering-controller/internal/ai/openai_compat.go
+  ai_agent 1-172
+seaweedfs-tiering-controller/internal/seaweed/shell_volume_list.go
+  ai_agent 1-204
+seaweedfs-tiering-controller/internal/store/pipeline.go
+  ai_agent 1-63
+seaweedfs-tiering-controller/internal/skill/catalog/08_volume_fix_replication.json
+  ai_agent 1-33
+seaweedfs-tiering-controller/web/app/layout.tsx
+  ai_agent 1-18
+seaweedfs-tiering-controller/internal/skill/catalog/01_volume_tier_upload.json
+  ai_agent 1-42
+seaweedfs-tiering-controller/internal/store/backends.go
+  ai_agent 1-140
+seaweedfs-tiering-controller/web/components/empty-state.tsx
+  ai_agent 1-27
+seaweedfs-tiering-controller/internal/aireview/orchestrator_test.go
+  ai_agent 1-112
+seaweedfs-tiering-controller/internal/skill/catalog/06_volume_balance.json
+  ai_agent 1-31
+seaweedfs-tiering-controller/web/tailwind.config.ts
+  ai_agent 1-33
+seaweedfs-tiering-controller/internal/api/backends.go
+  ai_agent 1-144
+seaweedfs-tiering-controller/internal/executor/skill_engine.go
+  ai_agent 1-541
+seaweedfs-tiering-controller/internal/store/ai_reviews.go
+  ai_agent 1-144
+seaweedfs-tiering-controller/internal/store/ch.go
+  ai_agent 1-158
+seaweedfs-tiering-controller/internal/validation/schema.go
+  ai_agent 1-163
+seaweedfs-tiering-controller/internal/alerter/wecom.go
+  ai_agent 1-225
+seaweedfs-tiering-controller/Dockerfile
+  ai_agent 1-13
+seaweedfs-tiering-controller/internal/api/server.go
+  ai_agent 1-229
+seaweedfs-tiering-controller/internal/skill/catalog/05_volume_delete_replica.json
+  ai_agent 1-31
+seaweedfs-tiering-controller/internal/store/patterns.go
+  ai_agent 1-269
+seaweedfs-tiering-controller/config/config.dev.yaml
+  ai_agent 1-10
+seaweedfs-tiering-controller/internal/seaweed/shell_runner.go
+  ai_agent 1-293
+seaweedfs-tiering-controller/web/app/tasks/page.tsx
+  ai_agent 1-396
+seaweedfs-tiering-controller/web/app/settings/page.tsx
+  ai_agent 1-168
+seaweedfs-tiering-controller/web/lib/i18n.ts
+  ai_agent 1-537
+seaweedfs-tiering-controller/web/components/nav.tsx
+  ai_agent 1-148
+seaweedfs-tiering-controller/web/pnpm-lock.yaml
+  ai_agent 1-4226
+seaweedfs-tiering-controller/web/postcss.config.mjs
+  ai_agent 1
+seaweedfs-tiering-controller/docker-compose.yml
+  ai_agent 1-39
+seaweedfs-tiering-controller/web/app/backends/page.tsx
+  ai_agent 1-275
+seaweedfs-tiering-controller/internal/scorer/pattern_bias.go
+  ai_agent 1-66
+seaweedfs-tiering-controller/internal/auth/auth.go
+  ai_agent 1-102
+seaweedfs-tiering-controller/migrations/pg/006_alerts.sql
+  ai_agent 1-68
+seaweedfs-tiering-controller/web/app/skills/[key]/history/page.tsx
+  ai_agent 1-102
+seaweedfs-tiering-controller/web/components/trend-chart.tsx
+  ai_agent 1-54
+seaweedfs-tiering-controller/web/package.json
+  ai_agent 1-42
+seaweedfs-tiering-controller/web/app/cohort/page.tsx
+  ai_agent 1-230
+seaweedfs-tiering-controller/internal/pressure/pressure.go
+  ai_agent 1-337
+seaweedfs-tiering-controller/web/lib/chart-theme.ts
+  ai_agent 1-65
+seaweedfs-tiering-controller/internal/autonomy/score.go
+  ai_agent 1-475
+seaweedfs-tiering-controller/internal/skill/catalog/03_volume_ec_encode.json
+  ai_agent 1-39
+seaweedfs-tiering-controller/web/components/sop-editor.tsx
+  ai_agent 1-540
+seaweedfs-tiering-controller/web/lib/utils.ts
+  ai_agent 1-26
+seaweedfs-tiering-controller/internal/analytics/runner.go
+  ai_agent 1-174
+seaweedfs-tiering-controller/internal/executor/lock.go
+  ai_agent 1-61
+seaweedfs-tiering-controller/Makefile
+  ai_agent 1-75
+seaweedfs-tiering-controller/internal/seaweed/preflight.go
+  ai_agent 1-91
+seaweedfs-tiering-controller/internal/storage/tester.go
+  ai_agent 1-165
+seaweedfs-tiering-controller/internal/store/pressure.go
+  ai_agent 1-78
+seaweedfs-tiering-controller/internal/health/metrics_link.go
+  ai_agent 1-10
+seaweedfs-tiering-controller/internal/ai/provider.go
+  ai_agent 1-48
+seaweedfs-tiering-controller/internal/seaweed/topology.go
+  ai_agent 1-145
+seaweedfs-tiering-controller/internal/api/middleware.go
+  ai_agent 1-66
+seaweedfs-tiering-controller/internal/analytics/cohort.go
+  ai_agent 1-151
+seaweedfs-tiering-controller/web/app/executions/page.tsx
+  ai_agent 1-47
+seaweedfs-tiering-controller/web/components/shell.tsx
+  ai_agent 1-42
+seaweedfs-tiering-controller/web/app/skills/[key]/page.tsx
+  ai_agent 1-216
+seaweedfs-tiering-controller/internal/health/scraper.go
+  ai_agent 1-339
+seaweedfs-tiering-controller/web/app/skills/[key]/edit/page.tsx
+  ai_agent 1-159
+seaweedfs-tiering-controller/README.md
+  ai_agent 1-71
+seaweedfs-tiering-controller/internal/store/clusters.go
+  ai_agent 1-266
+seaweedfs-tiering-controller/internal/runtime/snapshot.go
+  ai_agent 1-227
+seaweedfs-tiering-controller/migrations/pg/013_ai_review_outcomes.sql
+  ai_agent 1-63
+seaweedfs-tiering-controller/migrations/pg/014_controller_role.sql
+  ai_agent 1-12
+seaweedfs-tiering-controller/web/components/pagination.tsx
+  ai_agent 1-100
+seaweedfs-tiering-controller/internal/api/volume_cache.go
+  ai_agent 1-97
+seaweedfs-tiering-controller/internal/executor/executor.go
+  ai_agent 1-444
+seaweedfs-tiering-controller/web/app/executions/[id]/page.tsx
+  ai_agent 1-613
+seaweedfs-tiering-controller/web/components/table-skeleton.tsx
+  ai_agent 1-44
+seaweedfs-tiering-controller/internal/api/config.go
+  ai_agent 1-137
+seaweedfs-tiering-controller/internal/metrics/metrics.go
+  ai_agent 1-154
+seaweedfs-tiering-controller/web/app/alerts/page.tsx
+  ai_agent 1-312
+seaweedfs-tiering-controller/internal/ai/instrumented.go
+  ai_agent 1-40
+seaweedfs-tiering-controller/internal/api/alerts.go
+  ai_agent 1-142
+seaweedfs-tiering-controller/internal/auth/token.go
+  ai_agent 1-87
+seaweedfs-tiering-controller/web/app/volumes/[id]/page.tsx
+  ai_agent 1-197
+seaweedfs-tiering-controller/internal/ai/openai.go
+  ai_agent 1-94
+seaweedfs-tiering-controller/.gitignore
+  ai_agent 1-30
+seaweedfs-tiering-controller/internal/api/patterns.go
+  ai_agent 1-111
+seaweedfs-tiering-controller/internal/skill/catalog/07_volume_shrink.json
+  ai_agent 1-29
+seaweedfs-tiering-controller/web/app/skills/new/page.tsx
+  ai_agent 1-190
+seaweedfs-tiering-controller/internal/ai/rule.go
+  ai_agent 1-54
+seaweedfs-tiering-controller/internal/skill/catalog/02_volume_tier_download.json
+  ai_agent 1-33
+seaweedfs-tiering-controller/web/app/health/page.tsx
+  ai_agent 1-219
+seaweedfs-tiering-controller/config/config.example.yaml
+  ai_agent 1-54
+seaweedfs-tiering-controller/internal/scorer/scorer.go
+  ai_agent 1-168
+seaweedfs-tiering-controller/cmd/collector/main.go
+  ai_agent 1-160
+seaweedfs-tiering-controller/internal/api/alert_helpers.go
+  ai_agent 1-26
+seaweedfs-tiering-controller/web/.gitignore
+  ai_agent 1-5
+seaweedfs-tiering-controller/web/app/skills/page.tsx
+  ai_agent 1-293
+seaweedfs-tiering-controller/cmd/controller/main.go
+  ai_agent 1-214
+seaweedfs-tiering-controller/internal/api/skills.go
+  ai_agent 1-423
+seaweedfs-tiering-controller/internal/aireview/labeler.go
+  ai_agent 1-155
+seaweedfs-tiering-controller/internal/analytics/cyclical_test.go
+  ai_agent 1-99
+seaweedfs-tiering-controller/web/app/clusters/[id]/page.tsx
+  ai_agent 1-334
+seaweedfs-tiering-controller/internal/skill/catalog/09_volume_vacuum.json
+  ai_agent 1-29
+seaweedfs-tiering-controller/internal/api/ai_providers.go
+  ai_agent 1-259
+seaweedfs-tiering-controller/internal/api/observe.go
+  ai_agent 1-80
+seaweedfs-tiering-controller/internal/aireview/worker_test.go
+  ai_agent 1-43
+seaweedfs-tiering-controller/internal/store/alerts.go
+  ai_agent 1-223
+seaweedfs-tiering-controller/internal/api/safety.go
+  ai_agent 1-161
+seaweedfs-tiering-controller/web/app/globals.css
+  ai_agent 1-98
+seaweedfs-tiering-controller/migrations/pg/009_skills.sql
+  ai_agent 1-80
+seaweedfs-tiering-controller/web/components/breadcrumb.tsx
+  ai_agent 1-35
+seaweedfs-tiering-controller/internal/health/gate.go
+  ai_agent 1-102
+seaweedfs-tiering-controller/web/app/volumes/page.tsx
+  ai_agent 1-453
+seaweedfs-tiering-controller/migrations/pg/001_init.sql
+  ai_agent 1-91
+seaweedfs-tiering-controller/internal/store/skills.go
+  ai_agent 1-268
+seaweedfs-tiering-controller/internal/api/clusters.go
+  ai_agent 1-329
+seaweedfs-tiering-controller/internal/api/health.go
+  ai_agent 1-93
+seaweedfs-tiering-controller/migrations/pg/007_safety.sql
+  ai_agent 1-42
+seaweedfs-tiering-controller/internal/api/ai_review.go
+  ai_agent 1-91
+seaweedfs-tiering-controller/go.mod
+  ai_agent 1-76
+seaweedfs-tiering-controller/internal/config/config.go
+  ai_agent 1-94
+seaweedfs-tiering-controller/migrations/pg/015_tasks_action_expand.sql
+  ai_agent 1-13
+seaweedfs-tiering-controller/internal/skill/catalog/11_collection_move.json
+  ai_agent 1-38
+seaweedfs-tiering-controller/migrations/pg/020_cluster_weed_bin.sql
+  ai_agent 1-12
+seaweedfs-tiering-controller/migrations/pg/008_idempotency.sql
+  ai_agent 1-27
+seaweedfs-tiering-controller/web/lib/skill-log.ts
+  ai_agent 1-167
+seaweedfs-tiering-controller/internal/skill/catalog/10_volume_fsck.json
+  ai_agent 1-26
+seaweedfs-tiering-controller/internal/aireview/worker.go
+  ai_agent 1-240
+seaweedfs-tiering-controller/internal/safety/guard.go
+  ai_agent 1-118
+seaweedfs-tiering-controller/web/tsconfig.json
+  ai_agent 1-22
+seaweedfs-tiering-controller/migrations/pg/003_config_center.sql
+  ai_agent 1-132
+seaweedfs-tiering-controller/migrations/clickhouse/001_init.sql
+  ai_agent 1-91
+seaweedfs-tiering-controller/internal/store/health.go
+  ai_agent 1-204
+seaweedfs-tiering-controller/internal/executor/idempotency.go
+  ai_agent 1-76
+seaweedfs-tiering-controller/web/app/wall/page.tsx
+  ai_agent 1-232
+seaweedfs-tiering-controller/internal/skill/catalog/04_volume_ec_decode.json
+  ai_agent 1-32
+seaweedfs-tiering-controller/internal/store/pg.go
+  ai_agent 1-450
+seaweedfs-tiering-controller/migrations/pg/004_storage_backends.sql
+  ai_agent 1-38
+seaweedfs-tiering-controller/web/app/ai-learning/page.tsx
+  ai_agent 1-228
+seaweedfs-tiering-controller/internal/skill/catalog/12_cluster_failover_check.json
+  ai_agent 1-25
+seaweedfs-tiering-controller/web/app/policies/page.tsx
+  ai_agent 1-502
+seaweedfs-tiering-controller/web/app/safety/page.tsx
+  ai_agent 1-238
+seaweedfs-tiering-controller/web/lib/api.ts
+  ai_agent 1-214
+seaweedfs-tiering-controller/internal/autonomy/rebut.go
+  ai_agent 1-203
+seaweedfs-tiering-controller/internal/api/ai_learning.go
+  ai_agent 1-42
+seaweedfs-tiering-controller/internal/scheduler/queue.go
+  ai_agent 1-242
+seaweedfs-tiering-controller/web/components/skill-import-card.tsx
+  ai_agent 1-226
+seaweedfs-tiering-controller/internal/aireview/postmortem.go
+  ai_agent 1-201
+seaweedfs-tiering-controller/migrations/pg/016_aireview_lang.sql
+  ai_agent 1-10
+seaweedfs-tiering-controller/web/app/audit/page.tsx
+  ai_agent 1-227
+seaweedfs-tiering-controller/internal/scheduler/scheduler.go
+  ai_agent 1-482
+seaweedfs-tiering-controller/web/app/page.tsx
+  ai_agent 1-644
+seaweedfs-tiering-controller/internal/ai/resolver.go
+  ai_agent 1-150
+seaweedfs-tiering-controller/web/app/loading.tsx
+  ai_agent 1-20
+seaweedfs-tiering-controller/migrations/pg/010_ai_providers.sql
+  ai_agent 1-57
+seaweedfs-tiering-controller/internal/alerter/dispatcher.go
+  ai_agent 1-225
+seaweedfs-tiering-controller/migrations/pg/019_autonomy_pipeline.sql
+  ai_agent 1-78
+seaweedfs-tiering-controller/migrations/pg/005_health.sql
+  ai_agent 1-64
+seaweedfs-tiering-controller/web/app/clusters/page.tsx
+  ai_agent 1-265
+seaweedfs-tiering-controller/internal/skill/registry.go
+  ai_agent 1-110
+seaweedfs-tiering-controller/migrations/pg/018_cluster_pressure.sql
+  ai_agent 1-52
+seaweedfs-tiering-controller/internal/store/safety.go
+  ai_agent 1-234
+seaweedfs-tiering-controller/internal/aireview/orchestrator.go
+  ai_agent 1-399
+seaweedfs-tiering-controller/internal/scorer/tag_weights.go
+  ai_agent 1-116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "4bbe7bc45e07a35709dc8a208f66825d330374a7",
+  "prompts": {}
+}
