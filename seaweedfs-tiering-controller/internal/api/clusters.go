@@ -96,37 +96,11 @@ func clusterTopology(d Deps) gin.HandlerFunc {
 }
 
 // ----------------------- Ad-hoc weed shell -----------------------
-
-// clusterShellAllow whitelists shell command names the controller will run
-// on operator demand. Anything outside this set must go through a Skill so
-// the change is reviewed and audited as a real task. Edit cautiously —
-// adding write/destroy commands here exposes them to anyone who reaches the
-// admin role.
-var clusterShellAllow = map[string]bool{
-	// Read-only inspection
-	"volume.list":       true,
-	"volume.check.disk": true,
-	"fs.meta.cat":       true,
-	"cluster.check":     true,
-	"cluster.ps":        true,
-	"lock":              true,
-	"unlock":            true,
-	// Mutating but low-risk maintenance
-	"volume.fix.replication": true,
-	"volume.vacuum":          true,
-	"volume.balance":         true,
-	"volume.fsck":            true,
-	"volume.mark":            true, // -readonly / -writable
-	"volume.delete":          true,
-	"volume.move":            true,
-	"volume.copy":            true,
-	"volume.shrink":          true,
-	"volume.tier.upload":     true,
-	"volume.tier.download":   true,
-	"ec.encode":              true,
-	"ec.rebuild":             true,
-	"ec.decode":              true,
-}
+//
+// The set of commands operators can run is the shellCatalog defined in
+// shell_catalog.go. Anything outside the catalog must go through a Skill
+// so the change is reviewed and audited as a real task. To add a new
+// command, append it to shellCatalog with an appropriate risk tier.
 
 // clusterShellExec runs a single `weed shell` command against the named
 // cluster's master and returns its captured stdout. The command name is
@@ -159,9 +133,17 @@ func clusterShellExec(d Deps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "command required"})
 			return
 		}
-		if !clusterShellAllow[name] {
+		allow := shellAllowedNames()
+		cmd, ok := allow[name]
+		if !ok {
 			c.JSON(http.StatusForbidden, gin.H{
-				"error": fmt.Sprintf("command %q is not in the operator allowlist; wrap it in a Skill instead", name),
+				"error": fmt.Sprintf("command %q is not in the operator catalog; wrap it in a Skill instead", name),
+			})
+			return
+		}
+		if (cmd.Risk == "mutate" || cmd.Risk == "destructive") && strings.TrimSpace(body.Reason) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": fmt.Sprintf("command %q is %s — a reason is required for audit", name, cmd.Risk),
 			})
 			return
 		}
@@ -191,6 +173,87 @@ func clusterShellExec(d Deps) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"output": out, "command": name, "args": args})
+	}
+}
+
+// shellCatalogList returns the full catalog of weed shell commands the
+// operator console can offer. UI groups them by Category and renders
+// guided forms from the typed Args. The endpoint is read-only and
+// available to every authenticated principal — the gating happens on
+// clusterShellExec at the admin layer.
+func shellCatalogList(_ Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"items": shellCatalog})
+	}
+}
+
+// clusterShellHelp runs `<command> -h` (or `help <command>`) against the
+// cluster and returns the raw help text. We use this for live arg
+// discovery on commands the catalog doesn't ship typed Args for, so
+// operators can still see what flags exist without leaving the UI.
+func clusterShellHelp(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad cluster id"})
+			return
+		}
+		name := strings.TrimSpace(c.Query("cmd"))
+		if name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "cmd query required"})
+			return
+		}
+		if _, ok := shellAllowedNames()[name]; !ok {
+			c.JSON(http.StatusForbidden, gin.H{"error": "command not in catalog"})
+			return
+		}
+		cl, err := d.PG.GetCluster(c.Request.Context(), id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		// `help` is the shell built-in that prints a command's flag list.
+		// It's read-only and doesn't need lock/unlock.
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
+		defer cancel()
+		out, err := d.Sw.RunShellReadOnly(ctx, cl.MasterAddr, cl.WeedBinPath, "help", []string{name})
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error(), "output": out})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"command": name, "help": out})
+	}
+}
+
+// clusterHealth probes a cluster's master HTTP + gRPC reachability so
+// the UI can show a live red/green badge per cluster instead of
+// blocking on a 15s volume.list timeout to find out things are down.
+// Probe results are cached in the seaweed package for ~3s so a
+// dashboard refresh doesn't fan out a wave of dials.
+func clusterHealth(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad cluster id"})
+			return
+		}
+		cl, err := d.PG.GetCluster(c.Request.Context(), id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		start := time.Now()
+		err = d.Sw.ProbeMaster(cl.MasterAddr)
+		latency := time.Since(start)
+		resp := gin.H{
+			"cluster_id": id, "master": cl.MasterAddr,
+			"reachable":  err == nil,
+			"latency_ms": latency.Milliseconds(),
+		}
+		if err != nil {
+			resp["error"] = err.Error()
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 

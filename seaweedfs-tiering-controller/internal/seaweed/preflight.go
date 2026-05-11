@@ -60,6 +60,13 @@ func probeMasterReachable(master string) error {
 	return err
 }
 
+// ProbeMaster is the exported form of probeMasterReachable so HTTP
+// handlers can drive the same preflight check on demand (e.g. for a
+// per-cluster health badge in the UI).
+func (c *Client) ProbeMaster(master string) error {
+	return probeMasterReachable(master)
+}
+
 func dialMaster(master string) error {
 	host, portStr, splitErr := net.SplitHostPort(master)
 	if splitErr != nil {
