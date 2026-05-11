@@ -29,11 +29,15 @@ func (c *Client) ListVolumesShellAt(ctx context.Context, master, binPath string)
 	return parseVolumeListOutput(out), parseNodeDiskStats(out), nil
 }
 
-// `volume id:N key:value ...` — keys and values are space-separated key:value
-// pairs; collection / remote_storage_* may carry quoted strings. The regex
-// captures either a quoted run (handling escaped quotes) or a non-whitespace
-// run as the value.
-var volumeFieldRE = regexp.MustCompile(`([a-z_]+):("(?:\\.|[^"\\])*"|\S+)`)
+// volume.list emits each volume as a CamelCase key/value list separated
+// by commas, e.g.:
+//
+//   volume Id:7, Size:8, ReplicaPlacement:010, Collection:test, FileCount:0, ReadOnly:true, ModifiedAtSecond:1778254383
+//
+// The regex captures Key:Value where Value runs up to the next comma or
+// newline. Empty values (`Collection:,`) are allowed so we don't lose the
+// row just because the default-collection field is blank.
+var volumeFieldRE = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*):([^,\n]*)`)
 
 // parseVolumeListOutput walks the tree-shaped output of `volume.list`,
 // emitting one VolumeInfo per "volume ..." line and inheriting DC / rack /
@@ -156,39 +160,45 @@ func fillDiskCounts(ns *NodeDiskStats, line string) {
 	}
 }
 
+// parseVolumeFields accepts both the modern CamelCase format
+// ("Id:7, Size:8, Collection:test, …") emitted by storage.VolumeInfo.String()
+// and the legacy proto-text snake_case ("id:7 size:8 collection:\"test\" …")
+// that older builds use. Quoted values are unwrapped; trailing whitespace
+// from the comma-separated form is trimmed.
 func parseVolumeFields(line string) VolumeInfo {
 	var v VolumeInfo
 	for _, m := range volumeFieldRE.FindAllStringSubmatch(line, -1) {
-		key, val := m[1], m[2]
+		key, val := m[1], strings.TrimSpace(m[2])
 		if len(val) >= 2 && val[0] == '"' && val[len(val)-1] == '"' {
 			val = val[1 : len(val)-1]
 		}
 		switch key {
-		case "id":
+		case "Id", "id":
 			n, _ := strconv.ParseUint(val, 10, 32)
 			v.ID = uint32(n)
-		case "size":
+		case "Size", "size":
 			v.Size, _ = strconv.ParseUint(val, 10, 64)
-		case "collection":
+		case "Collection", "collection":
 			v.Collection = val
-		case "file_count":
+		case "FileCount", "file_count":
 			v.FileCount, _ = strconv.ParseUint(val, 10, 64)
-		case "delete_count":
+		case "DeleteCount", "delete_count":
 			v.DeleteCount, _ = strconv.ParseUint(val, 10, 64)
-		case "deleted_byte_count":
+		case "DeletedByteCount", "deleted_byte_count":
 			v.DeletedBytes, _ = strconv.ParseUint(val, 10, 64)
-		case "read_only":
+		case "ReadOnly", "read_only":
 			v.ReadOnly = val == "true"
-		case "modified_at_second":
+		case "ModifiedAtSecond", "modified_at_second":
 			v.ModifiedAtSec, _ = strconv.ParseInt(val, 10, 64)
-		case "replica_placement":
+		case "ReplicaPlacement", "replica_placement":
+			// "010" is a 3-digit dc-rack-node code, base 10 parse is fine.
 			n, _ := strconv.ParseUint(val, 10, 32)
 			v.ReplicaPlace = uint32(n)
-		case "disk_type":
+		case "DiskType", "disk_type":
 			v.DiskType = val
-		case "remote_storage_name":
+		case "RemoteStorageName", "remote_storage_name":
 			v.RemoteStorageName = val
-		case "remote_storage_key":
+		case "RemoteStorageKey", "remote_storage_key":
 			v.RemoteStorageKey = val
 		}
 	}
