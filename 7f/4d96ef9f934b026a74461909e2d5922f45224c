@@ -1,0 +1,11 @@
+seaweedfs-tiering-controller/web/lib/i18n.ts
+  ai_agent 75-77
+seaweedfs-tiering-controller/web/app/ops/page.tsx
+  ai_agent 6,8,312-314,440-466
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "7f4d96ef9f934b026a74461909e2d5922f45224c",
+  "prompts": {}
+}
