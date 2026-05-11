@@ -187,7 +187,16 @@ export default function VolumesPage() {
   const clearAll = () => { setClusterID(""); setCollection(""); setDiskType(""); setReadFilter("all"); setText(""); };
 
   return (
-    <div className="space-y-5">
+    // When charts are open we lay out the page as a 2-column grid:
+    // every direct child stays in col 1 (stacked with row gap = 1.25rem,
+    // matching space-y-5) except the <aside> charts panel, which the
+    // arbitrary-variant rules below pull into col 2 spanning every row.
+    // When closed we fall back to the original space-y-5 stack so the
+    // aside (which renders to null) doesn't leave a hole.
+    <div className={chartsOpen
+      ? "grid grid-cols-[minmax(0,1fr)_minmax(0,440px)] gap-5 items-start [&>*]:col-start-1 [&>aside]:col-start-2 [&>aside]:row-start-1 [&>aside]:row-span-full"
+      : "space-y-5"
+    }>
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{t("Volumes")}</h1>
@@ -277,11 +286,15 @@ export default function VolumesPage() {
         </div>
       </section>
 
-      {/* Charts moved into a right-side drawer — the table is the
-          primary surface, charts open on demand and stay docked while
-          the operator works the list. */}
+      {/* Charts panel — see the flex row below that wraps the table.
+          When open it docks inline to the right of the table instead
+          of floating over it, so the operator can scan visuals + row
+          actions on the same page. */}
       {chartsOpen && (
-        <aside className="fixed top-0 right-0 z-40 h-screen w-[420px] xl:w-[480px] border-l border-border bg-panel/95 backdrop-blur shadow-2xl flex flex-col">
+        // col-start-2 placement comes from the parent's arbitrary
+        // variant; sticky keeps the chart panel pinned while the
+        // operator scrolls the table on the left.
+        <aside className="card flex flex-col sticky top-16 max-h-[calc(100vh-5rem)]">
           <header className="flex items-center justify-between px-4 py-3 border-b border-border/60">
             <h2 className="text-sm font-medium inline-flex items-center gap-2">
               <BarChart3 size={14}/> {t("Charts")}
