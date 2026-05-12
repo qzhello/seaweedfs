@@ -4,9 +4,10 @@ import { useHolidays } from "@/lib/api";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
-export function TrendChart({ points, title = "Reads / Writes" }: {
+export function TrendChart({ points, title = "Reads / Writes", height = 320 }: {
   points: { bucket: string; reads: number; writes: number; bytes_read: number }[];
   title?: string;
+  height?: number;
 }) {
   const { data: holidays } = useHolidays();
   const xs = points.map(p => new Date(p.bucket).toLocaleString());
@@ -27,7 +28,7 @@ export function TrendChart({ points, title = "Reads / Writes" }: {
     });
 
   return (
-    <ReactECharts style={{ height: 320 }} option={{
+    <ReactECharts style={{ height }} option={{
       backgroundColor: "transparent",
       title: { text: title, left: 0, textStyle: { color: "#ddd", fontSize: 12 } },
       tooltip: { trigger: "axis" },

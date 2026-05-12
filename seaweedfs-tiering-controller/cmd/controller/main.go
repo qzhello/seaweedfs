@@ -179,6 +179,12 @@ func main() {
 
 	resolver := auth.NewResolver(pg.Pool)
 	capsLoader := auth.NewCapsLoader(pg.Pool)
+	// First-boot seeding: if admin@local has no password_hash yet,
+	// install bcrypt("admin"). must_reset_password stays TRUE so the
+	// operator is forced to change it before any real work.
+	if err := auth.EnsureSeedAdminPassword(rootCtx, pg.Pool); err != nil {
+		logger.Warn("seed admin password", zap.Error(err))
+	}
 
 	// Dev-mode header shortcut is allowed only when the listener is loopback.
 	devAuth := strings.HasPrefix(cfg.Server.HTTPAddr, "127.0.0.1:") ||

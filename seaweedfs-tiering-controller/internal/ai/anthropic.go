@@ -95,6 +95,61 @@ func (a *Anthropic) Predict(_ context.Context, f map[string]float64) (float64, e
 	return (&Rule{}).Predict(nil, f)
 }
 
+// Chat drives a multi-turn assistant conversation with a custom system prompt.
+// Used by the floating operator-assistant feature.
+func (a *Anthropic) Chat(ctx context.Context, system string, messages []ChatMessage) (string, error) {
+	msgs := make([]map[string]any, 0, len(messages))
+	for _, m := range messages {
+		role := m.Role
+		if role != "user" && role != "assistant" {
+			role = "user"
+		}
+		msgs = append(msgs, map[string]any{"role": role, "content": m.Content})
+	}
+	body, _ := json.Marshal(map[string]any{
+		"model":       a.model,
+		"max_tokens":  2048,
+		"temperature": 0.3,
+		"system":      system,
+		"messages":    msgs,
+	})
+	endpoint := a.baseURL
+	if endpoint == "" {
+		endpoint = "https://api.anthropic.com"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		strings.TrimRight(endpoint, "/")+"/v1/messages", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("build anthropic request: %w", err)
+	}
+	req.Header.Set("x-api-key", a.apiKey)
+	req.Header.Set("anthropic-version", "2023-06-01")
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := a.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("anthropic call: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		return "", fmt.Errorf("anthropic status %d", resp.StatusCode)
+	}
+	var out struct {
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", fmt.Errorf("decode anthropic response: %w", err)
+	}
+	for _, c := range out.Content {
+		if c.Type == "text" {
+			return strings.TrimSpace(c.Text), nil
+		}
+	}
+	return "", fmt.Errorf("anthropic empty response")
+}
+
 // JSONChat issues a raw prompt and returns the assistant text. Used by the
 // aireview orchestrator to drive structured-JSON prompts.
 func (a *Anthropic) JSONChat(ctx context.Context, prompt string) (string, error) {

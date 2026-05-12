@@ -72,6 +72,34 @@ func deleteCluster(d Deps) gin.HandlerFunc {
 	}
 }
 
+// Physical disk usage for one cluster. Aggregates each volume server's
+// /status JSON (the byte counters /metrics also exposes), bypassing the
+// master's slot-only view. Cached for 30s inside the seaweed client.
+//
+// Honours ?refresh=1 to bypass the cache when the operator just made a
+// change and wants the freshest number.
+func clusterDiskUsage(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad id"})
+			return
+		}
+		cl, err := d.PG.GetCluster(c.Request.Context(), id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		force := c.Query("refresh") == "1"
+		du, err := d.Sw.FetchClusterDiskUsage(c.Request.Context(), cl.MasterAddr, force)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, du)
+	}
+}
+
 // Topology drilldown for one cluster.
 func clusterTopology(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {

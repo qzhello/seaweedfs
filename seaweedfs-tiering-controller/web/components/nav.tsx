@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import {
-  LayoutDashboard, Database, Server, ShieldCheck, ListChecks, History, Sparkles, ScrollText, CalendarDays, SlidersHorizontal, Cloud, Activity, Bell, ShieldAlert, Tv, Wrench, Layers, Brain, Languages, Terminal, Box, Boxes, PanelLeftClose, PanelLeftOpen, Key, Scale, Plus, Trash2, HardDriveDownload, Copy, LogOut, UserCog, Zap, Eraser,
+  LayoutDashboard, Database, Server, ShieldCheck, ListChecks, History, Sparkles, ScrollText, CalendarDays, SlidersHorizontal, Cloud, Activity, Bell, ShieldAlert, Tv, Wrench, Layers, Brain, Languages, Terminal, Box, Boxes, PanelLeftClose, PanelLeftOpen, Key, Scale, Plus, Trash2, HardDriveDownload, Copy, LogOut, UserCog, Zap, Eraser, ChevronDown,
   type LucideIcon,
 } from "lucide-react";
 import { useCaps } from "@/lib/caps-context";
@@ -115,6 +115,22 @@ const GROUPS: NavGroup[] = [
 ];
 
 const NAV_COLLAPSED_KEY = "tier.nav.collapsed";
+const NAV_GROUP_COLLAPSED_KEY = "tier.nav.groups.collapsed";
+
+// Groups that start collapsed by default. Overview/Storage stay open so
+// the operator lands on something useful; everything else folds to keep
+// the rail short on smaller laptops.
+const DEFAULT_OPEN = new Set(["Overview", "Storage"]);
+
+function loadCollapsedGroups(): Record<string, boolean> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(NAV_GROUP_COLLAPSED_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, boolean>) : {};
+  } catch {
+    return {};
+  }
+}
 
 export function Nav() {
   const path = usePathname();
@@ -151,6 +167,25 @@ export function Nav() {
     window.addEventListener("tier:nav-collapse", handler);
     return () => window.removeEventListener("tier:nav-collapse", handler);
   }, []);
+  // Per-group folding. A group is "collapsed" if either the saved map
+  // says so, or there's no saved entry AND the group isn't in DEFAULT_OPEN.
+  // Active route always forces its group open so the operator never has
+  // to hunt for where they are.
+  const [groupCollapsed, setGroupCollapsed] = useState<Record<string, boolean>>({});
+  useEffect(() => { setGroupCollapsed(loadCollapsedGroups()); }, []);
+  const isGroupCollapsed = (label: string) => {
+    const v = groupCollapsed[label];
+    if (typeof v === "boolean") return v;
+    return !DEFAULT_OPEN.has(label);
+  };
+  const toggleGroup = (label: string) => {
+    setGroupCollapsed(prev => {
+      const next = { ...prev, [label]: !isGroupCollapsed(label) };
+      try { localStorage.setItem(NAV_GROUP_COLLAPSED_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
+
   const toggleCollapsed = () => {
     setCollapsedRaw(c => {
       const next = !c;
@@ -185,6 +220,23 @@ export function Nav() {
     router.prefetch(href);
   };
 
+  // Pick the single most-specific item to highlight. Naive startsWith
+  // lights up both /volumes and /volumes/balance when the operator is
+  // on /volumes/balance — confusing. We score every item by how long
+  // its href matches the current path (treating "/" specially) and
+  // pick the longest hit. Ties don't happen because hrefs are unique.
+  const activeHref = (() => {
+    let best = "";
+    for (const g of visibleGroups) {
+      for (const it of g.items) {
+        const h = it.href;
+        const matches = h === "/" ? path === "/" : (path === h || path?.startsWith(h + "/"));
+        if (matches && h.length > best.length) best = h;
+      }
+    }
+    return best;
+  })();
+
   return (
     <aside className={cn(
       "shrink-0 border-r border-border bg-panel/60 backdrop-blur min-h-screen flex flex-col transition-[width] duration-150",
@@ -207,36 +259,49 @@ export function Nav() {
         </button>
       </div>
       <nav className={cn("flex flex-col flex-1 overflow-y-auto", collapsed ? "gap-1 items-center" : "gap-3")}>
-        {visibleGroups.map((g) => (
-          <div key={g.label} className={cn("flex flex-col w-full", collapsed ? "gap-0.5 items-center" : "gap-0.5")}>
-            {!collapsed && (
-              <div className="px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted/70">
-                {t(g.label)}
-              </div>
-            )}
-            {g.items.map((it) => {
-              const active = path === it.href || (it.href !== "/" && path.startsWith(it.href));
-              const I = it.icon;
-              return (
-                <Link key={it.href} href={it.href} prefetch
-                  onMouseEnter={() => warm(it.href)}
-                  onFocus={() => warm(it.href)}
-                  onTouchStart={() => warm(it.href)}
-                  title={collapsed ? t(it.label) : undefined}
-                  className={cn(
-                    "rounded-md text-sm transition-colors",
-                    collapsed
-                      ? "flex items-center justify-center w-10 h-9"
-                      : "flex items-center gap-2 px-3 py-1.5",
-                    active ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2 hover:text-text"
-                  )}>
-                  <I size={16} />
-                  {!collapsed && t(it.label)}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
+        {visibleGroups.map((g) => {
+          // A group containing the active route is force-opened so the
+          // operator doesn't see their current location hidden behind a
+          // chevron. In icon-rail mode every group is fully expanded since
+          // there's no header to click anyway.
+          const hasActive = g.items.some(it => it.href === activeHref);
+          const folded = !collapsed && !hasActive && isGroupCollapsed(g.label);
+          return (
+            <div key={g.label} className={cn("flex flex-col w-full", collapsed ? "gap-0.5 items-center" : "gap-0.5")}>
+              {!collapsed && (
+                <button
+                  onClick={() => toggleGroup(g.label)}
+                  className="flex items-center justify-between w-full px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted/70 hover:text-text"
+                  title={folded ? t("Expand group") : t("Collapse group")}
+                >
+                  <span>{t(g.label)}</span>
+                  <ChevronDown size={12} className={cn("transition-transform", folded ? "-rotate-90" : "")} />
+                </button>
+              )}
+              {!folded && g.items.map((it) => {
+                const active = it.href === activeHref;
+                const I = it.icon;
+                return (
+                  <Link key={it.href} href={it.href} prefetch
+                    onMouseEnter={() => warm(it.href)}
+                    onFocus={() => warm(it.href)}
+                    onTouchStart={() => warm(it.href)}
+                    title={collapsed ? t(it.label) : undefined}
+                    className={cn(
+                      "rounded-md text-sm transition-colors",
+                      collapsed
+                        ? "flex items-center justify-center w-10 h-9"
+                        : "flex items-center gap-2 px-3 py-1.5",
+                      active ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2 hover:text-text"
+                    )}>
+                    <I size={16} />
+                    {!collapsed && t(it.label)}
+                  </Link>
+                );
+              })}
+            </div>
+          );
+        })}
       </nav>
       {/* Language toggle pinned to the bottom of the sidebar. */}
       <div className={cn("mt-3", collapsed ? "px-1" : "px-1")}>

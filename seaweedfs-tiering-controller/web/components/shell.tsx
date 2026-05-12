@@ -2,10 +2,29 @@
 import { Nav } from "@/components/nav";
 import { ClusterSwitcher } from "@/components/cluster-switcher";
 import { UserMenu } from "@/components/user-menu";
+import { FloatingAssistant } from "@/components/assistant/floating-assistant";
 import { ClusterProvider } from "@/lib/cluster-context";
-import { CapsProvider } from "@/lib/caps-context";
-import { usePathname } from "next/navigation";
+import { CapsProvider, useCaps } from "@/lib/caps-context";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect } from "react";
 import { SWRConfig } from "swr";
+
+// ForcePasswordReset redirects to /account/password whenever the
+// active user has must_reset_password=true and isn't already on the
+// reset page. Keeps the rest of the app inert until the operator
+// rotates the seed password.
+function ForcePasswordReset() {
+  const { me, loading } = useCaps();
+  const router = useRouter();
+  const path = usePathname();
+  useEffect(() => {
+    if (loading || !me) return;
+    if (me.must_reset_password && !path?.startsWith("/account/password")) {
+      router.replace("/account/password");
+    }
+  }, [me, loading, path, router]);
+  return null;
+}
 
 // Shell renders the sidebar+main layout for everything except the /login page.
 // SWRConfig at this level is what makes page navigation feel instant: every
@@ -38,6 +57,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       }}
     >
       <CapsProvider>
+       <ForcePasswordReset/>
        <ClusterProvider>
         <div className="flex min-h-screen">
           <Nav />
@@ -52,6 +72,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <main className="flex-1 px-8 py-6 max-w-[1600px]">{children}</main>
           </div>
         </div>
+        <FloatingAssistant />
        </ClusterProvider>
       </CapsProvider>
     </SWRConfig>

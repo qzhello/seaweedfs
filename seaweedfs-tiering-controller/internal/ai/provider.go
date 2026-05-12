@@ -18,12 +18,21 @@ type ExplainInput struct {
 	Features   map[string]float64
 }
 
+// ChatMessage is one turn in a multi-turn assistant conversation.
+type ChatMessage struct {
+	Role    string // "user" or "assistant"
+	Content string
+}
+
 // Provider is the small surface every AI implementation must satisfy.
 type Provider interface {
 	Name() string
 	Explain(ctx context.Context, in ExplainInput) (string, error)
 	// Predict returns a future-access probability in [0,1]. May be a no-op for rule providers.
 	Predict(ctx context.Context, features map[string]float64) (float64, error)
+	// Chat drives a multi-turn conversation with an explicit system prompt.
+	// Used by the floating operator assistant.
+	Chat(ctx context.Context, system string, messages []ChatMessage) (string, error)
 }
 
 // Build resolves the configured provider, then wraps it with Prometheus

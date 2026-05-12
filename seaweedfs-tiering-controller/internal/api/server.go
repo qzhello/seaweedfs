@@ -89,6 +89,12 @@ func Router(d Deps) *gin.Engine {
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
 
+	// /auth/login is the one v1 endpoint that must NOT require auth — it
+	// trades credentials for a token. It still gets rate-limited (4 rps
+	// per IP) so brute-force is annoying without locking real users out.
+	publicAuth := r.Group("/api/v1/auth", RateLimit(4, 8))
+	publicAuth.POST("/login", authLogin(d))
+
 	v1 := r.Group("/api/v1",
 		auth.Middleware(d.Resolver, d.DevAuth),
 		RateLimit(20, 40), // 20 rps sustained, 40 burst per principal
@@ -99,6 +105,7 @@ func Router(d Deps) *gin.Engine {
 		// /auth/me lets the frontend boot-strap caps without an extra
 		// fetch per page; /permissions is admin-only edit surface.
 		v1.GET("/auth/me", authMe(d))
+		v1.POST("/auth/password", authChangePassword(d))
 		v1.GET("/permissions", auth.RequireCap(d.Caps, "permissions.write"), listPermissions(d))
 		v1.PUT("/permissions/:role", auth.RequireCap(d.Caps, "permissions.write"), setRolePermissions(d))
 
@@ -170,6 +177,20 @@ func Router(d Deps) *gin.Engine {
 		admin.POST("/tasks/:id/review", runTaskReview(d))
 		v1.GET("/ai/learning", learningSummary(d))
 
+		// --- AI floating assistant (024) ---
+		v1.GET("/ai/assistant/chats",
+			auth.RequireCap(d.Caps, "ai.assistant"), listAssistantChats(d))
+		v1.POST("/ai/assistant/chats",
+			auth.RequireCap(d.Caps, "ai.assistant"), createAssistantChat(d))
+		v1.PUT("/ai/assistant/chats/:id",
+			auth.RequireCap(d.Caps, "ai.assistant"), renameAssistantChat(d))
+		v1.DELETE("/ai/assistant/chats/:id",
+			auth.RequireCap(d.Caps, "ai.assistant"), deleteAssistantChat(d))
+		v1.GET("/ai/assistant/chats/:id/messages",
+			auth.RequireCap(d.Caps, "ai.assistant"), listAssistantMessages(d))
+		v1.POST("/ai/assistant/chats/:id/messages",
+			auth.RequireCap(d.Caps, "ai.assistant"), postAssistantMessage(d))
+
 		v1.GET("/ai/providers", listAIProvidersV2(d))
 		admin.PUT("/ai/providers", upsertAIProvider(d))
 		admin.DELETE("/ai/providers/:id", deleteAIProvider(d))
@@ -203,6 +224,7 @@ func Router(d Deps) *gin.Engine {
 		v1.GET("/clusters/:id/collections", listCollections(d))
 
 		v1.GET("/clusters/:id/topology", clusterTopology(d))
+		v1.GET("/clusters/:id/disk", clusterDiskUsage(d))
 		v1.GET("/clusters/:id/tags", listTags(d))
 		admin.PUT("/clusters/:id/tags", upsertTag(d))
 		admin.DELETE("/tags/:id", deleteTag(d))

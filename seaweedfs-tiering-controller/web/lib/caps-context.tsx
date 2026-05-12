@@ -17,6 +17,7 @@ interface Me {
   email: string;
   role: string;
   capabilities: string[];
+  must_reset_password?: boolean;
 }
 
 interface CapsContextValue {
@@ -33,7 +34,10 @@ const Ctx = createContext<CapsContextValue>({
   hasAny: () => false,
 });
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8080";
+// Same relative base as lib/api.ts so this fetch hits the Next dev
+// rewrite (and the same-origin production path) instead of trying to
+// reach the controller directly on a hard-coded port.
+const API_BASE = "/api/v1";
 
 export function CapsProvider({ children }: { children: ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
@@ -44,14 +48,11 @@ export function CapsProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const headers: Record<string, string> = {};
-        // Dev mode: the controller accepts X-User on loopback. Production
-        // bearer auth is handled by the api wrapper but for the boot
-        // request we read the token from the same place.
         if (typeof window !== "undefined") {
           const token = window.localStorage.getItem("tier.token");
           if (token) headers["Authorization"] = `Bearer ${token}`;
         }
-        const r = await fetch(`${API_BASE}/api/v1/auth/me`, { headers, credentials: "include" });
+        const r = await fetch(`${API_BASE}/auth/me`, { headers });
         if (!r.ok) throw new Error(`${r.status}`);
         const data = (await r.json()) as Me;
         if (!cancelled) setMe(data);

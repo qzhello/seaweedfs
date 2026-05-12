@@ -112,6 +112,11 @@ export function useExecution(id?: string) {
 export function useAIProviders()   { return useSWR(`${BASE}/ai/providers`, fetcher); }
 export function useClusters()      { return useSWR(`${BASE}/clusters`,   fetcher); }
 export function useClusterTopology(id?: string) { return useSWR(id ? `${BASE}/clusters/${id}/topology` : null, fetcher); }
+// Real-bytes physical disk usage. Backend fan-outs to each volume server's
+// /status and 30s-caches the aggregate; we refresh on the same cadence.
+export function useClusterDisk(id?: string) {
+  return useSWR(id ? `${BASE}/clusters/${id}/disk` : null, fetcher, { refreshInterval: 30000 });
+}
 export function useClusterTags(id?: string)     { return useSWR(id ? `${BASE}/clusters/${id}/tags` : null, fetcher); }
 export function useHolidays()      { return useSWR(`${BASE}/holidays`, fetcher); }
 

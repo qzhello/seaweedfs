@@ -104,6 +104,54 @@ func (o *OpenAICompat) Predict(_ context.Context, f map[string]float64) (float64
 	return (&Rule{}).Predict(nil, f)
 }
 
+// Chat drives a multi-turn conversation with an explicit system prompt.
+// Used by the floating operator-assistant feature.
+func (o *OpenAICompat) Chat(ctx context.Context, system string, messages []ChatMessage) (string, error) {
+	msgs := make([]map[string]string, 0, len(messages)+1)
+	if system != "" {
+		msgs = append(msgs, map[string]string{"role": "system", "content": system})
+	}
+	for _, m := range messages {
+		role := m.Role
+		if role != "user" && role != "assistant" {
+			role = "user"
+		}
+		msgs = append(msgs, map[string]string{"role": role, "content": m.Content})
+	}
+	body, _ := json.Marshal(map[string]any{
+		"model":       o.model,
+		"temperature": 0.3,
+		"max_tokens":  2048,
+		"messages":    msgs,
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, o.baseURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("build %s request: %w", o.label, err)
+	}
+	req.Header.Set("Authorization", "Bearer "+o.apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := o.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("%s call: %w", o.label, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode/100 != 2 {
+		buf := make([]byte, 256)
+		n, _ := resp.Body.Read(buf)
+		return "", fmt.Errorf("%s status %d: %s", o.label, resp.StatusCode, strings.TrimSpace(string(buf[:n])))
+	}
+	var out struct {
+		Choices []struct{ Message struct{ Content string } }
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", fmt.Errorf("decode %s: %w", o.label, err)
+	}
+	if len(out.Choices) == 0 {
+		return "", fmt.Errorf("%s empty response", o.label)
+	}
+	return strings.TrimSpace(out.Choices[0].Message.Content), nil
+}
+
 // JSONChat issues a freeform prompt and returns the raw assistant message.
 // Used by the multi-round AI review orchestrator to drive structured prompts
 // without forcing them through Explain's fixed template.

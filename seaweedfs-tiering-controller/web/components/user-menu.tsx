@@ -7,7 +7,8 @@
 // server-side session to invalidate.
 
 import { useEffect, useRef, useState } from "react";
-import { LogOut, User as UserIcon, ChevronDown } from "lucide-react";
+import { LogOut, User as UserIcon, ChevronDown, KeyRound } from "lucide-react";
+import Link from "next/link";
 import { useCaps } from "@/lib/caps-context";
 import { setToken } from "@/lib/api";
 import { useT } from "@/lib/i18n";
@@ -69,6 +70,13 @@ export function UserMenu() {
               {me.role} · {me.capabilities.length} {t("capabilities")}
             </div>
           </div>
+          <Link
+            href="/account/password"
+            onClick={() => setOpen(false)}
+            className="w-full text-left px-3 py-1.5 rounded text-xs inline-flex items-center gap-2 text-muted hover:text-text hover:bg-panel2/60"
+          >
+            <KeyRound size={12}/> {t("Change password")}
+          </Link>
           <button
             onClick={signOut}
             className="w-full text-left px-3 py-1.5 rounded text-xs inline-flex items-center gap-2 text-rose-300 hover:bg-rose-400/10"

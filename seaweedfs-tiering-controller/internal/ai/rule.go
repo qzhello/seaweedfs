@@ -19,6 +19,12 @@ func (r *Rule) Explain(_ context.Context, in ExplainInput) (string, error) {
 		in.VolumeID, in.Action, in.Score, parts), nil
 }
 
+// Chat returns a fixed message instructing the operator to configure an AI
+// provider before using the floating assistant.
+func (r *Rule) Chat(_ context.Context, _ string, _ []ChatMessage) (string, error) {
+	return "AI provider is not configured. Please configure an AI provider in /ai-config before using the assistant.", nil
+}
+
 func (r *Rule) Predict(_ context.Context, f map[string]float64) (float64, error) {
 	// crude logistic on access decay
 	x := f["last_access_decay"]*2 + f["access_count_30d"]*1.5 - 1.0

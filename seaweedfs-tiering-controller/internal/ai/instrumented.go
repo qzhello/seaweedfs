@@ -28,6 +28,17 @@ func (i *instrumented) Explain(ctx context.Context, in ExplainInput) (string, er
 	return out, err
 }
 
+func (i *instrumented) Chat(ctx context.Context, system string, messages []ChatMessage) (string, error) {
+	start := time.Now()
+	out, err := i.inner.Chat(ctx, system, messages)
+	metrics.AIDuration.WithLabelValues(i.inner.Name(), "chat").
+		Observe(time.Since(start).Seconds())
+	if err != nil {
+		metrics.AIErrors.WithLabelValues(i.inner.Name(), "chat").Inc()
+	}
+	return out, err
+}
+
 func (i *instrumented) Predict(ctx context.Context, f map[string]float64) (float64, error) {
 	start := time.Now()
 	out, err := i.inner.Predict(ctx, f)
