@@ -2,6 +2,7 @@
 import { Nav } from "@/components/nav";
 import { ClusterSwitcher } from "@/components/cluster-switcher";
 import { ClusterProvider } from "@/lib/cluster-context";
+import { CapsProvider } from "@/lib/caps-context";
 import { usePathname } from "next/navigation";
 import { SWRConfig } from "swr";
 
@@ -35,7 +36,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
         errorRetryInterval: 3_000,
       }}
     >
-      <ClusterProvider>
+      <CapsProvider>
+       <ClusterProvider>
         <div className="flex min-h-screen">
           <Nav />
           <div className="flex-1 flex flex-col min-w-0">
@@ -48,7 +50,8 @@ export function Shell({ children }: { children: React.ReactNode }) {
             <main className="flex-1 px-8 py-6 max-w-[1600px]">{children}</main>
           </div>
         </div>
-      </ClusterProvider>
+       </ClusterProvider>
+      </CapsProvider>
     </SWRConfig>
   );
 }

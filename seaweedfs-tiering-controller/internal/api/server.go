@@ -36,6 +36,7 @@ type Deps struct {
 	AI        ai.Provider
 	Snapshot  *runtime.Snapshot
 	Resolver  *auth.Resolver
+	Caps      *auth.CapsLoader
 	Gate      *health.Gate
 	Alerts    *alerter.Dispatcher
 	Guard     *safety.Guard
@@ -94,8 +95,54 @@ func Router(d Deps) *gin.Engine {
 	)
 	admin := v1.Group("", auth.RequireRole(auth.RoleAdmin), RateLimit(5, 10))
 	{
+		// --- Auth + capabilities (022) ---
+		// /auth/me lets the frontend boot-strap caps without an extra
+		// fetch per page; /permissions is admin-only edit surface.
+		v1.GET("/auth/me", authMe(d))
+		v1.GET("/permissions", auth.RequireCap(d.Caps, "permissions.write"), listPermissions(d))
+		v1.PUT("/permissions/:role", auth.RequireCap(d.Caps, "permissions.write"), setRolePermissions(d))
+
 		v1.GET("/volumes", listVolumes(d))
 		v1.GET("/volumes/heatmap", heatmap(d))
+
+		// --- Volume operations (022/Phase 2) ---
+		// Each one is a higher-level wrapper around `weed shell` with
+		// structured parsing + per-feature capability gate so admins
+		// can hand them out individually.
+		v1.POST("/clusters/:id/volume/balance/plan",
+			auth.RequireCap(d.Caps, "volume.balance"), volumeBalancePlan(d))
+		v1.POST("/clusters/:id/volume/grow",
+			auth.RequireCap(d.Caps, "volume.grow"), volumeGrow(d))
+		v1.POST("/clusters/:id/volume/delete-empty",
+			auth.RequireCap(d.Caps, "volume.delete-empty"), volumeDeleteEmpty(d))
+
+		// --- Cluster operations (Phase 3) ---
+		v1.POST("/clusters/:id/check-disk",
+			auth.RequireCap(d.Caps, "volume.check-disk"), clusterCheckDisk(d))
+		v1.POST("/clusters/:id/replication",
+			auth.RequireCap(d.Caps, "cluster.replication.configure"), clusterConfigureReplication(d))
+		v1.POST("/clusters/:id/volume-server/leave",
+			auth.RequireCap(d.Caps, "cluster.volume-server.leave"), clusterVolumeServerLeave(d))
+
+		// --- S3 (Phase 4) ---
+		v1.GET("/clusters/:id/s3/identities",
+			auth.RequireCap(d.Caps, "s3.configure"), s3ListIdentities(d))
+		v1.PUT("/clusters/:id/s3/identities",
+			auth.RequireCap(d.Caps, "s3.configure"), s3UpsertIdentity(d))
+		v1.DELETE("/clusters/:id/s3/identities/:user",
+			auth.RequireCap(d.Caps, "s3.configure"), s3DeleteIdentity(d))
+		v1.POST("/clusters/:id/s3/bucket/delete",
+			auth.RequireCap(d.Caps, "s3.bucket.delete"), s3BucketDelete(d))
+		v1.POST("/clusters/:id/s3/bucket/owner",
+			auth.RequireCap(d.Caps, "s3.bucket.owner"), s3BucketOwner(d))
+		v1.POST("/clusters/:id/s3/bucket/quota",
+			auth.RequireCap(d.Caps, "s3.bucket.quota"), s3BucketQuota(d))
+		v1.POST("/clusters/:id/s3/bucket/quota-enforce",
+			auth.RequireCap(d.Caps, "s3.bucket.quota.enforce"), s3BucketQuotaEnforce(d))
+		v1.POST("/clusters/:id/s3/circuit-breaker",
+			auth.RequireCap(d.Caps, "s3.circuit-breaker"), s3CircuitBreaker(d))
+		v1.POST("/clusters/:id/s3/clean-uploads",
+			auth.RequireCap(d.Caps, "s3.clean-uploads"), s3CleanUploads(d))
 		v1.GET("/volumes/:id/features", volumeFeatures(d))
 		v1.GET("/volumes/:id/score", scoreOne(d))
 

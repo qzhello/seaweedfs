@@ -48,6 +48,13 @@ const BUCKET_ACTIONS: ShellAction<BucketRow>[] = [
     },
   },
   {
+    key: "owner", label: "Change owner", command: "s3.bucket.owner", risk: "mutate",
+    fields: [
+      { key: "owner", label: "Owner identity", required: true, help: "Identity name from /s3/configure." },
+    ],
+    buildArgs: (b, x) => `-bucket=${b.name} -owner=${x.owner}`,
+  },
+  {
     key: "delete", label: "Delete bucket", command: "s3.bucket.delete", risk: "destructive",
     buildArgs: (b) => `-name=${b.name}`,
   },
@@ -76,7 +83,7 @@ export default function BucketsPage() {
     <div className="space-y-5">
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight inline-flex items-center gap-2">
+          <h1 className="text-base font-semibold tracking-tight inline-flex items-center gap-2">
             {/* lucide-react doesn't ship a "Bucket" icon — use Database as the closest match */}
             <Database size={20}/> {t("Buckets")}
           </h1>

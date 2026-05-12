@@ -14,7 +14,7 @@ export default function HolidaysPage() {
   return (
     <div className="space-y-6">
       <header className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2"><CalendarDays size={20}/> Holiday calendar (CN)</h1>
+        <h1 className="text-base font-semibold tracking-tight flex items-center gap-2"><CalendarDays size={20}/> Holiday calendar (CN)</h1>
         <div className="flex items-center gap-2">
           {inFreeze && (
             <div className="badge border-warning/40 text-warning">

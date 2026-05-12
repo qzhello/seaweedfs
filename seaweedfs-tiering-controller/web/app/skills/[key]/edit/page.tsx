@@ -119,7 +119,7 @@ export default function EditSkillPage() {
       ]}/>
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="text-base font-semibold tracking-tight">
             Edit <span className="font-mono text-base text-accent">{skill.key}</span>
             <span className="text-muted ml-2 text-base">v{skill.version} → v{skill.version + 1}</span>
           </h1>

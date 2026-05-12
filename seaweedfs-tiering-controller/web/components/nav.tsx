@@ -5,11 +5,12 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import {
-  LayoutDashboard, Database, Server, ShieldCheck, ListChecks, History, Sparkles, ScrollText, CalendarDays, SlidersHorizontal, Cloud, Activity, Bell, ShieldAlert, Tv, Wrench, Layers, Brain, Languages, Terminal, Box, Boxes, PanelLeftClose, PanelLeftOpen,
+  LayoutDashboard, Database, Server, ShieldCheck, ListChecks, History, Sparkles, ScrollText, CalendarDays, SlidersHorizontal, Cloud, Activity, Bell, ShieldAlert, Tv, Wrench, Layers, Brain, Languages, Terminal, Box, Boxes, PanelLeftClose, PanelLeftOpen, Key, Scale, Plus, Trash2, HardDriveDownload, Copy, LogOut, UserCog, Zap, Eraser,
   type LucideIcon,
 } from "lucide-react";
+import { useCaps } from "@/lib/caps-context";
 
-type NavItem = { href: string; label: string; icon: LucideIcon };
+type NavItem = { href: string; label: string; icon: LucideIcon; cap?: string };
 type NavGroup = { label: string; items: NavItem[] };
 
 // Nav groups follow the operator's mental model:
@@ -34,19 +35,43 @@ const GROUPS: NavGroup[] = [
   {
     label: "Storage",
     items: [
-      { href: "/clusters",    label: "Clusters",    icon: Server },
-      { href: "/volumes",     label: "Volumes",     icon: Database },
-      { href: "/buckets",     label: "Buckets",     icon: Box },
-      { href: "/collections", label: "Collections", icon: Boxes },
+      { href: "/clusters",    label: "Clusters",    icon: Server,  cap: "cluster.read" },
+      { href: "/volumes",     label: "Volumes",     icon: Database, cap: "volume.read" },
+      { href: "/collections", label: "Collections", icon: Boxes,    cap: "volume.read" },
       { href: "/backends",    label: "Backends",    icon: Cloud },
       { href: "/cohort",      label: "Cohort",      icon: Layers },
     ],
   },
   {
+    label: "Volume Ops",
+    items: [
+      { href: "/volumes/balance",      label: "Balance",       icon: Scale,  cap: "volume.balance" },
+      { href: "/volumes/grow",         label: "Grow",          icon: Plus,   cap: "volume.grow" },
+      { href: "/volumes/delete-empty", label: "Delete empty",  icon: Trash2, cap: "volume.delete-empty" },
+    ],
+  },
+  {
+    label: "Cluster Ops",
+    items: [
+      { href: "/clusters/check-disk",  label: "Check disk",    icon: HardDriveDownload, cap: "volume.check-disk" },
+      { href: "/clusters/replication", label: "Replication",   icon: Copy,              cap: "cluster.replication.configure" },
+      { href: "/clusters/leave",       label: "Drain server",  icon: LogOut,            cap: "cluster.volume-server.leave" },
+    ],
+  },
+  {
+    label: "S3",
+    items: [
+      { href: "/buckets",            label: "Buckets",          icon: Box,        cap: "s3.read" },
+      { href: "/s3/configure",       label: "Identities",       icon: UserCog,    cap: "s3.configure" },
+      { href: "/s3/circuit-breaker", label: "Circuit breaker",  icon: Zap,        cap: "s3.circuit-breaker" },
+      { href: "/s3/clean-uploads",   label: "Clean uploads",    icon: Eraser,     cap: "s3.clean-uploads" },
+    ],
+  },
+  {
     label: "Operations",
     items: [
-      { href: "/ops",           label: "Ops Console",   icon: Terminal },
-      { href: "/ops/templates", label: "Ops Templates", icon: Sparkles },
+      { href: "/ops",           label: "Ops Console",   icon: Terminal,  cap: "ops.shell.read" },
+      { href: "/ops/templates", label: "Ops Templates", icon: Sparkles,  cap: "ops.templates.read" },
     ],
   },
   {
@@ -75,15 +100,16 @@ const GROUPS: NavGroup[] = [
   {
     label: "AI",
     items: [
-      { href: "/ai-config",   label: "AI Config",   icon: Sparkles },
-      { href: "/ai-learning", label: "AI Learning", icon: Brain },
+      { href: "/ai-config",   label: "AI Config",   icon: Sparkles, cap: "ai.config" },
+      { href: "/ai-learning", label: "AI Learning", icon: Brain,    cap: "ai.learning" },
     ],
   },
   {
     label: "System",
     items: [
-      { href: "/settings", label: "Settings", icon: SlidersHorizontal },
-      { href: "/audit",    label: "Audit",    icon: ScrollText },
+      { href: "/settings",             label: "Settings",    icon: SlidersHorizontal, cap: "settings.read" },
+      { href: "/settings/permissions", label: "Permissions", icon: Key,               cap: "permissions.write" },
+      { href: "/audit",                label: "Audit",       icon: ScrollText,        cap: "audit.read" },
     ],
   },
 ];
@@ -94,6 +120,19 @@ export function Nav() {
   const path = usePathname();
   const router = useRouter();
   const { lang, setLang, t } = useT();
+  const { has, loading: capsLoading } = useCaps();
+
+  // Hide nav items whose required capability the user lacks. Items
+  // without a `cap` field are always visible (back-compat for pages
+  // that haven't been gated yet). While /auth/me is still in flight
+  // we show everything so the operator doesn't see a flash of an
+  // empty rail.
+  const visibleGroups = GROUPS
+    .map(g => ({
+      ...g,
+      items: g.items.filter(it => !it.cap || capsLoading || has(it.cap)),
+    }))
+    .filter(g => g.items.length > 0);
 
   // Collapsed = icon-only rail. Surfaces like /volumes that open a
   // right-side drawer want all the horizontal room they can get, so
@@ -168,7 +207,7 @@ export function Nav() {
         </button>
       </div>
       <nav className={cn("flex flex-col flex-1 overflow-y-auto", collapsed ? "gap-1 items-center" : "gap-3")}>
-        {GROUPS.map((g) => (
+        {visibleGroups.map((g) => (
           <div key={g.label} className={cn("flex flex-col w-full", collapsed ? "gap-0.5 items-center" : "gap-0.5")}>
             {!collapsed && (
               <div className="px-3 pt-1 pb-0.5 text-[11px] font-semibold uppercase tracking-wider text-muted/70">

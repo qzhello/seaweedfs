@@ -32,7 +32,7 @@ export default function BackendsPage() {
     <div className="space-y-6">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+          <h1 className="text-base font-semibold tracking-tight flex items-center gap-2">
             <Cloud size={20}/> {t("Storage backends")}
           </h1>
           <p className="text-sm text-muted mt-1">{t("S3-compatible destinations the controller can upload cold-tier data to.")}</p>

@@ -52,7 +52,7 @@ export default function TasksPage() {
   return (
     <div className="space-y-6">
       <header className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold tracking-tight">{t("Tasks")}</h1>
+        <h1 className="text-base font-semibold tracking-tight">{t("Tasks")}</h1>
         <div className="flex items-center gap-2">
           <div className="inline-flex rounded-md border border-border overflow-hidden text-xs">
             {STATUSES.map(s => (

@@ -42,7 +42,7 @@ export default function ExecutionDetail() {
 
       <header className="flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <h1 className="text-base font-semibold tracking-tight">
             Execution <span className="font-mono text-base">{e.id.slice(0, 8)}…</span>
           </h1>
           {parsed.skillKey && (

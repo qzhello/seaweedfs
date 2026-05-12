@@ -28,7 +28,7 @@ export default function HealthPage() {
   return (
     <div className="space-y-6">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+        <h1 className="text-base font-semibold tracking-tight flex items-center gap-2">
           <Activity size={20}/> Health Monitoring
         </h1>
         <button className="btn btn-primary" onClick={() => setEditing(blank)}><Plus size={14}/> Add target</button>

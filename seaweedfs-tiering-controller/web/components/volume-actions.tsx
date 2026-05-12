@@ -259,9 +259,8 @@ export function VolumeActionDialog({
   const skipped = rows.length - runnable.length;
 
   const danger = action.risk === "destructive";
-  const reasonRequired = true; // every action here is at least mutate
   const fieldsOk = action.fields.every((f) => !f.required || (input[f.key] || "").trim().length > 0);
-  const canRun = !running && !done && fieldsOk && (!reasonRequired || reason.trim().length > 0) && runnable.length > 0;
+  const canRun = !running && !done && fieldsOk && runnable.length > 0;
 
   async function runAll() {
     setRunning(true);
@@ -344,9 +343,7 @@ export function VolumeActionDialog({
               </div>
             ))}
             <div className="space-y-1">
-              <label className="text-xs text-muted">
-                {t("Reason")} <span className="text-rose-400">*</span>
-              </label>
+              <label className="text-xs text-muted">{t("Reason")}</label>
               <input
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}

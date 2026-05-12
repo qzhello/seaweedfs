@@ -162,7 +162,7 @@ export default function PoliciesPage() {
     <div className="space-y-6">
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("Policies")}</h1>
+          <h1 className="text-base font-semibold tracking-tight">{t("Policies")}</h1>
           <p className="text-sm text-muted mt-1">
             {t("A policy answers: which volumes, by what rule, get moved to which tier.")}
           </p>

@@ -105,7 +105,7 @@ export default function OpsPage() {
     <div className="space-y-4">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+          <h1 className="text-base font-semibold tracking-tight flex items-center gap-2">
             <Terminal size={20}/> {t("Ops Console")}
           </h1>
           <p className="text-sm text-muted">{t("Run any weed shell command against a cluster with guided forms and audit.")}</p>
@@ -218,8 +218,7 @@ function RunPanel({ cluster, cmd }: { cluster: string; cmd: ShellCommand }) {
     setError("");
   }
 
-  const needsReason = cmd.risk !== "read";
-  const canRun = !!cluster && !running && (!needsReason || reason.trim().length > 0);
+  const canRun = !!cluster && !running;
 
   async function run() {
     setRunning(true);
@@ -287,19 +286,15 @@ function RunPanel({ cluster, cmd }: { cluster: string; cmd: ShellCommand }) {
         />
       </div>
 
-      {needsReason && (
-        <div className="space-y-1">
-          <label className="text-xs text-muted">
-            {t("Reason")} <span className="text-rose-400">*</span>
-          </label>
-          <input
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder={t("Why are you running this? (logged in audit)")}
-            className="w-full bg-panel2 border border-border rounded-md px-3 py-1.5 text-sm"
-          />
-        </div>
-      )}
+      <div className="space-y-1">
+        <label className="text-xs text-muted">{t("Reason")}</label>
+        <input
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder={t("Why are you running this? (logged in audit)")}
+          className="w-full bg-panel2 border border-border rounded-md px-3 py-1.5 text-sm"
+        />
+      </div>
 
       <div className="flex items-center justify-between pt-1">
         <div className="text-[11px] text-muted font-mono truncate flex-1 mr-3">

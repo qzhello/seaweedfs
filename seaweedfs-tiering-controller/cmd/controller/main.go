@@ -178,6 +178,7 @@ func main() {
 	defer sched.Stop()
 
 	resolver := auth.NewResolver(pg.Pool)
+	capsLoader := auth.NewCapsLoader(pg.Pool)
 
 	// Dev-mode header shortcut is allowed only when the listener is loopback.
 	devAuth := strings.HasPrefix(cfg.Server.HTTPAddr, "127.0.0.1:") ||
@@ -187,7 +188,7 @@ func main() {
 
 	router := api.Router(api.Deps{
 		PG: pg, CH: ch, Sw: sw, Exec: ex, Sched: sched, AI: provider,
-		Snapshot: snapshot, Resolver: resolver, Gate: gate, Alerts: alerts,
+		Snapshot: snapshot, Resolver: resolver, Caps: capsLoader, Gate: gate, Alerts: alerts,
 		Guard: guard, Skills: skills, Analytics: analyticsRunner,
 		AIReview: aiReviewSvc, Pressure: pressSnap, Crypto: cryptoEnc, DevAuth: devAuth, Log: logger,
 	})

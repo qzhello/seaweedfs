@@ -103,9 +103,8 @@ export function ShellActionDialog<Row>({
   const [error, setError] = useState("");
   const [output, setOutput] = useState("");
 
-  const needsReason = action.risk !== "read";
   const fieldsOk = (action.fields || []).every((f) => !f.required || (input[f.key] || "").trim().length > 0);
-  const canRun = !running && !done && fieldsOk && (!needsReason || reason.trim().length > 0);
+  const canRun = !running && !done && fieldsOk;
   const danger = action.risk === "destructive";
 
   async function run() {
@@ -116,7 +115,10 @@ export function ShellActionDialog<Row>({
         setOutput(t("Skipped (no-op)."));
       } else {
         const r = await api.runClusterShell(clusterID, { command: action.command, args, reason });
-        setOutput(r.output || t("(no output)"));
+        // Many mutating shell commands (e.g. s3.bucket.create) print
+        // nothing on success. Empty stdout + no error == done; show a
+        // clear confirmation instead of the confusing "(no output)".
+        setOutput(r.output?.trim() ? r.output : t("Done — command finished with no output."));
       }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -162,20 +164,16 @@ export function ShellActionDialog<Row>({
                 {f.help && <p className="text-[11px] text-muted">{t(f.help)}</p>}
               </div>
             ))}
-            {needsReason && (
-              <div className="space-y-1">
-                <label className="text-xs text-muted">
-                  {t("Reason")} <span className="text-rose-400">*</span>
-                </label>
-                <input
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder={t("Why are you running this? (logged in audit)")}
-                  className="w-full bg-panel2 border border-border rounded-md px-3 py-1.5 text-sm"
-                  disabled={running}
-                />
-              </div>
-            )}
+            <div className="space-y-1">
+              <label className="text-xs text-muted">{t("Reason")}</label>
+              <input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder={t("Why are you running this? (logged in audit)")}
+                className="w-full bg-panel2 border border-border rounded-md px-3 py-1.5 text-sm"
+                disabled={running}
+              />
+            </div>
           </div>
         )}
 

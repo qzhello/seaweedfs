@@ -41,7 +41,7 @@ export default function ClusterDetail() {
       <Breadcrumb items={[{ label: "Clusters", href: "/clusters" }, { label: cl.name }]}/>
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{cl.name}</h1>
+          <h1 className="text-base font-semibold tracking-tight">{cl.name}</h1>
           <p className="text-sm text-muted font-mono">{cl.master_addr}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -135,10 +135,6 @@ function ShellConsole({ clusterId, binPath }: { clusterId: string; binPath?: str
 
   const run = async () => {
     if (!preset) return;
-    if (preset.mutating && !reason.trim()) {
-      setError("Mutating commands require a reason for the audit log.");
-      return;
-    }
     if (preset.mutating && !confirm(`Run mutating command\n  ${preset.command} ${args}\non cluster master?`)) {
       return;
     }

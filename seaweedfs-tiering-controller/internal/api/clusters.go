@@ -134,19 +134,15 @@ func clusterShellExec(d Deps) gin.HandlerFunc {
 			return
 		}
 		allow := shellAllowedNames()
-		cmd, ok := allow[name]
-		if !ok {
+		if _, ok := allow[name]; !ok {
 			c.JSON(http.StatusForbidden, gin.H{
 				"error": fmt.Sprintf("command %q is not in the operator catalog; wrap it in a Skill instead", name),
 			})
 			return
 		}
-		if (cmd.Risk == "mutate" || cmd.Risk == "destructive") && strings.TrimSpace(body.Reason) == "" {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": fmt.Sprintf("command %q is %s — a reason is required for audit", name, cmd.Risk),
-			})
-			return
-		}
+		// Reason is recorded for audit but no longer required — operators
+		// often run the same command repeatedly and the modal friction was
+		// not worth the audit signal in practice.
 		cl, err := d.PG.GetCluster(c.Request.Context(), id)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
@@ -287,10 +283,7 @@ func clusterShellStream(d Deps) gin.HandlerFunc {
 			c.JSON(http.StatusForbidden, gin.H{"error": "command not in catalog"})
 			return
 		}
-		if (cmd.Risk == "mutate" || cmd.Risk == "destructive") && reason == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "reason required"})
-			return
-		}
+		// Reason optional — see clusterShell for rationale.
 		cl, err := d.PG.GetCluster(c.Request.Context(), id)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})

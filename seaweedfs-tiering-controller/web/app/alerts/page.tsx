@@ -23,7 +23,7 @@ export default function AlertsPage() {
   return (
     <div className="space-y-6">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2"><Bell size={20}/> Alerts</h1>
+        <h1 className="text-base font-semibold tracking-tight flex items-center gap-2"><Bell size={20}/> Alerts</h1>
         <div className="flex gap-1 items-center text-sm">
           {(["events","channels","rules"] as const).map(t => (
             <button key={t} className={`btn ${tab===t?"btn-primary":""}`} onClick={() => setTab(t)}>{t}</button>

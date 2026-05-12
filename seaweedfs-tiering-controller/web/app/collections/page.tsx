@@ -48,7 +48,7 @@ export default function CollectionsPage() {
     <div className="space-y-5">
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight inline-flex items-center gap-2">
+          <h1 className="text-base font-semibold tracking-tight inline-flex items-center gap-2">
             <Layers size={20}/> {t("Collections")}
           </h1>
           <div className="text-xs text-muted">

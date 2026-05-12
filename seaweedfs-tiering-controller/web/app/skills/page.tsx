@@ -97,7 +97,7 @@ export default function SkillsPage() {
     <div className="space-y-6">
       <header className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("Skills")}</h1>
+          <h1 className="text-base font-semibold tracking-tight">{t("Skills")}</h1>
           <p className="text-sm text-muted">{t("Declarative op catalog — every Skill is a playbook with preconditions, steps, postchecks, and rollback.")}</p>
         </div>
         <div className="flex items-center gap-2">

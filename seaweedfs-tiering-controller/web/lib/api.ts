@@ -56,6 +56,21 @@ async function jpost(url: string, body?: unknown, method: "POST" | "PUT" | "DELE
 // operator gets fresh data on demand instead of paying gRPC roundtrips
 // the moment the page is open. The SWRConfig in components/shell.tsx
 // keeps previously fetched data on screen so navigation stays instant.
+export interface Volume {
+  ID: number;
+  Collection?: string;
+  Size: number;
+  FileCount: number;
+  ReadOnly?: boolean;
+  DiskType?: string;
+  Server: string;
+  Rack?: string;
+  DataCenter?: string;
+  ModifiedAtSec?: number;
+  cluster_id?: string;
+  cluster_name?: string;
+}
+
 export function useSummary()       { return useSWR(`${BASE}/dashboard/summary`, fetcher); }
 export function useVolumes(clusterID?: string) {
   const url = clusterID ? `${BASE}/volumes?cluster_id=${encodeURIComponent(clusterID)}` : `${BASE}/volumes`;
@@ -278,6 +293,67 @@ export const api = {
     jpost(`${BASE}/scheduler/score-now${clusterID ? `?cluster_id=${encodeURIComponent(clusterID)}` : ""}`),
   testAI:       (b: unknown) => jpost(`${BASE}/ai/test`, b),
   upsertPolicy: (b: unknown) => jpost(`${BASE}/policies`, b, "PUT"),
+  listPermissions: async () => {
+    const r = await fetch(`${BASE}/permissions`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    return r.json() as Promise<{
+      capabilities: { name: string; category: string; label: string; description: string }[];
+      role_capabilities: { role: string; capability: string }[];
+      roles: string[];
+    }>;
+  },
+  setRolePermissions: (role: string, caps: string[]) =>
+    jpost(`${BASE}/permissions/${encodeURIComponent(role)}`, { capabilities: caps }, "PUT"),
+
+  // --- Volume operations (Phase 2) ---
+  balancePlan: (clusterID: string, b: { collection?: string; data_center?: string; rack?: string }) =>
+    jpost(`${BASE}/clusters/${clusterID}/volume/balance/plan`, b) as Promise<{
+      moves: { volume_id: number; from: string; to: string; collection?: string; size_mb?: number }[];
+      output: string;
+    }>,
+  volumeGrow: (clusterID: string, b: {
+    collection: string; replication?: string; data_center?: string; rack?: string; count: number;
+  }) => jpost(`${BASE}/clusters/${clusterID}/volume/grow`, b) as Promise<{ output: string; args: string }>,
+  volumeDeleteEmpty: (clusterID: string, b: { volume_id: number; node: string }) =>
+    jpost(`${BASE}/clusters/${clusterID}/volume/delete-empty`, b) as Promise<{ output: string }>,
+
+  // --- Cluster operations (Phase 3) ---
+  clusterCheckDisk: (clusterID: string, b: { volume_id?: number } = {}) =>
+    jpost(`${BASE}/clusters/${clusterID}/check-disk`, b) as Promise<{
+      rows: { volume_id: number; server: string; ok: boolean; message?: string }[];
+      output: string;
+    }>,
+  clusterConfigureReplication: (clusterID: string, b: { collection?: string; replication: string; volume_id?: number }) =>
+    jpost(`${BASE}/clusters/${clusterID}/replication`, b) as Promise<{ output: string; args: string }>,
+  clusterVolumeServerLeave: (clusterID: string, b: { node: string; force?: boolean }) =>
+    jpost(`${BASE}/clusters/${clusterID}/volume-server/leave`, b) as Promise<{ output: string }>,
+
+  // --- S3 (Phase 4) ---
+  s3ListIdentities: async (clusterID: string) => {
+    const r = await fetch(`${BASE}/clusters/${clusterID}/s3/identities`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    return r.json() as Promise<{
+      identities: { name: string; credentials?: { accessKey: string; secretKey: string }[]; actions?: string[] }[];
+      raw: string;
+      parse_error?: string;
+    }>;
+  },
+  s3UpsertIdentity: (clusterID: string, b: { user: string; access_key?: string; secret_key?: string; actions?: string[] }) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/identities`, b, "PUT") as Promise<{ output: string }>,
+  s3DeleteIdentity: (clusterID: string, user: string) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/identities/${encodeURIComponent(user)}`, undefined, "DELETE") as Promise<{ output: string }>,
+  s3BucketDelete: (clusterID: string, name: string) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/bucket/delete`, { name }) as Promise<{ output: string }>,
+  s3BucketOwner: (clusterID: string, b: { bucket: string; owner: string }) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/bucket/owner`, b) as Promise<{ output: string }>,
+  s3BucketQuota: (clusterID: string, b: { name: string; size_mb?: number; disable?: boolean }) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/bucket/quota`, b) as Promise<{ output: string }>,
+  s3BucketQuotaEnforce: (clusterID: string, b: { name: string; enforce: boolean }) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/bucket/quota-enforce`, b) as Promise<{ output: string }>,
+  s3CircuitBreaker: (clusterID: string, b: { action: string; type?: string; value?: string }) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/circuit-breaker`, b) as Promise<{ output: string }>,
+  s3CleanUploads: (clusterID: string, time_ago: string) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/clean-uploads`, { time_ago }) as Promise<{ output: string }>,
   upsertCluster:(b: unknown) => jpost(`${BASE}/clusters`, b, "PUT"),
   deleteCluster:(id: string) => jpost(`${BASE}/clusters/${id}`, undefined, "DELETE"),
   runClusterShell:(id: string, b: { command: string; args?: string; reason?: string }) =>

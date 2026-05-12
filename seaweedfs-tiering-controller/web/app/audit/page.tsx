@@ -79,7 +79,7 @@ export default function AuditPage() {
     <div className="space-y-5">
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+          <h1 className="text-base font-semibold tracking-tight flex items-center gap-2">
             <ScrollText size={22} className="text-accent"/> {t("Audit log")}
           </h1>
           <div className="text-xs text-muted mt-1">

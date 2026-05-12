@@ -68,7 +68,7 @@ export default function SkillDetail() {
                 <span className="text-xs text-warning border border-warning/40 px-1.5 rounded">DISABLED</span>
               )}
             </div>
-            <h1 className="text-2xl font-semibold tracking-tight">{skill.name}</h1>
+            <h1 className="text-base font-semibold tracking-tight">{skill.name}</h1>
             <div className="text-sm text-muted font-mono">{skill.key}</div>
           </div>
           <div className="flex items-center gap-2 text-sm">

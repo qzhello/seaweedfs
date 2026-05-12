@@ -49,7 +49,7 @@ export default function SkillHistoryPage() {
         { label: decoded, href: `/skills/${encodeURIComponent(decoded)}` },
         { label: "History" },
       ]}/>
-      <h1 className="text-2xl font-semibold tracking-tight">
+      <h1 className="text-base font-semibold tracking-tight">
         Version history <span className="font-mono text-base text-accent">{decoded}</span>
       </h1>
 

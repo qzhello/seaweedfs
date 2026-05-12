@@ -69,7 +69,7 @@ export default function Dashboard() {
     <div className="space-y-6">
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("Storage Tiering Overview")}</h1>
+          <h1 className="text-base font-semibold tracking-tight">{t("Storage Tiering Overview")}</h1>
           <p className="text-sm text-muted">
             AI provider: <span className="text-accent">{s?.ai_provider ?? "—"}</span>
             {" · "}{clusters?.items?.length ?? 0} clusters

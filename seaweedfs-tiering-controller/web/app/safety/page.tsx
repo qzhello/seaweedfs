@@ -15,7 +15,7 @@ export default function SafetyPage() {
   return (
     <div className="space-y-6">
       <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+        <h1 className="text-base font-semibold tracking-tight flex items-center gap-2">
           <ShieldAlert size={20}/> Safety
         </h1>
       </header>

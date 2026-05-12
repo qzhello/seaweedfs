@@ -5,7 +5,7 @@ import { chartColors as C, tooltipStyle, legendStyle } from "@/lib/chart-theme";
 import { bytes } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
-import { HardDrive, X, Search, Database, Filter, Eye, EyeOff, BarChart3 } from "lucide-react";
+import { HardDrive, X, Search, Database, Filter, Eye, EyeOff, BarChart3, Copy, Check } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { TableSkeleton } from "@/components/table-skeleton";
 import { Pagination, usePagination } from "@/components/pagination";
@@ -57,6 +57,120 @@ function loadDrawerOpen(): boolean {
   try { return localStorage.getItem(DRAWER_KEY) === "1"; } catch { return false; }
 }
 
+// DistKeyList renders the full set of dist groups (node/rack/collection)
+// as a compact scrollable list. Each row: click to filter the table on
+// the right, copy button to grab the raw name for shell commands.
+function DistKeyList({
+  bars,
+  onPick,
+  activeKey,
+  label,
+}: {
+  bars: { key: string; writable: number; readonly: number }[];
+  onPick: (k: string) => void;
+  activeKey: string;
+  label: string;
+}) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = async (k: string) => {
+    try {
+      await navigator.clipboard.writeText(k);
+      setCopied(k);
+      setTimeout(() => setCopied(c => (c === k ? null : c)), 1200);
+    } catch { /* clipboard blocked, ignore */ }
+  };
+  if (bars.length === 0) return null;
+  const activeLc = activeKey.toLowerCase();
+  return (
+    <div className="mt-2 border-t border-border/40 pt-2">
+      <div className="text-[10px] text-muted px-1 pb-1">{label}</div>
+      <ul className="max-h-56 overflow-auto divide-y divide-border/30">
+        {bars.map(b => {
+          const isCopied = copied === b.key;
+          const isActive = activeLc !== "" && b.key.toLowerCase() === activeLc;
+          const total = b.writable + b.readonly;
+          return (
+            <li
+              key={b.key}
+              className={`group flex items-center gap-2 px-1 py-1 text-[11px] rounded ${
+                isActive ? "bg-accent/15" : "hover:bg-panel2/50"
+              }`}
+            >
+              <button
+                onClick={() => onPick(b.key)}
+                className={`flex-1 min-w-0 text-left font-mono truncate ${
+                  isActive ? "text-accent" : "text-text hover:text-accent"
+                }`}
+                title={isActive ? `${b.key} — click again to clear filter` : b.key}
+              >
+                {b.key}
+              </button>
+              <span className="text-muted tabular-nums shrink-0">{total}</span>
+              {isActive && (
+                <button
+                  onClick={() => onPick(b.key)}
+                  className="shrink-0 p-1 text-accent hover:text-text"
+                  title="Clear filter"
+                  aria-label="Clear filter"
+                >
+                  <X size={12}/>
+                </button>
+              )}
+              <button
+                onClick={() => copy(b.key)}
+                className={`shrink-0 p-1 text-muted hover:text-text transition-opacity ${
+                  isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                }`}
+                title={isCopied ? "Copied" : "Copy"}
+                aria-label="Copy"
+              >
+                {isCopied ? <Check size={12} className="text-emerald-300"/> : <Copy size={12}/>}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+// parseVolumeQuery splits the search box into qualifier filters and free
+// tokens. Examples:
+//   "id:1"             → exact ID 1
+//   "id:1,2,7"         → ID in {1,2,7}
+//   "collection:logs"  → exact collection (case-insensitive)
+//   "server:10.0.0.5"  → server substring (case-insensitive)
+//   "rack:r1 readonly" → rack=r1 plus free token "readonly"
+type VolumeQuery = {
+  idSet: Set<number> | null;
+  collection: string;
+  server: string;
+  rack: string;
+  free: string[];
+};
+function parseVolumeQuery(raw: string): VolumeQuery {
+  const q: VolumeQuery = { idSet: null, collection: "", server: "", rack: "", free: [] };
+  const tokens = raw.trim().split(/\s+/).filter(Boolean);
+  for (const tok of tokens) {
+    const m = tok.match(/^([a-z]+):(.+)$/i);
+    if (!m) { q.free.push(tok.toLowerCase()); continue; }
+    const key = m[1].toLowerCase();
+    const val = m[2];
+    switch (key) {
+      case "id": {
+        const ids = val.split(",").map(s => Number(s.trim())).filter(n => Number.isFinite(n));
+        if (ids.length) q.idSet = new Set(ids);
+        break;
+      }
+      case "collection": q.collection = val.toLowerCase(); break;
+      case "server":     q.server     = val.toLowerCase(); break;
+      case "rack":       q.rack       = val.toLowerCase(); break;
+      default:           q.free.push(tok.toLowerCase());
+    }
+  }
+  return q;
+}
+
 export default function VolumesPage() {
   const { t } = useT();
   const { data: clusters } = useClusters();
@@ -84,18 +198,27 @@ export default function VolumesPage() {
     return { collections: [...cs].sort(), diskTypes: [...ds].sort() };
   }, [all]);
 
+  // Search supports key:value qualifiers so operators can disambiguate
+  // collisions (e.g. searching "1" used to match both ID=1 and any IP
+  // octet containing "1"). Recognised keys: id, collection, server,
+  // rack. id:N matches exactly; id:1,2,5 matches any of the listed IDs.
+  // Bare tokens still do case-insensitive substring across all fields.
+  const query = useMemo(() => parseVolumeQuery(text), [text]);
   const filtered = useMemo(() => all.filter(v => {
     if (collection && v.Collection !== collection) return false;
     if (diskType && (v.DiskType || "hdd") !== diskType) return false;
     if (readFilter === "writable" && v.ReadOnly) return false;
     if (readFilter === "readonly" && !v.ReadOnly) return false;
-    if (text) {
-      const t = text.toLowerCase();
+    if (query.idSet && !query.idSet.has(Number(v.ID))) return false;
+    if (query.collection && (v.Collection || "").toLowerCase() !== query.collection) return false;
+    if (query.server && !(v.Server || "").toLowerCase().includes(query.server)) return false;
+    if (query.rack && (v.Rack || "").toLowerCase() !== query.rack) return false;
+    if (query.free.length) {
       const hay = `${v.ID} ${v.Collection || ""} ${v.Server || ""} ${v.Rack || ""}`.toLowerCase();
-      if (!hay.includes(t)) return false;
+      for (const tok of query.free) if (!hay.includes(tok)) return false;
     }
     return true;
-  }), [all, collection, diskType, readFilter, text]);
+  }), [all, collection, diskType, readFilter, query]);
 
   // Chart visibility — rehydrated from localStorage on mount so SSR
   // and the first client render agree (no hydration mismatch).
@@ -174,24 +297,44 @@ export default function VolumesPage() {
 
   const clearAll = () => { setClusterID(""); setCollection(""); setDiskType(""); setReadFilter("all"); setText(""); };
 
+  // Clicking a chart row drives the right-side table filter. Collection
+  // has a dedicated dropdown; node/rack go through the search box with
+  // qualifier syntax so the active-filter chips still show what's on.
+  // Clicking the same row again toggles the filter off — the operator
+  // doesn't have to hunt for the chip's X to undo.
+  const filterByDistKey = (key: string) => {
+    if (!key || key.startsWith("(")) return;
+    if (distMode === "collection") {
+      setCollection(c => (c === key ? "" : key));
+    } else {
+      const qual = distMode === "rack" ? "rack" : "server";
+      const next = `${qual}:${key}`;
+      setText(t => (t === next ? "" : next));
+    }
+  };
+  // The list highlights the currently-active row so the operator can see
+  // at a glance which group is filtering the table.
+  const activeDistKey = useMemo(() => {
+    if (distMode === "collection") return collection;
+    if (distMode === "rack")       return query.rack;
+    return query.server;
+  }, [distMode, collection, query]);
+
   return (
     // Layout when charts are open: header / filter strip / bulk bar
-    // run full width across both columns; only the *table* and the
-    // chart aside sit on the same row, side-by-side. Achieved with a
-    // 2-col grid where the top sections explicitly col-span-2 and the
-    // aside drops into col 2 next to the table.
+    // run full width across both columns; only the *chart aside* (col 1)
+    // and the *table* (col 2) share a row, side-by-side.
     //
-    // `[&>aside]:col-start-2` keeps the aside pinned to the right column
-    // regardless of JSX order, so I can leave the aside at its current
-    // declaration site (between the filter strip and the bulk bar) and
-    // CSS handles placement.
+    // grid-flow-dense lets the aside back-fill the empty col-1 cell next
+    // to the table even though it appears later in JSX. Without dense
+    // flow it would land in a new row below the table.
     <div className={chartsOpen
-      ? "grid grid-cols-[minmax(0,1fr)_minmax(0,440px)] gap-5 items-start [&>aside]:col-start-2"
+      ? "grid grid-cols-[minmax(0,440px)_minmax(0,1fr)] grid-flow-dense gap-5 items-start [&>aside]:col-start-1"
       : "space-y-5"
     }>
       <header className={`flex items-end justify-between gap-4 flex-wrap ${chartsOpen ? "col-span-2" : ""}`}>
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("Volumes")}</h1>
+          <h1 className="text-base font-semibold tracking-tight">{t("Volumes")}</h1>
           <div className="text-xs text-muted mt-1">
             <span className="font-mono text-text">{filtered.length}</span>
             <span> / {all.length}</span>
@@ -214,7 +357,8 @@ export default function VolumesPage() {
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted pointer-events-none"/>
             <input
               value={text} onChange={e => setText(e.target.value)}
-              placeholder="id / collection / server / rack"
+              placeholder={t("id:1  collection:logs  server:10.0.0.5  rack:r1")}
+              title={t("Use key:value for exact match (id, collection, server, rack). Bare words match any field.")}
               className="input w-72 pl-8"
             />
           </div>
@@ -299,8 +443,9 @@ export default function VolumesPage() {
         )
       )}
 
-      {/* Detail table — sits in col 1 next to the chart aside on the right. */}
-      <section className="card overflow-hidden">
+      {/* Detail table — when charts are open, sits in col 2 next to the
+          chart aside on the left. */}
+      <section className={`card overflow-hidden ${chartsOpen ? "col-start-2" : ""}`}>
         {vd === undefined ? (
           <TableSkeleton rows={6} headers={["ID", "Cluster", "Collection", "Server", "Rack", "Disk", "Size", "Files", "R/O", "Modified"]}/>
         ) : filtered.length === 0 ? (
@@ -432,12 +577,17 @@ export default function VolumesPage() {
                     <ReactECharts
                       style={{ height: COMPACT_CHART_H }}
                       option={buildDistOption({ ...dist, bars: dist.bars.slice(0, DIST_TOP_N) })}
+                      onEvents={{ click: (p: { name?: string }) => p?.name && filterByDistKey(p.name) }}
                     />
-                    {dist.bars.length > DIST_TOP_N && (
-                      <div className="text-[10px] text-muted text-center pb-1">
-                        top {DIST_TOP_N} of {dist.bars.length} — full list in the table below
-                      </div>
-                    )}
+                    {/* Full list under the chart: clickable rows drive the
+                        right-table filter; copy button beside each label
+                        for quick paste into ops shells. */}
+                    <DistKeyList
+                      bars={dist.bars}
+                      onPick={filterByDistKey}
+                      activeKey={activeDistKey}
+                      label={t("Click a row to filter the table on the right.")}
+                    />
                   </div>
                 )}
               </div>
@@ -602,6 +752,7 @@ function buildDistOption(dist: ReturnType<typeof buildDist>) {
     series: [
       {
         name: "Writable", type: "bar", stack: "v", barMaxWidth: 18,
+        cursor: "pointer",
         itemStyle: { color: C.accent, borderRadius: [3, 0, 0, 3] },
         emphasis: { focus: "series" },
         data: dist.bars.map(b => b.writable),
@@ -610,6 +761,7 @@ function buildDistOption(dist: ReturnType<typeof buildDist>) {
       },
       {
         name: "Read-only", type: "bar", stack: "v", barMaxWidth: 18,
+        cursor: "pointer",
         itemStyle: { color: C.warning, borderRadius: [0, 3, 3, 0] },
         emphasis: { focus: "series" },
         data: dist.bars.map(b => b.readonly),

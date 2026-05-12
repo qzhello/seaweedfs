@@ -31,7 +31,8 @@ type shellArg struct {
 // shellCatalog is the curated list. Risk classification is intentionally
 // pessimistic — anything that writes to volumes / FS / config is at least
 // "mutate"; anything that deletes data or moves it irreversibly is
-// "destructive". The console requires a reason field for both.
+// "destructive". A reason field is offered but not required; the value
+// is recorded in the audit log when supplied.
 //
 // Add new commands here and they automatically become callable. Do NOT
 // add commands that delete user data without explicit operator review —
