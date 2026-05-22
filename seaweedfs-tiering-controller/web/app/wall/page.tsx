@@ -165,10 +165,10 @@ function SankeyFlow({ s }: { s: any }) {
         lineStyle: { color: "gradient", curveness: 0.5 },
         label: { color: C.text, fontSize: 13 },
         data: [
-          { name: "Hot",     value: hot,  itemStyle: { color: "oklch(74% 0.18 30)" } },
-          { name: "Warm/EC", value: warm, itemStyle: { color: "oklch(74% 0.18 230)" } },
-          { name: "Cold",    value: cold, itemStyle: { color: "oklch(74% 0.10 270)" } },
-          { name: "Archive", value: cold * 0.1, itemStyle: { color: "oklch(60% 0.05 280)" } },
+          { name: "Hot",     value: hot,  itemStyle: { color: "#f97316" } },
+          { name: "Warm/EC", value: warm, itemStyle: { color: "#3b9eff" } },
+          { name: "Cold",    value: cold, itemStyle: { color: "#a78bfa" } },
+          { name: "Archive", value: cold * 0.1, itemStyle: { color: "#9ca3af" } },
         ],
         links: [
           { source: "Hot",  target: "Warm/EC", value: Math.max(flow1, total * 0.001) },
@@ -214,11 +214,11 @@ function TrendStrip({ points }: { points: any[] }) {
       yAxis: { type: "value", axisLabel: { color: C.textMuted }, splitLine: { lineStyle: { color: "#222" } } },
       series: [
         { type: "line", smooth: true, data: reads, name: "reads",
-          areaStyle: { opacity: 0.2, color: "oklch(74% 0.18 230)" },
-          lineStyle: { color: "oklch(74% 0.18 230)", width: 2 },
+          areaStyle: { opacity: 0.2, color: "#3b9eff" },
+          lineStyle: { color: "#3b9eff", width: 2 },
           showSymbol: false },
         { type: "line", smooth: true, data: writes, name: "writes",
-          lineStyle: { color: "oklch(74% 0.18 30)", width: 2 },
+          lineStyle: { color: "#f97316", width: 2 },
           showSymbol: false },
       ],
     }}/>

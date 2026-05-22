@@ -19,9 +19,16 @@ type ExplainInput struct {
 }
 
 // ChatMessage is one turn in a multi-turn assistant conversation.
+// For tool-calling support we extend the basic Role/Content shape with
+// optional tool-call metadata. Legacy callers still set just Role +
+// Content; tool-aware callers also populate ToolCalls (on an assistant
+// turn that produced calls) or ToolCallID (on a "tool" role turn that
+// carries a result back to the model).
 type ChatMessage struct {
-	Role    string // "user" or "assistant"
-	Content string
+	Role       string     // "user" | "assistant" | "tool" | "system"
+	Content    string     // text part (may be "" on a pure tool_calls turn)
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // assistant turn produced these
+	ToolCallID string     `json:"tool_call_id,omitempty"` // tool turn answers this id
 }
 
 // Provider is the small surface every AI implementation must satisfy.

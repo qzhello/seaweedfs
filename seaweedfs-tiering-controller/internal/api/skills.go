@@ -211,18 +211,26 @@ func draftSkillFromText(d Deps) gin.HandlerFunc {
 			return
 		}
 
-		// Path 2 — prose. Hand off to the AI provider.
-		chatter, ok := d.AI.(jsonChatter)
+		// Path 2 — prose. Hand off to the AI provider. Resolve the
+		// same way the floating assistant does so the operator's
+		// /ai-config default is picked up. The old direct read of
+		// d.AI only saw the process-start static config.
+		provider, provErr := resolveAssistantProvider(c.Request.Context(), d)
+		if provErr != nil {
+			c.JSON(http.StatusOK, gin.H{"ok": false, "mode": "ai", "error": provErr.Error()})
+			return
+		}
+		chatter, ok := provider.(jsonChatter)
 		if !ok {
 			c.JSON(http.StatusOK, gin.H{
 				"ok":    false,
 				"mode":  "ai",
-				"error": "AI provider is not configured (current provider can't do free-form chat). Paste raw JSON instead, or configure OpenAI/Anthropic in AI Config.",
+				"error": "Configured AI provider does not support freeform JSON chat. Paste raw JSON, or pick an OpenAI/Anthropic-compatible provider in /ai-config.",
 			})
 			return
 		}
 
-		prompt := buildSkillDraftPrompt(text, body.HintCategory, body.HintRisk)
+		prompt := buildSkillDraftPrompt(c.Request.Context(), text, body.HintCategory, body.HintRisk)
 		raw, err := chatter.JSONChat(c.Request.Context(), prompt)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{"ok": false, "mode": "ai", "error": "AI call failed: " + err.Error()})
@@ -363,13 +371,16 @@ func extractJSONObject(s string) string {
 // buildSkillDraftPrompt assembles the system+user prompt for the AI conversion.
 // The schema reference is kept compact — LLMs follow examples better than spec
 // dumps. We also enumerate a curated subset of the most useful ops.
-func buildSkillDraftPrompt(text, hintCategory, hintRisk string) string {
+func buildSkillDraftPrompt(ctx context.Context, text, hintCategory, hintRisk string) string {
 	hint := ""
 	if hintCategory != "" {
 		hint += fmt.Sprintf("\nUser hint — category: %s", hintCategory)
 	}
 	if hintRisk != "" {
 		hint += fmt.Sprintf("\nUser hint — risk level: %s", hintRisk)
+	}
+	if IsZh(ctx) {
+		hint += "\nUser hint — write `name`, `definition.summary` and `definition.description` in Simplified Chinese; keep JSON keys, op names, and identifiers in English."
 	}
 	return fmt.Sprintf(`You convert operator-written SOPs (in any language) into a SeaweedFS
 tiering-controller Skill definition. Reply with STRICT JSON only — no prose,

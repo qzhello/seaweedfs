@@ -1,11 +1,15 @@
 "use client";
-import { ShieldCheck, Info, Code2, Wand2, AlertTriangle, Plus, X, Pencil } from "lucide-react";
+import { ShieldCheck, Info, Code2, Wand2, AlertTriangle, Plus, X, Pencil, FlaskConical, Sparkles } from "lucide-react";
+import { PolicySimulateModal } from "./_simulate-modal";
+import { AiAdvisorModal } from "./_ai-advisor";
+import { useCluster } from "@/lib/cluster-context";
 import { EmptyState } from "@/components/empty-state";
-import { usePolicies, api } from "@/lib/api";
+import { usePolicies, usePolicyROI, api, type PolicyTaskStat, type PolicyRecommendation } from "@/lib/api";
 import { useEffect, useMemo, useState } from "react";
 import { useT } from "@/lib/i18n";
 import { Pagination, usePagination } from "@/components/pagination";
 import { RefreshButton } from "@/components/refresh-button";
+import { toast } from "@/lib/toast";
 import { TableSkeleton } from "@/components/table-skeleton";
 
 type FieldType = "string" | "number" | "boolean";
@@ -145,17 +149,45 @@ export default function PoliciesPage() {
   const { data, mutate, isLoading, isValidating } = usePolicies();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<PolicyRow | null>(null);
+  // prefill seeds the create dialog from an AI recommendation — a new
+  // policy (isEdit stays false) but with the fields already filled in.
+  const [prefill, setPrefill] = useState<PolicyRow | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [simulating, setSimulating] = useState<{ id: string; name: string } | null>(null);
+  const { clusterID } = useCluster();
 
   function openCreate() {
     setEditing(null);
+    setPrefill(null);
     setOpen(true);
   }
   function openEdit(p: PolicyRow) {
     setEditing(p);
+    setPrefill(null);
+    setOpen(true);
+  }
+  // Turn an AI recommendation into a create-dialog seed. The draft is
+  // always dry-run; enabled is left on so its dry-run plan shows up.
+  function useRecommendation(rec: PolicyRecommendation) {
+    setEditing(null);
+    setPrefill({
+      id: "",
+      name: rec.name,
+      scope_kind: rec.scope_kind,
+      scope_value: rec.scope_value,
+      strategy: rec.strategy,
+      params: rec.params,
+      sample_rate: rec.sample_rate,
+      dry_run: true,
+      enabled: true,
+    });
+    setAiOpen(false);
     setOpen(true);
   }
 
   const items: PolicyRow[] = data?.items || [];
+  const { data: roi } = usePolicyROI();
+  const roiByID = roi?.items ?? {};
   const pg = usePagination(items, 20);
 
   return (
@@ -169,6 +201,9 @@ export default function PoliciesPage() {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <RefreshButton loading={isValidating} onClick={() => mutate()}/>
+          <button className="btn flex items-center gap-1.5" onClick={() => setAiOpen(true)}>
+            <Sparkles size={14} className="text-accent"/> {t("AI advice")}
+          </button>
           <button className="btn btn-primary flex items-center gap-1.5" onClick={openCreate}>
             <Plus size={14}/> {t("New policy")}
           </button>
@@ -177,7 +212,7 @@ export default function PoliciesPage() {
 
       <section className="card p-5">
         {isLoading && !data ? (
-          <TableSkeleton rows={5} headers={[t("Name"), t("Scope"), t("Strategy"), t("Sample"), t("Dry-run"), t("Enabled"), ""]}/>
+          <TableSkeleton rows={5} headers={[t("Name"), t("Scope"), t("Strategy"), t("Sample"), t("Dry-run"), t("Enabled"), t("Activity"), ""]}/>
         ) : items.length ? (
           <table className="grid">
             <thead><tr>
@@ -187,6 +222,7 @@ export default function PoliciesPage() {
               <th>{t("Sample")}</th>
               <th>{t("Dry-run")}</th>
               <th>{t("Enabled")}</th>
+              <th>{t("Activity")}</th>
               <th></th>
             </tr></thead>
             <tbody>
@@ -198,14 +234,24 @@ export default function PoliciesPage() {
                   <td>{p.sample_rate}</td>
                   <td>{p.dry_run ? t("yes") : t("no")}</td>
                   <td>{p.enabled ? t("yes") : t("no")}</td>
+                  <td><ActivityCell stat={roiByID[p.id]} t={t}/></td>
                   <td>
-                    <button
-                      className="text-xs text-muted hover:text-accent flex items-center gap-1"
-                      onClick={() => openEdit(p)}
-                      title={t("Edit")}
-                    >
-                      <Pencil size={12}/> {t("Edit")}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="text-xs text-muted hover:text-accent flex items-center gap-1"
+                        onClick={() => openEdit(p)}
+                        title={t("Edit")}
+                      >
+                        <Pencil size={12}/> {t("Edit")}
+                      </button>
+                      <button
+                        className="text-xs text-muted hover:text-accent flex items-center gap-1"
+                        onClick={() => setSimulating({ id: p.id, name: p.name })}
+                        title={t("Simulate against current cluster state")}
+                      >
+                        <FlaskConical size={12}/> {t("Simulate")}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -230,6 +276,7 @@ export default function PoliciesPage() {
       {open && (
         <PolicyDialog
           initial={editing}
+          prefill={prefill}
           onClose={() => setOpen(false)}
           onSaved={async () => {
             await mutate();
@@ -237,33 +284,48 @@ export default function PoliciesPage() {
           }}
         />
       )}
+      {aiOpen && (
+        <AiAdvisorModal onClose={() => setAiOpen(false)} onUse={useRecommendation}/>
+      )}
+      {simulating && (
+        <PolicySimulateModal
+          policyID={simulating.id}
+          policyName={simulating.name}
+          clusterID={clusterID}
+          onClose={() => setSimulating(null)}
+        />
+      )}
     </div>
   );
 }
 
-function PolicyDialog({ initial, onClose, onSaved }: {
+function PolicyDialog({ initial, prefill, onClose, onSaved }: {
   initial: PolicyRow | null;
+  prefill?: PolicyRow | null;
   onClose: () => void;
   onSaved: () => Promise<void> | void;
 }) {
   const { t, lang } = useT();
+  // initial = editing an existing policy; prefill = a fresh policy seeded
+  // from an AI recommendation. Only `initial` counts as an edit.
   const isEdit = !!initial;
+  const seed = initial ?? prefill ?? null;
 
-  const [strategy, setStrategy] = useState<string>(initial?.strategy ?? "warm_ec");
+  const [strategy, setStrategy] = useState<string>(seed?.strategy ?? "warm_ec");
   const [params, setParams] = useState<Record<string, unknown>>(
-    () => initial?.params ?? defaultParamsFor(initial?.strategy ?? "warm_ec"),
+    () => seed?.params ?? defaultParamsFor(seed?.strategy ?? "warm_ec"),
   );
   const [draft, setDraft] = useState({
-    name: initial?.name ?? "",
-    scope_kind: initial?.scope_kind ?? "collection",
-    scope_value: initial?.scope_value ?? "*",
-    sample_rate: initial?.sample_rate ?? 1.0,
-    dry_run: initial?.dry_run ?? true,
-    enabled: initial?.enabled ?? true,
+    name: seed?.name ?? "",
+    scope_kind: seed?.scope_kind ?? "collection",
+    scope_value: seed?.scope_value ?? "*",
+    sample_rate: seed?.sample_rate ?? 1.0,
+    dry_run: seed?.dry_run ?? true,
+    enabled: seed?.enabled ?? true,
   });
   const [advanced, setAdvanced] = useState(false);
   const [rawJson, setRawJson] = useState<string>(
-    JSON.stringify(initial?.params ?? defaultParamsFor(initial?.strategy ?? "warm_ec"), null, 2),
+    JSON.stringify(seed?.params ?? defaultParamsFor(seed?.strategy ?? "warm_ec"), null, 2),
   );
   const [jsonErr, setJsonErr] = useState<string>("");
   const [saving, setSaving] = useState(false);
@@ -316,7 +378,10 @@ function PolicyDialog({ initial, onClose, onSaved }: {
     setSaving(true);
     try {
       await api.upsertPolicy({ ...draft, strategy, params });
+      toast.success("Policy saved");
       await onSaved();
+    } catch (e) {
+      toast.fromError(e, "Save failed");
     } finally {
       setSaving(false);
     }
@@ -445,6 +510,22 @@ function PolicyDialog({ initial, onClose, onSaved }: {
         </footer>
       </div>
     </div>
+  );
+}
+
+// ActivityCell renders a policy's task rollup — total plus a quick
+// succeeded/failed read. "—" until the scheduler attributes tasks to it.
+function ActivityCell({ stat, t }: { stat?: PolicyTaskStat; t: (k: string) => string }) {
+  if (!stat || stat.total === 0) return <span className="text-muted">—</span>;
+  return (
+    <span
+      className="text-xs"
+      title={`pending ${stat.pending} · approved ${stat.approved} · running ${stat.running} · succeeded ${stat.succeeded} · failed ${stat.failed}`}>
+      <span className="font-mono">{stat.total}</span>
+      <span className="text-muted"> {t("tasks")}</span>
+      {stat.succeeded > 0 && <span className="text-success ml-1.5">✓{stat.succeeded}</span>}
+      {stat.failed > 0 && <span className="text-danger ml-1">✗{stat.failed}</span>}
+    </span>
   );
 }
 

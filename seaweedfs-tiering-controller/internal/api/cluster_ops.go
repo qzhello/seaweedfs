@@ -211,3 +211,79 @@ func clusterVolumeServerLeave(d Deps) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{"output": out})
 	}
 }
+
+// clusterVolumeServerLeaveStream is the SSE variant — same body shape
+// but stdout streams line-by-line so the UI can show live progress
+// (drain can take minutes to hours on big nodes). Wraps the shared
+// streamWithHeartbeat helper so idle stretches still emit ping events.
+//
+// POST /api/v1/clusters/:id/volume-server/leave/stream
+func clusterVolumeServerLeaveStream(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad cluster id"})
+			return
+		}
+		var body struct {
+			Node  string `json:"node"`
+			Force bool   `json:"force,omitempty"`
+		}
+		if err := c.ShouldBindJSON(&body); err != nil || strings.TrimSpace(body.Node) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "node host:port required"})
+			return
+		}
+		cl, err := d.PG.GetCluster(c.Request.Context(), id)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		args := []string{"-node=" + body.Node}
+		if body.Force {
+			args = append(args, "-force")
+		}
+
+		c.Writer.Header().Set("Content-Type", "text/event-stream")
+		c.Writer.Header().Set("Cache-Control", "no-cache")
+		c.Writer.Header().Set("Connection", "keep-alive")
+		c.Writer.Header().Set("X-Accel-Buffering", "no")
+		started := time.Now()
+
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Hour)
+		defer cancel()
+
+		var runErr error
+		streamWithHeartbeat(c, started, func(emit func(string, interface{}), lineSink func(string)) {
+			emit("start", gin.H{
+				"args":       args,
+				"command":    "volumeServer.leave",
+				"node":       body.Node,
+				"force":      body.Force,
+				"started_at": started.UnixMilli(),
+			})
+			_, runErr = d.Sw.RunShellCommandAtWithBin(ctx, cl.MasterAddr, cl.WeedBinPath,
+				"volumeServer.leave", args, lineSink)
+			errStr := ""
+			if runErr != nil {
+				errStr = runErr.Error()
+			}
+			emit("done", gin.H{
+				"ok":          runErr == nil,
+				"error":       errStr,
+				"duration_ms": time.Since(started).Milliseconds(),
+			})
+		})
+
+		errStr := ""
+		if runErr != nil {
+			errStr = runErr.Error()
+		}
+		p, _ := auth.Of(c)
+		_ = d.PG.Audit(c.Request.Context(), p.Email, "volume-server.leave.stream", "cluster", id.String(), map[string]any{
+			"node":  body.Node,
+			"force": body.Force,
+			"ok":    runErr == nil,
+			"error": errStr,
+		})
+	}
+}

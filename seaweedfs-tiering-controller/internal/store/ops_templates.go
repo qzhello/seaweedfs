@@ -18,6 +18,15 @@ type OpsTemplate struct {
 	Description string          `json:"description"`
 	Category    string          `json:"category"`
 	Steps       json.RawMessage `json:"steps"`
+	// AIPrecheck toggles the per-step AI safety advisor for mutating
+	// commands. Pure advisory; never blocks execution. Defaults to TRUE
+	// at the DB level so legacy rows keep the safer behaviour.
+	AIPrecheck  bool            `json:"ai_precheck"`
+	// Alerts is an optional per-template routing config (channel ids,
+	// trigger toggles, alert template id). NULL when the operator
+	// hasn't configured alerts for this flow. Shape defined in
+	// migration 032 and the api.opsTemplateAlerts type.
+	Alerts      json.RawMessage `json:"alerts,omitempty"`
 	CreatedBy   string          `json:"created_by"`
 	UpdatedBy   string          `json:"updated_by"`
 	CreatedAt   time.Time       `json:"created_at"`
@@ -26,7 +35,7 @@ type OpsTemplate struct {
 
 func (p *PG) ListOpsTemplates(ctx context.Context) ([]OpsTemplate, error) {
 	rows, err := p.Pool.Query(ctx, `
-		SELECT id, name, description, category, steps, created_by, updated_by, created_at, updated_at
+		SELECT id, name, description, category, steps, ai_precheck, alerts, created_by, updated_by, created_at, updated_at
 		FROM ops_templates ORDER BY category, name`)
 	if err != nil {
 		return nil, fmt.Errorf("list ops_templates: %w", err)
@@ -35,7 +44,7 @@ func (p *PG) ListOpsTemplates(ctx context.Context) ([]OpsTemplate, error) {
 	out := []OpsTemplate{}
 	for rows.Next() {
 		var t OpsTemplate
-		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Category, &t.Steps,
+		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Category, &t.Steps, &t.AIPrecheck, &t.Alerts,
 			&t.CreatedBy, &t.UpdatedBy, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan ops_template: %w", err)
 		}
@@ -47,9 +56,9 @@ func (p *PG) ListOpsTemplates(ctx context.Context) ([]OpsTemplate, error) {
 func (p *PG) GetOpsTemplate(ctx context.Context, id uuid.UUID) (*OpsTemplate, error) {
 	var t OpsTemplate
 	err := p.Pool.QueryRow(ctx, `
-		SELECT id, name, description, category, steps, created_by, updated_by, created_at, updated_at
+		SELECT id, name, description, category, steps, ai_precheck, alerts, created_by, updated_by, created_at, updated_at
 		FROM ops_templates WHERE id = $1`, id).
-		Scan(&t.ID, &t.Name, &t.Description, &t.Category, &t.Steps,
+		Scan(&t.ID, &t.Name, &t.Description, &t.Category, &t.Steps, &t.AIPrecheck, &t.Alerts,
 			&t.CreatedBy, &t.UpdatedBy, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("get ops_template: %w", err)
@@ -69,10 +78,10 @@ func (p *PG) UpsertOpsTemplate(ctx context.Context, t OpsTemplate, actor string)
 	}
 	if t.ID == uuid.Nil {
 		err := p.Pool.QueryRow(ctx, `
-			INSERT INTO ops_templates (name, description, category, steps, created_by, updated_by)
-			VALUES ($1,$2,$3,$4,$5,$5)
+			INSERT INTO ops_templates (name, description, category, steps, ai_precheck, alerts, created_by, updated_by)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$7)
 			RETURNING id`,
-			t.Name, t.Description, t.Category, t.Steps, actor).Scan(&t.ID)
+			t.Name, t.Description, t.Category, t.Steps, t.AIPrecheck, nullableJSON(t.Alerts), actor).Scan(&t.ID)
 		if err != nil {
 			return uuid.Nil, fmt.Errorf("insert ops_template: %w", err)
 		}
@@ -80,14 +89,29 @@ func (p *PG) UpsertOpsTemplate(ctx context.Context, t OpsTemplate, actor string)
 	}
 	_, err := p.Pool.Exec(ctx, `
 		UPDATE ops_templates
-		   SET name=$2, description=$3, category=$4, steps=$5,
-		       updated_by=$6, updated_at=NOW()
+		   SET name=$2, description=$3, category=$4, steps=$5, ai_precheck=$6, alerts=$7,
+		       updated_by=$8, updated_at=NOW()
 		 WHERE id=$1`,
-		t.ID, t.Name, t.Description, t.Category, t.Steps, actor)
+		t.ID, t.Name, t.Description, t.Category, t.Steps, t.AIPrecheck, nullableJSON(t.Alerts), actor)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("update ops_template: %w", err)
 	}
 	return t.ID, nil
+}
+
+// nullableJSON returns sql NULL when the blob is empty / explicit
+// JSON null, otherwise the raw bytes. Without this, an empty
+// json.RawMessage{} encodes as the literal empty string which Postgres
+// rejects for a JSONB column.
+func nullableJSON(b json.RawMessage) any {
+	if len(b) == 0 {
+		return nil
+	}
+	s := string(b)
+	if s == "null" {
+		return nil
+	}
+	return b
 }
 
 func (p *PG) DeleteOpsTemplate(ctx context.Context, id uuid.UUID) error {

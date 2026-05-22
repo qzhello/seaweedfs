@@ -2,7 +2,10 @@
 import { Nav } from "@/components/nav";
 import { ClusterSwitcher } from "@/components/cluster-switcher";
 import { UserMenu } from "@/components/user-menu";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { FloatingAssistant } from "@/components/assistant/floating-assistant";
+import { ToastHost } from "@/components/toast-host";
+import { KeyboardShortcutsHost } from "@/components/keyboard-shortcuts-host";
 import { ClusterProvider } from "@/lib/cluster-context";
 import { CapsProvider, useCaps } from "@/lib/caps-context";
 import { usePathname, useRouter } from "next/navigation";
@@ -65,14 +68,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
             {/* Sticky topbar: global cluster picker on the right so the
                 operator can switch context from any page without
                 hunting for a per-page select. */}
-            <header className="sticky top-0 z-30 border-b border-border bg-panel/80 backdrop-blur px-8 py-2 flex items-center justify-end gap-3">
+            <header className="sticky top-0 z-30 border-b border-border bg-panel/80 backdrop-blur px-8 py-2 flex items-center justify-end gap-2">
               <ClusterSwitcher />
+              <ThemeToggle />
               <UserMenu />
             </header>
             <main className="flex-1 px-8 py-6 max-w-[1600px]">{children}</main>
           </div>
         </div>
         <FloatingAssistant />
+        <ToastHost />
+        <KeyboardShortcutsHost />
        </ClusterProvider>
       </CapsProvider>
     </SWRConfig>

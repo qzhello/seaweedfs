@@ -36,7 +36,37 @@ func listBuckets(d Deps) gin.HandlerFunc {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"items": rows})
+		// Enrich with controller-side governance (owner / retention /
+		// lifecycle scan). Best-effort: a governance lookup failure must
+		// not blank out the bucket list.
+		gov, _ := d.PG.ListBucketGovernance(c.Request.Context(), id)
+		type bucketRow struct {
+			seaweed.BucketInfo
+			OwnerName      string     `json:"owner_name"`
+			OwnerUserKey   string     `json:"owner_user_key"`
+			RetentionDays  *int       `json:"retention_days,omitempty"`
+			Notes          string     `json:"notes"`
+			LastScanAt     *time.Time `json:"last_scan_at,omitempty"`
+			ExpiredObjects int64      `json:"expired_objects"`
+			ExpiredBytes   int64      `json:"expired_bytes"`
+			ScanTruncated  bool       `json:"scan_truncated"`
+		}
+		items := make([]bucketRow, 0, len(rows))
+		for _, r := range rows {
+			br := bucketRow{BucketInfo: r}
+			if g, ok := gov[r.Name]; ok {
+				br.OwnerName = g.OwnerName
+				br.OwnerUserKey = g.OwnerUserKey
+				br.RetentionDays = g.RetentionDays
+				br.Notes = g.Notes
+				br.LastScanAt = g.LastScanAt
+				br.ExpiredObjects = g.ExpiredObjects
+				br.ExpiredBytes = g.ExpiredBytes
+				br.ScanTruncated = g.ScanTruncated
+			}
+			items = append(items, br)
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items})
 	}
 }
 

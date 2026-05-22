@@ -60,7 +60,29 @@ func parseVolumeListOutput(out string) []VolumeInfo {
 		case strings.HasPrefix(trim, "DataNode "):
 			node = fieldAt(trim, 1)
 		case strings.HasPrefix(trim, "Disk "):
+			// Skip the per-disk summary footer ("Disk hdd {Size:... ...}").
+			// Only the header line ("Disk hdd(volume:5/200 ...)") carries
+			// the disk type we want; the {...} payload would otherwise
+			// leak into v.DiskType for every volume below it.
+			if !strings.Contains(trim, "(") || strings.Contains(trim, "{") {
+				continue
+			}
 			disk = diskTypeFromLine(trim)
+		case strings.HasPrefix(trim, "ec volume "):
+			// EC line shape (verbosityLevel >= 5):
+			//   ec volume id:7 collection:mybucket shards:[0 1 3] sizes:[1024 2048 4096] total:7168
+			// `shards:[..]` and `sizes:[..]` use space-separated decimals
+			// inside brackets and don't fit the generic key:value regex.
+			v := parseECVolumeFields(trim)
+			v.Server = node
+			v.Rack = rack
+			v.DataCenter = dc
+			if v.DiskType == "" {
+				v.DiskType = disk
+			}
+			v.IsEC = true
+			v.ReadOnly = true // EC volumes are always read-only.
+			vols = append(vols, v)
 		case strings.HasPrefix(trim, "volume "):
 			v := parseVolumeFields(trim)
 			v.Server = node
@@ -73,6 +95,164 @@ func parseVolumeListOutput(out string) []VolumeInfo {
 		}
 	}
 	return vols
+}
+
+// parseECVolumeFields parses an `ec volume …` row from `volume.list`.
+//
+// Example: `ec volume id:7 collection:mybucket shards:[0 1 3] sizes:[1024 2048 4096] total:7168 disk_type:hdd`
+//
+// The fields are space-separated (no commas), so we extract each key with
+// an anchored scalar regex rather than reuse the comma-tolerant matcher.
+// Bracketed lists are parsed separately.
+func parseECVolumeFields(line string) VolumeInfo {
+	var v VolumeInfo
+	if s := scanToken(line, "id:"); s != "" {
+		if n, err := strconv.ParseUint(s, 10, 32); err == nil {
+			v.ID = uint32(n)
+		}
+	}
+	if s := scanToken(line, "collection:"); s != "" {
+		v.Collection = s
+	}
+	if s := scanToken(line, "disk_type:"); s != "" {
+		v.DiskType = s
+	} else if s := scanToken(line, "diskType:"); s != "" {
+		v.DiskType = s
+	}
+	if s := scanToken(line, "file_count:"); s != "" {
+		v.FileCount, _ = strconv.ParseUint(s, 10, 64)
+	}
+	if s := scanToken(line, "delete_count:"); s != "" {
+		v.DeleteCount, _ = strconv.ParseUint(s, 10, 64)
+	}
+	v.Shards = parseBracketIntList(line, "shards:")
+	if sizes := parseBracketUintList(line, "sizes:"); len(sizes) > 0 {
+		v.ShardSizes = sizes
+		for _, s := range sizes {
+			v.Size += s
+		}
+	}
+	if v.Size == 0 {
+		if total := scanUint(line, "total:"); total > 0 {
+			v.Size = total
+		}
+	}
+	return v
+}
+
+// scanToken returns the token following `prefix` in line, stopping at the
+// next space or end-of-line. Prefix must be preceded by start-of-string or
+// whitespace so e.g. scanning `id:` does not match the suffix of `disk_id:`.
+// Quotes around the value are unwrapped. Tokens starting with `[` are
+// rejected — bracketed list fields are handled separately.
+func scanToken(line, prefix string) string {
+	off := 0
+	for {
+		i := strings.Index(line[off:], prefix)
+		if i < 0 {
+			return ""
+		}
+		abs := off + i
+		// Require word-boundary on the left (start-of-string or whitespace)
+		// so `id:` does not glue onto `disk_id:7`.
+		if abs > 0 {
+			c := line[abs-1]
+			if c != ' ' && c != '\t' && c != '\n' {
+				off = abs + len(prefix)
+				continue
+			}
+		}
+		rest := line[abs+len(prefix):]
+		if len(rest) > 0 && rest[0] == '[' {
+			return ""
+		}
+		end := strings.IndexAny(rest, " \t\n")
+		if end < 0 {
+			end = len(rest)
+		}
+		tok := rest[:end]
+		if len(tok) >= 2 && tok[0] == '"' && tok[len(tok)-1] == '"' {
+			tok = tok[1 : len(tok)-1]
+		}
+		return tok
+	}
+}
+
+// parseBracketIntList finds `prefix[…]` in line and returns the decimals.
+// Returns nil when the bracketed list is absent or malformed.
+func parseBracketIntList(line, prefix string) []int {
+	body, ok := bracketBody(line, prefix)
+	if !ok {
+		return nil
+	}
+	if strings.TrimSpace(body) == "" {
+		return []int{}
+	}
+	out := make([]int, 0, 14)
+	for _, tok := range strings.Fields(body) {
+		n, err := strconv.Atoi(tok)
+		if err != nil {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+func parseBracketUintList(line, prefix string) []uint64 {
+	body, ok := bracketBody(line, prefix)
+	if !ok {
+		return nil
+	}
+	if strings.TrimSpace(body) == "" {
+		return []uint64{}
+	}
+	out := make([]uint64, 0, 14)
+	for _, tok := range strings.Fields(body) {
+		n, err := strconv.ParseUint(tok, 10, 64)
+		if err != nil {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+// bracketBody returns the substring between `[` and `]` immediately after
+// the given prefix; false if no bracket pair follows.
+func bracketBody(line, prefix string) (string, bool) {
+	i := strings.Index(line, prefix)
+	if i < 0 {
+		return "", false
+	}
+	open := strings.Index(line[i:], "[")
+	if open < 0 {
+		return "", false
+	}
+	open += i
+	close := strings.Index(line[open:], "]")
+	if close < 0 {
+		return "", false
+	}
+	return line[open+1 : open+close], true
+}
+
+// scanUint returns the unsigned int after `prefix` in line, or 0 if absent.
+func scanUint(line, prefix string) uint64 {
+	i := strings.Index(line, prefix)
+	if i < 0 {
+		return 0
+	}
+	rest := line[i+len(prefix):]
+	end := 0
+	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return 0
+	}
+	n, _ := strconv.ParseUint(rest[:end], 10, 64)
+	return n
 }
 
 // parseNodeDiskStats walks the same output and collects one row per
@@ -95,6 +275,15 @@ func parseNodeDiskStats(out string) []NodeDiskStats {
 		case strings.HasPrefix(trim, "DataNode "):
 			node = fieldAt(trim, 1)
 		case strings.HasPrefix(trim, "Disk "):
+			// SeaweedFS shell emits two `Disk` lines per disk:
+			//   header  → "Disk hdd(volume:5/200 active:5 free:195 remote:0) id:1"
+			//   summary → "Disk hdd {Size:... FileCount:... DeletedFileCount:... DeletedBytes:...}"
+			// Only the header carries the counts we parse. The summary
+			// line has `{` instead of `(` — skip it so we don't end up
+			// with a bogus disk_type that includes the {...} payload.
+			if !strings.Contains(trim, "(") || strings.Contains(trim, "{") {
+				continue
+			}
 			disk = diskTypeFromLine(trim)
 			ns := &NodeDiskStats{
 				Server: node, Rack: rack, DataCenter: dc, DiskType: disk,
@@ -103,6 +292,11 @@ func parseNodeDiskStats(out string) []NodeDiskStats {
 			stats[key{node, disk}] = ns
 		case strings.HasPrefix(trim, "volume "):
 			v := parseVolumeFields(trim)
+			if ns, ok := stats[key{node, disk}]; ok {
+				ns.UsedBytes += v.Size
+			}
+		case strings.HasPrefix(trim, "ec volume "):
+			v := parseECVolumeFields(trim)
 			if ns, ok := stats[key{node, disk}]; ok {
 				ns.UsedBytes += v.Size
 			}

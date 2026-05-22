@@ -182,6 +182,10 @@ func (w *Worker) buildInputs(ctx context.Context, t store.Task) Inputs {
 		in.CohortContext = fmt.Sprintf("domain=%s reads_7d=%d reads_per_byte=%.3e",
 			pat.BusinessDomain, pat.Reads7d, pat.ReadsPerByte7d)
 	}
+	// 30-day feature-history summary — lets the reviewer tell a genuinely
+	// cooling volume from a temporary lull. Empty string on any error;
+	// the prompts inject it verbatim and degrade gracefully.
+	in.TrendContext = buildTrendContext(ctx, w.ch, uint32(t.VolumeID))
 	if w.skills != nil {
 		if key := actionToSkillKey(t.Action); key != "" {
 			if loaded := w.skills.Get(key); loaded != nil {

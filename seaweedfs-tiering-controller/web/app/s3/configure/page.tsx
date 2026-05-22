@@ -16,6 +16,8 @@ import { api } from "@/lib/api";
 import { useCluster } from "@/lib/cluster-context";
 import { useT } from "@/lib/i18n";
 import { Can } from "@/components/can";
+import { ErrorPanel } from "@/components/error-panel";
+import { toast } from "@/lib/toast";
 
 type Cred = { accessKey: string; secretKey: string };
 type Ident = { name: string; credentials?: Cred[]; actions?: string[] };
@@ -58,11 +60,7 @@ function Inner() {
         </button>
       </header>
 
-      {error && (
-        <div className="card p-3 text-xs text-rose-300 border-rose-400/30 bg-rose-400/10 inline-flex items-center gap-2">
-          <AlertTriangle size={14}/> {String(error)}
-        </div>
-      )}
+      {error && <ErrorPanel error={error}/>}
       {data?.parse_error && (
         <div className="card p-3 text-xs text-amber-300 border-amber-400/30 bg-amber-400/10 inline-flex items-center gap-2">
           <AlertTriangle size={14}/> {t("Could not parse identities; showing empty list.")} <code className="font-mono">{data.parse_error}</code>
@@ -99,8 +97,8 @@ function Inner() {
                         <button className="btn text-xs bg-rose-400/15 text-rose-300 border-rose-400/40"
                                 onClick={async () => {
                                   if (!confirm(t("Delete identity {n}?").replace("{n}", i.name))) return;
-                                  try { await api.s3DeleteIdentity(clusterID, i.name); await mutate(); }
-                                  catch (e) { alert((e as Error).message); }
+                                  try { await api.s3DeleteIdentity(clusterID, i.name); toast.success("Deleted"); await mutate(); }
+                                  catch (e) { toast.fromError(e, "Delete failed"); }
                                 }}>
                           <Trash2 size={12}/>
                         </button>
@@ -156,9 +154,12 @@ function EditDialog({
       if (accessKey) body.access_key = accessKey;
       if (secretKey) body.secret_key = secretKey;
       await api.s3UpsertIdentity(clusterID, body);
+      toast.success("Identity saved");
       onClose(true);
     } catch (e: unknown) {
-      setError((e as Error).message);
+      const msg = (e as Error).message;
+      setError(msg);
+      toast.error("Save failed", msg);
     } finally {
       setBusy(false);
     }

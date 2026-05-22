@@ -21,6 +21,7 @@ import (
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/analytics"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/api"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/auth"
+	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/collector"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/config"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/crypto"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/executor"
@@ -133,6 +134,11 @@ func main() {
 	analyticsRunner := analytics.NewRunner(pg, ch, sw, logger, time.Hour)
 	go analyticsRunner.Run(rootCtx)
 
+	// Volume feature snapshot collector: writes one row per (volume,
+	// 5min tick) to tiering.volume_features. Powers time-machine
+	// simulation, trend charts, and AI prompt enrichment.
+	go collector.NewFeatureRunner(pg, ch, sw, logger, 5*time.Minute).Run(rootCtx)
+
 	// Multi-round AI safety review service.
 	aiResolver := ai.NewResolver(cryptoEnc, cfg.AI.RequestTimeout)
 	aiReviewSvc := aireview.NewService(pg, aiResolver, provider, logger)
@@ -192,12 +198,18 @@ func main() {
 		cfg.Server.HTTPAddr == ":8080"
 	logger.Info("auth mode", zap.Bool("dev_header_allowed", devAuth))
 
-	router := api.Router(api.Deps{
-		PG: pg, CH: ch, Sw: sw, Exec: ex, Sched: sched, AI: provider,
+	deps := api.Deps{
+		PG: pg, CH: ch, Sw: sw, Exec: ex, Sched: sched, AI: provider, AIResolver: aiResolver,
 		Snapshot: snapshot, Resolver: resolver, Caps: capsLoader, Gate: gate, Alerts: alerts,
 		Guard: guard, Skills: skills, Analytics: analyticsRunner,
 		AIReview: aiReviewSvc, Pressure: pressSnap, Crypto: cryptoEnc, DevAuth: devAuth, Log: logger,
-	})
+	}
+	router := api.Router(deps)
+
+	// Lifecycle scan: every 6h, walk every governed bucket and refresh
+	// its "expired data" counters so the lifecycle pages stay current
+	// without an operator clicking Scan per bucket.
+	go api.NewLifecycleScanRunner(deps, 6*time.Hour).Run(rootCtx)
 
 	srv := &http.Server{
 		Addr:              cfg.Server.HTTPAddr,

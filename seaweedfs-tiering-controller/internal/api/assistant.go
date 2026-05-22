@@ -21,9 +21,52 @@ const (
 	assistantChatTimeout = 60 * time.Second
 )
 
+// assistantSystemHeader pins the assistant's behaviour. Two non-obvious
+// rules are critical:
+//
+//  1. NO TOOL EXECUTION. The assistant has chat-completion access only —
+//     there is no function calling / agentic loop wired up. Earlier
+//     prompts caused the LLM to role-play running `cluster.failover_check`,
+//     `volume.balance` etc., promise async results, and then nothing
+//     would happen because no backend action was actually triggered.
+//     We now forbid pretending and require the model to instead point
+//     the operator at the concrete UI page or shell command.
+//
+//  2. NO FAKE PROGRESS. The model must not write phrases like
+//     "正在执行…", "请稍候,完成后我会汇报结果", or "预计耗时 N 分钟" —
+//     they create the false impression that something is running in
+//     the background. The transport is a single request/response.
 const assistantSystemHeader = "You are a SeaweedFS tiering-controller operator assistant. " +
-	"Strictly follow the SOPs below. If the operator's question falls outside them, " +
-	"say so. Be concise. Default reply language: Chinese."
+	"Follow the SOPs below; if the operator's question falls outside them, say so. " +
+	"Be concise. Default reply language: Chinese. " +
+	"\n\nEXECUTION MODEL — read carefully:\n" +
+	"  • You cannot run shell commands yourself and there is no follow-up " +
+	"message. NEVER say '正在执行…', '正在为集群 X 执行 Y', " +
+	"'请稍候,完成后我会汇报结果', '预计耗时 N 分钟', 'I'll run that for you', " +
+	"or anything that implies an async job is already in flight.\n" +
+	"  • Only the tools actually present in your tool list exist. NEVER " +
+	"invent or call a tool by a name you were not given — a fabricated " +
+	"tool call just fails.\n" +
+	"  • When the operator should run an operational SOP: if your tool " +
+	"list includes a tool for queueing an SOP as a pending task, call it. " +
+	"It queues the SOP for the operator to approve — then tell them you " +
+	"have queued it and they must approve it to run.\n" +
+	"  • Otherwise (no such tool in your list, or it is not a runnable " +
+	"SOP), tell the operator (a) which page in this UI to open, (b) which " +
+	"command/button to use, and (c) what to check afterwards. Be specific.\n" +
+	"  • When the operator asks 'what is happening', explain based on the " +
+	"context below; do not invent results.\n" +
+	"\n" +
+	"SKILL/SOP USAGE:\n" +
+	"  • The section '## Skill index (all enabled SOPs)' below lists every " +
+	"SOP available on this platform. Treat this as the authoritative menu " +
+	"of operations the operator can perform — do not invent SOPs not on this list.\n" +
+	"  • A few of those SOPs are loaded in full ('## SOP: <key> - <name>'). " +
+	"When the loaded body is sufficient, walk the operator through its steps.\n" +
+	"  • If the relevant SOP appears in the index but is NOT loaded in full, " +
+	"say so by key and suggest the operator open /skills/<key> for full text, " +
+	"or describe what you remember from the summary while flagging the limit.\n" +
+	"  • If no SOP matches, say so plainly. Do not fabricate procedures."
 
 // principalUserID extracts the authenticated user's UUID. Returns uuid.Nil if
 // the principal is missing or its UserID is not a valid UUID (e.g. anonymous
@@ -205,9 +248,15 @@ func postAssistantMessage(d Deps) gin.HandlerFunc {
 			return
 		}
 
-		if d.AI == nil {
+		// Resolve the AI provider for this call. Prefer the operator-managed
+		// default in ai_providers (configured via /ai-config); fall back to
+		// the static-config provider (d.AI) only when no DB row exists. This
+		// matters because d.AI is fixed at process start and ignores changes
+		// made through the UI.
+		chatProvider, provErr := resolveAssistantProvider(c.Request.Context(), d)
+		if provErr != nil {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"error": "AI provider not configured. Configure one in /ai-config.",
+				"error": provErr.Error(),
 				"user":  userMsg,
 			})
 			return
@@ -231,7 +280,7 @@ func postAssistantMessage(d Deps) gin.HandlerFunc {
 
 		ctx, cancel := context.WithTimeout(c.Request.Context(), assistantChatTimeout)
 		defer cancel()
-		reply, err := d.AI.Chat(ctx, systemPrompt, convo)
+		reply, err := chatProvider.Chat(ctx, systemPrompt, convo)
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{
 				"error": fmt.Sprintf("ai chat failed: %v", err),
@@ -274,14 +323,99 @@ func postAssistantMessage(d Deps) gin.HandlerFunc {
 // buildAssistantSystemPrompt assembles header + matched SOPs + cluster block.
 // Errors are non-fatal: we degrade to the header alone rather than break the
 // chat path.
+// resolveAssistantProvider returns the provider the floating assistant should
+// use for this request. Order of preference:
+//
+//  1. The DB-managed default in ai_providers (configured via /ai-config).
+//     Operators expect changes there to take effect without restart.
+//  2. The static-config provider wired at process start (d.AI). Useful for
+//     tests / dev where the DB has no rows yet.
+//
+// Returns an error only when neither source yields a usable, non-rule
+// provider — at that point the assistant truly has nothing to talk to.
+func resolveAssistantProvider(ctx context.Context, d Deps) (ai.Provider, error) {
+	if d.PG != nil && d.AIResolver != nil {
+		row, err := d.PG.GetDefaultAIProvider(ctx)
+		if err == nil && row != nil {
+			p, berr := d.AIResolver.Build(row)
+			if berr == nil && p != nil && p.Name() != "rule" {
+				return p, nil
+			}
+			// If the configured default is the rule provider, fall through —
+			// that's effectively "no AI", and the user wants a real model.
+		}
+	}
+	if d.AI != nil && d.AI.Name() != "rule" {
+		return d.AI, nil
+	}
+	return nil, fmt.Errorf("AI provider not configured. Add and mark a provider as default in /ai-config.")
+}
+
 func buildAssistantSystemPrompt(ctx context.Context, d Deps, clusterID *uuid.UUID, pagePath string) string {
 	var b strings.Builder
 	b.WriteString(assistantSystemHeader)
 	b.WriteString("\n\n")
+	// Honor the operator's UI locale. The assistant talks to the
+	// operator directly so its replies should match what they're
+	// reading on screen, not whatever the model defaults to.
+	if IsZh(ctx) {
+		b.WriteString("## Reply language\n")
+		b.WriteString("操作员当前使用简体中文界面。除非操作员明确切换语言或在引用命令/日志等不应翻译的内容,否则你的回复全部使用简体中文。命令名、文件路径、配置 key、错误码等保持英文原样。\n\n")
+	} else {
+		b.WriteString("## Reply language\n")
+		b.WriteString("The operator is using the English UI. Reply in English unless they switch languages or are quoting non-English content.\n\n")
+	}
 
-	// SOPs from skills table.
+	// Pull SOPs once. Used twice below: an index of ALL enabled
+	// skills (so the LLM knows what exists and can name them), and
+	// the full body of the top-N matches (so the most-likely-needed
+	// SOP is already loaded without a second turn).
 	skills, err := d.PG.ListSkills(ctx, "")
 	if err == nil {
+		// 1) Full index — one line per enabled skill. Format:
+		//    - <key> [<category> / <risk>] — <summary>
+		// Operators ask things like "我们有什么处理 EC 缺片的 SOP",
+		// and the model needs to be able to answer from this index
+		// without us hand-picking SOPs upfront.
+		enabledIndex := make([]store.Skill, 0, len(skills))
+		seenKey := map[string]struct{}{}
+		for _, s := range skills {
+			if !s.Enabled {
+				continue
+			}
+			if _, ok := seenKey[s.Key]; ok {
+				continue // ListSkills returns version DESC; keep newest
+			}
+			seenKey[s.Key] = struct{}{}
+			enabledIndex = append(enabledIndex, s)
+		}
+		if len(enabledIndex) > 0 {
+			b.WriteString("## Skill index (all enabled SOPs)\n")
+			b.WriteString("The operator manages these in /skills. Reference them by key.\n")
+			b.WriteString("If a relevant SOP isn't loaded in full below, tell the operator the key ")
+			b.WriteString("and suggest opening /skills/<key> for full detail.\n\n")
+			for _, s := range enabledIndex {
+				summary := skillSummaryText(s.Definition)
+				if summary == "" {
+					summary = "(no summary)"
+				}
+				risk := s.RiskLevel
+				if risk == "" {
+					risk = "?"
+				}
+				cat := s.Category
+				if cat == "" {
+					cat = "general"
+				}
+				b.WriteString(fmt.Sprintf("- %s [%s / risk:%s] — %s\n", s.Key, cat, risk, summary))
+			}
+			b.WriteString("\n")
+		}
+
+		// 2) Full body of the top-N matched by the page-path heuristic.
+		// We keep this small (3) so the prompt budget isn't blown out
+		// by every visit to /clusters; the index above covers the
+		// long tail.
 		matched := pickTopSkills(skills, pagePath, 3)
 		for _, s := range matched {
 			body := skillBodyText(s.Definition)
@@ -300,6 +434,25 @@ func buildAssistantSystemPrompt(ctx context.Context, d Deps, clusterID *uuid.UUI
 	}
 
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// skillSummaryText extracts `definition->>'summary'` for the index.
+// Falls back to an empty string when the field is missing or malformed.
+func skillSummaryText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return ""
+	}
+	if s, ok := obj["summary"]; ok {
+		var v string
+		if err := json.Unmarshal(s, &v); err == nil {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 // pickTopSkills returns the top N enabled skills, preferring skills whose

@@ -1,11 +1,17 @@
 "use client";
-import { useVolumes, useHeatmap, useClusters } from "@/lib/api";
+import { useVolumes, useHeatmap, useClusters, useVolumeTrendBulk } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { chartColors as C, tooltipStyle, legendStyle } from "@/lib/chart-theme";
 import { bytes } from "@/lib/utils";
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
-import { HardDrive, X, Search, Database, Filter, Eye, EyeOff, BarChart3, Copy, Check } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { HardDrive, X, Search, Database, Filter, Eye, EyeOff, BarChart3, Copy, Check, Wand2, Undo2, ShieldCheck, Plus, Scale, Trash2, MoreHorizontal, MapPin, Activity } from "lucide-react";
+import { ECEncodeDialog } from "@/components/ec/encode-dialog";
+import { ECDecodeDialog } from "@/components/ec/decode-dialog";
+import { VolumeFixReplicationDialog } from "@/components/volume/fix-replication-dialog";
+import { VolumeGrowDialog } from "@/components/volume/grow-dialog";
+import { VolumeBalanceDialog } from "@/components/volume/balance-dialog";
+import { VolumeDeleteEmptyDialog } from "@/components/volume/delete-empty-dialog";
 import { EmptyState } from "@/components/empty-state";
 import { TableSkeleton } from "@/components/table-skeleton";
 import { Pagination, usePagination } from "@/components/pagination";
@@ -14,162 +20,22 @@ import {
   VolumeRowActions, VolumeBulkBar, VolumeActionDialog, type VolumeRowLike,
 } from "@/components/volume-actions";
 import { useCluster } from "@/lib/cluster-context";
+// Helpers + sub-components extracted from this file when it grew past
+// the 800-line hard cap. types holds the wire shape + chart constants;
+// query parses the search box; chart-builders shape data; the rest
+// are visual components.
+import {
+  type Volume, type ReadFilter, type ECFilter, type DistMode, type ChartKey,
+  COMPACT_CHART_H, ALL_CHARTS, VIS_KEY, DRAWER_KEY, loadVisible, loadDrawerOpen,
+} from "./_components/types";
+import { parseVolumeQuery } from "./_components/query";
+import { DistKeyList } from "./_components/dist-key-list";
+import { buildDist, buildCompositionOption, buildHeatmap } from "./_components/chart-builders";
+import { BulkEncodeButton, BulkDecodeButton, OperationsMenu } from "./_components/bulk-actions";
+import { Sparkline } from "@/components/sparkline";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
-type ReadFilter = "all" | "writable" | "readonly";
-type DistMode = "node" | "rack" | "collection";
-
-// Compact chart row: every card is one fixed height so the three sit on
-// one line without one growing taller than the others. Distribution
-// caps to the top 10 groups in compact mode; the operator's full list
-// is still in the detail table below.
-const COMPACT_CHART_H = 260;
-const DIST_TOP_N      = 10;
-
-// chart-visibility state lives in localStorage so each operator can
-// hide what they don't care about and the choice survives reloads.
-const VIS_KEY = "tier.volumes.chart_visible";
-type ChartKey = "distribution" | "heatmap" | "composition";
-const ALL_CHARTS: { key: ChartKey; label: string }[] = [
-  { key: "distribution", label: "Distribution" },
-  { key: "heatmap",      label: "7-day Read Heatmap" },
-  { key: "composition",  label: "Composition" },
-];
-function loadVisible(): Record<ChartKey, boolean> {
-  const base: Record<ChartKey, boolean> = { distribution: true, heatmap: true, composition: true };
-  if (typeof window === "undefined") return base;
-  try {
-    const raw = localStorage.getItem(VIS_KEY);
-    if (!raw) return base;
-    return { ...base, ...(JSON.parse(raw) as Partial<Record<ChartKey, boolean>>) };
-  } catch {
-    return base;
-  }
-}
-
-// Drawer open/closed lives next to per-chart visibility so the operator
-// can leave the drawer closed by default (table-first workflow) and
-// open it only when they want a glance at the visuals.
-const DRAWER_KEY = "tier.volumes.charts_open";
-function loadDrawerOpen(): boolean {
-  if (typeof window === "undefined") return false;
-  try { return localStorage.getItem(DRAWER_KEY) === "1"; } catch { return false; }
-}
-
-// DistKeyList renders the full set of dist groups (node/rack/collection)
-// as a compact scrollable list. Each row: click to filter the table on
-// the right, copy button to grab the raw name for shell commands.
-function DistKeyList({
-  bars,
-  onPick,
-  activeKey,
-  label,
-}: {
-  bars: { key: string; writable: number; readonly: number }[];
-  onPick: (k: string) => void;
-  activeKey: string;
-  label: string;
-}) {
-  const [copied, setCopied] = useState<string | null>(null);
-  const copy = async (k: string) => {
-    try {
-      await navigator.clipboard.writeText(k);
-      setCopied(k);
-      setTimeout(() => setCopied(c => (c === k ? null : c)), 1200);
-    } catch { /* clipboard blocked, ignore */ }
-  };
-  if (bars.length === 0) return null;
-  const activeLc = activeKey.toLowerCase();
-  return (
-    <div className="mt-2 border-t border-border/40 pt-2">
-      <div className="text-[10px] text-muted px-1 pb-1">{label}</div>
-      <ul className="max-h-56 overflow-auto divide-y divide-border/30">
-        {bars.map(b => {
-          const isCopied = copied === b.key;
-          const isActive = activeLc !== "" && b.key.toLowerCase() === activeLc;
-          const total = b.writable + b.readonly;
-          return (
-            <li
-              key={b.key}
-              className={`group flex items-center gap-2 px-1 py-1 text-[11px] rounded ${
-                isActive ? "bg-accent/15" : "hover:bg-panel2/50"
-              }`}
-            >
-              <button
-                onClick={() => onPick(b.key)}
-                className={`flex-1 min-w-0 text-left font-mono truncate ${
-                  isActive ? "text-accent" : "text-text hover:text-accent"
-                }`}
-                title={isActive ? `${b.key} — click again to clear filter` : b.key}
-              >
-                {b.key}
-              </button>
-              <span className="text-muted tabular-nums shrink-0">{total}</span>
-              {isActive && (
-                <button
-                  onClick={() => onPick(b.key)}
-                  className="shrink-0 p-1 text-accent hover:text-text"
-                  title="Clear filter"
-                  aria-label="Clear filter"
-                >
-                  <X size={12}/>
-                </button>
-              )}
-              <button
-                onClick={() => copy(b.key)}
-                className={`shrink-0 p-1 text-muted hover:text-text transition-opacity ${
-                  isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                }`}
-                title={isCopied ? "Copied" : "Copy"}
-                aria-label="Copy"
-              >
-                {isCopied ? <Check size={12} className="text-emerald-300"/> : <Copy size={12}/>}
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-    </div>
-  );
-}
-
-// parseVolumeQuery splits the search box into qualifier filters and free
-// tokens. Examples:
-//   "id:1"             → exact ID 1
-//   "id:1,2,7"         → ID in {1,2,7}
-//   "collection:logs"  → exact collection (case-insensitive)
-//   "server:10.0.0.5"  → server substring (case-insensitive)
-//   "rack:r1 readonly" → rack=r1 plus free token "readonly"
-type VolumeQuery = {
-  idSet: Set<number> | null;
-  collection: string;
-  server: string;
-  rack: string;
-  free: string[];
-};
-function parseVolumeQuery(raw: string): VolumeQuery {
-  const q: VolumeQuery = { idSet: null, collection: "", server: "", rack: "", free: [] };
-  const tokens = raw.trim().split(/\s+/).filter(Boolean);
-  for (const tok of tokens) {
-    const m = tok.match(/^([a-z]+):(.+)$/i);
-    if (!m) { q.free.push(tok.toLowerCase()); continue; }
-    const key = m[1].toLowerCase();
-    const val = m[2];
-    switch (key) {
-      case "id": {
-        const ids = val.split(",").map(s => Number(s.trim())).filter(n => Number.isFinite(n));
-        if (ids.length) q.idSet = new Set(ids);
-        break;
-      }
-      case "collection": q.collection = val.toLowerCase(); break;
-      case "server":     q.server     = val.toLowerCase(); break;
-      case "rack":       q.rack       = val.toLowerCase(); break;
-      default:           q.free.push(tok.toLowerCase());
-    }
-  }
-  return q;
-}
 
 export default function VolumesPage() {
   const { t } = useT();
@@ -182,6 +48,7 @@ export default function VolumesPage() {
   const [collection, setCollection] = useState<string>("");
   const [diskType, setDiskType] = useState<string>("");
   const [readFilter, setReadFilter] = useState<ReadFilter>("all");
+  const [ecFilter, setECFilter] = useState<ECFilter>("all");
   const [text, setText] = useState("");
   const [distMode, setDistMode] = useState<DistMode>("node");
 
@@ -204,11 +71,24 @@ export default function VolumesPage() {
   // rack. id:N matches exactly; id:1,2,5 matches any of the listed IDs.
   // Bare tokens still do case-insensitive substring across all fields.
   const query = useMemo(() => parseVolumeQuery(text), [text]);
+  // `__default__` is a sentinel for "volumes with no explicit
+  // collection name" (SeaweedFS treats Collection="" as the default
+  // bucket). It surfaces as "默认" in the dropdown so operators can
+  // filter to that group without typing an empty string.
+  const hasDefaultCollection = useMemo(
+    () => all.some(v => !v.Collection),
+    [all],
+  );
+
   const filtered = useMemo(() => all.filter(v => {
-    if (collection && v.Collection !== collection) return false;
+    if (collection === "__default__") {
+      if (v.Collection) return false;
+    } else if (collection && v.Collection !== collection) return false;
     if (diskType && (v.DiskType || "hdd") !== diskType) return false;
     if (readFilter === "writable" && v.ReadOnly) return false;
     if (readFilter === "readonly" && !v.ReadOnly) return false;
+    if (ecFilter === "ec" && !v.IsEC) return false;
+    if (ecFilter === "normal" && v.IsEC) return false;
     if (query.idSet && !query.idSet.has(Number(v.ID))) return false;
     if (query.collection && (v.Collection || "").toLowerCase() !== query.collection) return false;
     if (query.server && !(v.Server || "").toLowerCase().includes(query.server)) return false;
@@ -218,7 +98,7 @@ export default function VolumesPage() {
       for (const tok of query.free) if (!hay.includes(tok)) return false;
     }
     return true;
-  }), [all, collection, diskType, readFilter, query]);
+  }), [all, collection, diskType, readFilter, ecFilter, query]);
 
   // Chart visibility — rehydrated from localStorage on mount so SSR
   // and the first client render agree (no hydration mismatch).
@@ -251,11 +131,23 @@ export default function VolumesPage() {
 
   const pg = usePagination(filtered, 50);
 
+  // Per-row 30-day sparklines: fetch feature history only for the volume
+  // IDs on the current page, in one bulk call. The hook keys SWR on the
+  // sorted id list, so paging refetches while SWRConfig keeps the prior
+  // page's lines on screen until the new data lands.
+  const pageVolumeIDs = useMemo(() => pg.slice.map(v => Number(v.ID)), [pg.slice]);
+  const { data: trendData } = useVolumeTrendBulk(pageVolumeIDs);
+  const trendByID = trendData?.items ?? {};
+
   // ---- selection + action dialog state -----------------------------------
   // Selection keys = "<cluster_id>:<id>:<server>" so the same volume on
   // different replicas is selectable independently (volume.delete is
   // node-scoped). Set is rebuilt as a fresh object so React notices.
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  // Per-row selection: each (cluster, vol, server) tuple ticks
+  // independently. Replica-aware operations (ec.encode) compute replica
+  // counts from the full volume list inside their own dialogs, so the
+  // table doesn't need to fold replicas into one row.
   const keyOf = (v: Volume) => `${v.cluster_id || ""}:${v.ID}:${v.Server}`;
   const toggleRow = (v: Volume) => {
     setSelectedKeys((prev) => {
@@ -279,6 +171,36 @@ export default function VolumesPage() {
   const selectedRows: VolumeRowLike[] = filtered.filter((v) => selectedKeys.has(keyOf(v)));
 
   const [actionDialog, setActionDialog] = useState<{ action: string; rows: VolumeRowLike[] } | null>(null);
+  // Local EC encode dialog state, decoupled from the generic VolumeActionDialog
+  // since ec.encode has cluster-scoped parameters (fullPercent / quietFor /
+  // disk type / RP) that don't fit the per-row shell action framework.
+  const [ecEncodeFor, setEcEncodeFor] = useState<{
+    clusterID: string;
+    volumeIds: number[];
+    sourceVolumes: { logicalBytes: number; replicaCount: number }[];
+    collection?: string;
+    volumeIdsByCollection: { collection: string; volumeIds: number[] }[];
+  } | null>(null);
+  // Decode is per-EC-volume — fewer parameters, but same per-volume loop
+  // on the server. The dialog opens with the de-duped volume ID list.
+  const [ecDecodeFor, setEcDecodeFor] = useState<{
+    clusterID: string;
+    volumeIds: number[];
+  } | null>(null);
+  // volume.fix.replication is cluster-scoped (no per-volume selector in
+  // the shell command), so the dialog opens against the currently-
+  // selected cluster from the topbar context.
+  const [fixReplFor, setFixReplFor] = useState<string | null>(null);
+  // Grow / Balance / Delete-empty are all cluster-scoped admin ops
+  // promoted from their own pages into this toolbar so the operator
+  // never leaves the volume list to launch them.
+  const [growFor, setGrowFor] = useState<string | null>(null);
+  const [balanceFor, setBalanceFor] = useState<string | null>(null);
+  const [deleteEmptyFor, setDeleteEmptyFor] = useState<string | null>(null);
+  // "Operations" menu drives all four ops (Fix / Grow / Balance / Delete
+  // empty). Hidden by default; opens to a dropdown so we don't leak
+  // four buttons across the toolbar.
+  const [opsMenuOpen, setOpsMenuOpen] = useState(false);
 
   const dist = useMemo(() => buildDist(filtered, distMode), [filtered, distMode]);
   const heat = useMemo(() => buildHeatmap(hm?.items || []), [hm]);
@@ -286,16 +208,27 @@ export default function VolumesPage() {
   const totalWritable = filtered.filter(v => !v.ReadOnly).length;
   const totalReadOnly = filtered.length - totalWritable;
   const totalBytes = filtered.reduce((s, v) => s + (Number(v.Size) || 0), 0);
+  // EC rollup. Each EC row is one shard-bag on one node — count distinct
+  // volume IDs (across clusters) for an accurate "EC 卷数" figure rather
+  // than a shard count.
+  const ecVolumeCount = useMemo(() => {
+    const s = new Set<string>();
+    for (const v of filtered) {
+      if (v.IsEC) s.add(`${v.cluster_id || ""}:${v.ID}`);
+    }
+    return s.size;
+  }, [filtered]);
 
   const chips: { key: string; label: string; clear: () => void }[] = [
     clusterID && { key: "cluster", label: (clusters?.items ?? []).find((c: any) => c.id === clusterID)?.name ?? "cluster", clear: () => setClusterID("") },
-    collection && { key: "collection", label: collection, clear: () => setCollection("") },
+    collection && { key: "collection", label: collection === "__default__" ? t("(default)") : collection, clear: () => setCollection("") },
     diskType && { key: "disk", label: diskType, clear: () => setDiskType("") },
     readFilter !== "all" && { key: "read", label: readFilter === "readonly" ? "read-only" : "writable", clear: () => setReadFilter("all") },
+    ecFilter !== "all" && { key: "ec", label: ecFilter === "ec" ? "EC only" : "Normal only", clear: () => setECFilter("all") },
     text && { key: "text", label: `"${text}"`, clear: () => setText("") },
   ].filter(Boolean) as any;
 
-  const clearAll = () => { setClusterID(""); setCollection(""); setDiskType(""); setReadFilter("all"); setText(""); };
+  const clearAll = () => { setClusterID(""); setCollection(""); setDiskType(""); setReadFilter("all"); setECFilter("all"); setText(""); };
 
   // Clicking a chart row drives the right-side table filter. Collection
   // has a dedicated dropdown; node/rack go through the search box with
@@ -303,9 +236,13 @@ export default function VolumesPage() {
   // Clicking the same row again toggles the filter off — the operator
   // doesn't have to hunt for the chip's X to undo.
   const filterByDistKey = (key: string) => {
-    if (!key || key.startsWith("(")) return;
+    if (!key) return;
     if (distMode === "collection") {
-      setCollection(c => (c === key ? "" : key));
+      // The dist chart labels the no-collection bucket as "(default)";
+      // map it to the __default__ sentinel that the page filter uses.
+      const target = key === "(default)" ? "__default__" : key;
+      if (target.startsWith("(")) return; // other "(unknown)" etc. aren't filterable
+      setCollection(c => (c === target ? "" : target));
     } else {
       const qual = distMode === "rack" ? "rack" : "server";
       const next = `${qual}:${key}`;
@@ -313,9 +250,13 @@ export default function VolumesPage() {
     }
   };
   // The list highlights the currently-active row so the operator can see
-  // at a glance which group is filtering the table.
+  // at a glance which group is filtering the table. Mirror of the
+  // sentinel-mapping in filterByDistKey so the active highlight lines
+  // up with the bar label.
   const activeDistKey = useMemo(() => {
-    if (distMode === "collection") return collection;
+    if (distMode === "collection") {
+      return collection === "__default__" ? "(default)" : collection;
+    }
     if (distMode === "rack")       return query.rack;
     return query.server;
   }, [distMode, collection, query]);
@@ -346,6 +287,10 @@ export default function VolumesPage() {
               <span className="mx-2 text-muted/40">·</span>
               <span className="text-warning">{totalReadOnly} read-only</span>
             </>}
+            {ecVolumeCount > 0 && <>
+              <span className="mx-2 text-muted/40">·</span>
+              <span className="text-accent">{ecVolumeCount} {t("EC")}</span>
+            </>}
             {vd?.clusters_ok != null && <>
               <span className="mx-2 text-muted/40">|</span>
               <span>{vd.clusters_ok} cluster{vd.clusters_ok === 1 ? "" : "s"} ok</span>
@@ -363,6 +308,24 @@ export default function VolumesPage() {
             />
           </div>
           <RefreshButton loading={volumesValidating} onClick={() => Promise.all([mutateVolumes(), mutateHeat()])}/>
+          {/* All four cluster-scoped admin ops live behind one
+              "Operations" button so the toolbar stays compact and the
+              ops surface stays consistent. Disabled when no cluster
+              is picked because every op needs a single master target. */}
+          <OperationsMenu
+            disabled={!clusterID}
+            emptyCount={all.filter(v => Number(v.Size) === 0).length}
+            onPick={(key) => {
+              if (!clusterID) return;
+              setOpsMenuOpen(false);
+              if (key === "fix")     setFixReplFor(clusterID);
+              if (key === "grow")    setGrowFor(clusterID);
+              if (key === "balance") setBalanceFor(clusterID);
+              if (key === "empty")   setDeleteEmptyFor(clusterID);
+            }}
+            open={opsMenuOpen}
+            setOpen={setOpsMenuOpen}
+          />
           {/* Charts live in a right-side drawer so the table keeps full
               width by default. Counter shows visible/hidden split so
               the operator knows what to expect on open. */}
@@ -385,6 +348,9 @@ export default function VolumesPage() {
         <div className="flex items-center gap-2 flex-wrap">
           <select className="select w-auto py-1 text-xs" value={collection} onChange={e => setCollection(e.target.value)}>
             <option value="">{t("All collections")}</option>
+            {hasDefaultCollection && (
+              <option value="__default__">{t("(default)")}</option>
+            )}
             {collections.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
           <select className="select w-auto py-1 text-xs" value={diskType} onChange={e => setDiskType(e.target.value)}>
@@ -398,6 +364,16 @@ export default function VolumesPage() {
                   readFilter === s ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2 hover:text-text"
                 }`}>
                 {s === "all" ? t("All") : s === "writable" ? t("Writable") : t("Read-only")}
+              </button>
+            ))}
+          </div>
+          <div className="inline-flex rounded-md border border-border overflow-hidden">
+            {(["all", "ec", "normal"] as const).map(s => (
+              <button key={s} onClick={() => setECFilter(s)}
+                className={`px-2.5 py-1 text-xs transition-colors ${
+                  ecFilter === s ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2 hover:text-text"
+                }`}>
+                {s === "all" ? t("All") : s === "ec" ? t("EC") : t("Normal")}
               </button>
             ))}
           </div>
@@ -427,19 +403,25 @@ export default function VolumesPage() {
           we don't leave an empty grid row. */}
       {selectedRows.length > 0 && (
         chartsOpen ? (
-          <div className="col-span-2">
+          <div className="col-span-2 flex items-center gap-2 flex-wrap">
             <VolumeBulkBar
               selected={selectedRows}
               onClear={() => setSelectedKeys(new Set())}
               onPick={(actionKey, rows) => setActionDialog({ action: actionKey, rows })}
             />
+            <BulkEncodeButton selected={selectedRows} allVolumes={all} onOpen={setEcEncodeFor}/>
+            <BulkDecodeButton selected={selectedRows} onOpen={setEcDecodeFor}/>
           </div>
         ) : (
-          <VolumeBulkBar
-            selected={selectedRows}
-            onClear={() => setSelectedKeys(new Set())}
-            onPick={(actionKey, rows) => setActionDialog({ action: actionKey, rows })}
-          />
+          <div className="flex items-center gap-2 flex-wrap">
+            <VolumeBulkBar
+              selected={selectedRows}
+              onClear={() => setSelectedKeys(new Set())}
+              onPick={(actionKey, rows) => setActionDialog({ action: actionKey, rows })}
+            />
+            <BulkEncodeButton selected={selectedRows} allVolumes={all} onOpen={setEcEncodeFor}/>
+            <BulkDecodeButton selected={selectedRows} onOpen={setEcDecodeFor}/>
+          </div>
         )
       )}
 
@@ -447,7 +429,7 @@ export default function VolumesPage() {
           chart aside on the left. */}
       <section className={`card overflow-hidden ${chartsOpen ? "col-start-2" : ""}`}>
         {vd === undefined ? (
-          <TableSkeleton rows={6} headers={["ID", "Cluster", "Collection", "Server", "Rack", "Disk", "Size", "Files", "R/O", "Modified"]}/>
+          <TableSkeleton rows={6} headers={["ID", "Cluster", "Collection", "Server", "Rack", "Disk", "Size", "Trend", "Files", "R/O", "Modified"]}/>
         ) : filtered.length === 0 ? (
           all.length === 0 ? (
             <EmptyState icon={Database}
@@ -472,6 +454,7 @@ export default function VolumesPage() {
                 </th>
                 <th>ID</th><th>{t("Clusters")}</th><th>{t("Collection")}</th><th>{t("Server")}</th>
                 <th>{t("Rack")}</th><th>{t("Disk")}</th><th className="num">{t("Size")}</th>
+                <th style={{ width: 124 }} className="text-center" title={t("30-day reads_7d trend · faint area = size")}>{t("Trend")}</th>
                 <th className="num">{t("Files")}</th><th>{t("R/O")}</th><th>{t("Modified")}</th>
                 <th style={{ width: 36 }}></th>
               </tr></thead>
@@ -483,7 +466,29 @@ export default function VolumesPage() {
                   <tr key={k} className={checked ? "bg-accent/5" : undefined}>
                     <td><input type="checkbox" checked={checked} onChange={() => toggleRow(v)} aria-label={`select volume ${v.ID}`}/></td>
                     <td className="font-mono">
-                      <a href={`/volumes/${v.ID}`} className="text-accent hover:underline">{v.ID}</a>
+                      {v.cluster_id ? (
+                        <a
+                          href={`/clusters/${v.cluster_id}/volumes/${v.ID}`}
+                          className="text-accent hover:underline"
+                          title={t("View placement (replicas / EC shards)")}
+                        >{v.ID}</a>
+                      ) : (
+                        <span className="text-muted" title={t("Cluster unknown — open the volume's cluster to see placement")}>{v.ID}</span>
+                      )}
+                      <a
+                        href={`/volumes/${v.ID}`}
+                        className="ml-1 inline-flex items-center text-muted hover:text-accent align-middle"
+                        title={t("View read pattern / cohort analytics")}
+                      >
+                        <Activity size={11}/>
+                      </a>
+                      {v.IsEC && (
+                        <span
+                          className="ml-1 badge border-accent/40 text-accent"
+                          title={`EC shards: [${(v.Shards ?? []).join(" ")}]`}>
+                          EC{v.Shards?.length ? ` ${v.Shards.length}` : ""}
+                        </span>
+                      )}
                     </td>
                     <td className="text-xs">{v.cluster_name || "—"}</td>
                     <td>{v.Collection || <span className="text-muted">—</span>}</td>
@@ -491,6 +496,7 @@ export default function VolumesPage() {
                     <td className="text-xs text-muted">{v.Rack || "—"}</td>
                     <td><span className="badge">{v.DiskType || "hdd"}</span></td>
                     <td className="num">{bytes(v.Size)}</td>
+                    <td className="text-center align-middle"><Sparkline points={trendByID[String(v.ID)] ?? []}/></td>
                     <td className="num">{v.FileCount.toLocaleString()}</td>
                     <td>{v.ReadOnly ? <span className="text-warning text-xs">●</span> : <span className="text-muted/40 text-xs">○</span>}</td>
                     <td className="text-muted text-xs">{v.ModifiedAtSec ? new Date(v.ModifiedAtSec * 1000).toLocaleString() : "—"}</td>
@@ -514,6 +520,61 @@ export default function VolumesPage() {
                 mutateVolumes();
               }
             }}
+          />
+        )}
+        {ecEncodeFor && (
+          <ECEncodeDialog
+            clusterID={ecEncodeFor.clusterID}
+            mode="volumes"
+            volumeIds={ecEncodeFor.volumeIds}
+            initialCollection={ecEncodeFor.collection}
+            collections={collections}
+            diskTypes={diskTypes}
+            sourceVolumes={ecEncodeFor.sourceVolumes}
+            volumeIdsByCollection={ecEncodeFor.volumeIdsByCollection}
+            allVolumes={all}
+            onClose={() => setEcEncodeFor(null)}
+            onDone={() => { setSelectedKeys(new Set()); mutateVolumes(); }}
+          />
+        )}
+        {ecDecodeFor && (
+          <ECDecodeDialog
+            clusterID={ecDecodeFor.clusterID}
+            volumeIds={ecDecodeFor.volumeIds}
+            diskTypes={diskTypes}
+            onClose={() => setEcDecodeFor(null)}
+            onDone={() => { setSelectedKeys(new Set()); mutateVolumes(); }}
+          />
+        )}
+        {fixReplFor && (
+          <VolumeFixReplicationDialog
+            clusterID={fixReplFor}
+            collections={collections}
+            onClose={() => setFixReplFor(null)}
+            onDone={() => mutateVolumes()}
+          />
+        )}
+        {growFor && (
+          <VolumeGrowDialog
+            clusterID={growFor}
+            allVolumes={all}
+            onClose={() => setGrowFor(null)}
+            onDone={() => mutateVolumes()}
+          />
+        )}
+        {balanceFor && (
+          <VolumeBalanceDialog
+            clusterID={balanceFor}
+            allVolumes={all}
+            onClose={() => setBalanceFor(null)}
+          />
+        )}
+        {deleteEmptyFor && (
+          <VolumeDeleteEmptyDialog
+            clusterID={deleteEmptyFor}
+            allVolumes={all}
+            onClose={() => setDeleteEmptyFor(null)}
+            onDone={() => mutateVolumes()}
           />
         )}
         {vd?.cluster_errors?.length ? (
@@ -573,15 +634,12 @@ export default function VolumesPage() {
                 {dist.bars.length === 0 ? (
                   <div className="text-xs text-muted py-10 text-center flex-1">{t("No data.")}</div>
                 ) : (
-                  <div className="px-1 py-1">
-                    <ReactECharts
-                      style={{ height: COMPACT_CHART_H }}
-                      option={buildDistOption({ ...dist, bars: dist.bars.slice(0, DIST_TOP_N) })}
-                      onEvents={{ click: (p: { name?: string }) => p?.name && filterByDistKey(p.name) }}
-                    />
-                    {/* Full list under the chart: clickable rows drive the
-                        right-table filter; copy button beside each label
-                        for quick paste into ops shells. */}
+                  <div className="px-2 py-1">
+                    {/* The chart used to live above this list, but with
+                        >10 nodes the ECharts bars crammed and the list
+                        was duplicated below for filtering. Now the list
+                        IS the chart — each row carries its own bar so
+                        the visual + interaction live together. */}
                     <DistKeyList
                       bars={dist.bars}
                       onPick={filterByDistKey}
@@ -666,157 +724,3 @@ export default function VolumesPage() {
   );
 }
 
-interface Volume {
-  ID: number;
-  Collection?: string;
-  Size: number;
-  FileCount: number;
-  ReadOnly?: boolean;
-  DiskType?: string;
-  Server: string;
-  Rack?: string;
-  DataCenter?: string;
-  ModifiedAtSec?: number;
-  cluster_id?: string;
-  cluster_name?: string;
-}
-
-function buildDist(items: Volume[], mode: DistMode) {
-  type Agg = { key: string; writable: number; readonly: number; bytes: number; clusters: Set<string> };
-  const by = new Map<string, Agg>();
-  let readOnly = 0;
-  for (const v of items) {
-    const key = mode === "rack"
-      ? (v.Rack || "(no-rack)")
-      : mode === "collection"
-        ? (v.Collection || "(default)")
-        : (v.Server || "(unknown)");
-    let a = by.get(key);
-    if (!a) {
-      a = { key, writable: 0, readonly: 0, bytes: 0, clusters: new Set<string>() };
-      by.set(key, a);
-    }
-    if (v.ReadOnly) { a.readonly++; readOnly++; } else { a.writable++; }
-    a.bytes += Number(v.Size) || 0;
-    if (v.cluster_name) a.clusters.add(v.cluster_name);
-  }
-  const bars = [...by.values()]
-    .map(a => ({ ...a, clusters: [...a.clusters] }))
-    .sort((a, b) => (b.writable + b.readonly) - (a.writable + a.readonly));
-  const byKey = new Map(bars.map(b => [b.key, b]));
-  return { bars, byKey, totalGroups: bars.length, readOnly };
-}
-
-// Render every group as its own bar. Chart height grows with row count
-// (see ROW_H above) so the operator sees the full distribution at once
-// instead of dragging a scrollbar inside the chart.
-function buildDistOption(dist: ReturnType<typeof buildDist>) {
-  return {
-    backgroundColor: "transparent",
-    grid: { left: 110, right: 12, top: 22, bottom: 8 },
-    legend: {
-      data: ["Writable", "Read-only"], top: 0, right: 24,
-      textStyle: { color: C.textMuted, fontSize: 11 },
-      icon: "roundRect", itemWidth: 10, itemHeight: 10, itemGap: 14,
-    },
-    tooltip: {
-      trigger: "axis", axisPointer: { type: "shadow" },
-      backgroundColor: C.tooltipBg, borderColor: C.tooltipBorder, textStyle: { color: C.text, fontSize: 12 },
-      formatter: (params: any) => {
-        const name = params[0].name;
-        const meta = dist.byKey.get(name);
-        const lines = params.map((p: any) =>
-          `<span style="color:${p.color}">●</span> ${p.seriesName}: <b>${p.value}</b>`,
-        ).join("<br/>");
-        const sizeLine = meta ? `<br/><span style="color:${C.textMuted}">size: ${bytes(meta.bytes)}</span>` : "";
-        const clusterLine = meta?.clusters?.length
-          ? `<br/><span style="color:${C.textMuted}">cluster: ${meta.clusters.join(", ")}</span>` : "";
-        return `<b>${name}</b><br/>${lines}${sizeLine}${clusterLine}`;
-      },
-    },
-    xAxis: {
-      type: "value", axisLabel: { color: C.textMuted, fontSize: 11 },
-      splitLine: { lineStyle: { color: C.grid } },
-    },
-    yAxis: {
-      type: "category",
-      data: dist.bars.map(b => b.key),
-      inverse: true,
-      axisLabel: {
-        color: C.textMuted, fontSize: 11,
-        formatter: (v: string) => v.length > 24 ? "…" + v.slice(-23) : v,
-      },
-      axisLine: { lineStyle: { color: C.axisLine } },
-      axisTick: { show: false },
-    },
-    series: [
-      {
-        name: "Writable", type: "bar", stack: "v", barMaxWidth: 18,
-        cursor: "pointer",
-        itemStyle: { color: C.accent, borderRadius: [3, 0, 0, 3] },
-        emphasis: { focus: "series" },
-        data: dist.bars.map(b => b.writable),
-        label: { show: true, position: "insideLeft", color: "#eaf2ff", fontSize: 11, fontWeight: 600,
-                 formatter: (p: any) => p.value > 0 ? p.value : "" },
-      },
-      {
-        name: "Read-only", type: "bar", stack: "v", barMaxWidth: 18,
-        cursor: "pointer",
-        itemStyle: { color: C.warning, borderRadius: [0, 3, 3, 0] },
-        emphasis: { focus: "series" },
-        data: dist.bars.map(b => b.readonly),
-        label: { show: true, position: "insideRight", color: C.textOnWarning, fontSize: 11, fontWeight: 600,
-                 formatter: (p: any) => p.value > 0 ? p.value : "" },
-      },
-    ],
-  };
-}
-
-function buildCompositionOption(items: Volume[]) {
-  const buckets = new Map<string, number>();
-  for (const v of items) {
-    const k = v.DiskType || "hdd";
-    buckets.set(k, (buckets.get(k) || 0) + 1);
-  }
-  const palette = ["oklch(74% 0.18 230)", "oklch(70% 0.15 60)", "oklch(74% 0.10 270)", "oklch(70% 0.18 30)", "oklch(70% 0.15 150)"];
-  const data = [...buckets.entries()].map(([name, value], i) => ({
-    name, value, itemStyle: { color: palette[i % palette.length] },
-  }));
-  return {
-    backgroundColor: "transparent",
-    tooltip: {
-      trigger: "item",
-      backgroundColor: C.tooltipBg, borderColor: C.tooltipBorder,
-      textStyle: { color: C.text, fontSize: 12 },
-      formatter: (p: any) => `${p.name}<br/>${p.value} volume(s) (${p.percent}%)`,
-    },
-    legend: {
-      orient: "vertical", left: 8, top: "center",
-      textStyle: { color: C.textMuted, fontSize: 10 },
-      icon: "roundRect", itemWidth: 8, itemHeight: 8,
-    },
-    series: [{
-      type: "pie", radius: ["50%", "72%"], center: ["62%", "50%"],
-      padAngle: 2, itemStyle: { borderRadius: 4, borderColor: "transparent", borderWidth: 0 },
-      label: { color: C.text, fontSize: 10, formatter: "{d}%" },
-      labelLine: { length: 6, length2: 4 },
-      data,
-    }],
-  };
-}
-
-function buildHeatmap(items: { hour: string; volume_id: number; reads: number }[]) {
-  const hourSet = new Set<string>(); const volSet = new Set<number>();
-  items.forEach(p => { hourSet.add(p.hour.slice(0, 13)); volSet.add(p.volume_id); });
-  const hours = [...hourSet].sort();
-  const volumes = [...volSet].sort((a, b) => a - b);
-  const hourIdx = new Map(hours.map((h, i) => [h, i]));
-  const volIdx  = new Map(volumes.map((v, i) => [v, i]));
-  let max = 0;
-  const points = items.map(p => {
-    const x = hourIdx.get(p.hour.slice(0, 13))!; const y = volIdx.get(p.volume_id)!;
-    if (p.reads > max) max = p.reads;
-    return [x, y, p.reads];
-  });
-  return { hours, volumes, points, max: max || 1 };
-}

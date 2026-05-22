@@ -1,5 +1,6 @@
 "use client";
 import { useTasks, useTaskReview, useClusterPressure, api } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { useT } from "@/lib/i18n";
 import { EmptyState } from "@/components/empty-state";
 import { relTime } from "@/lib/utils";
@@ -32,7 +33,15 @@ export default function TasksPage() {
 
   const act = async (fn: () => Promise<unknown>, id: string) => {
     setBusy(id);
-    try { await fn(); await mutate(); } finally { setBusy(null); }
+    try {
+      await fn();
+      await mutate();
+    } catch (e) {
+      // Surface failure via global toast instead of swallowing — the
+      // previous version would just clear `busy` and the operator
+      // had no clue why nothing happened.
+      toast.fromError(e, "Action failed");
+    } finally { setBusy(null); }
   };
 
   // Run kicks off async execution and immediately navigates to /executions/<id>
@@ -44,6 +53,9 @@ export default function TasksPage() {
       const res = (await api.runTask(taskID)) as { execution_id?: string; error?: string };
       await mutate();
       if (res?.execution_id) router.push(`/executions/${res.execution_id}`);
+      else if (res?.error) toast.error("Run failed", res.error);
+    } catch (e) {
+      toast.fromError(e, "Run failed");
     } finally {
       setBusy(null);
     }
@@ -102,6 +114,26 @@ export default function TasksPage() {
                         autonomy {task.autonomy_score.total.toFixed(2)}
                       </span>
                     )}
+                    {task.failure_reason && (task.status === "failed" || task.status === "approved") && (
+                      <span title={task.failure_message || task.failure_reason}
+                        className={
+                          "ml-1.5 px-1.5 py-0.5 rounded border text-[11px] inline-flex items-center gap-0.5 " +
+                          (task.failure_reason === "transient"
+                            ? "border-amber-400/40 bg-amber-400/10 text-amber-200"
+                            : task.failure_reason === "capacity"
+                              ? "border-rose-400/40 bg-rose-400/10 text-rose-200"
+                              : task.failure_reason === "validation"
+                                ? "border-fuchsia-400/40 bg-fuchsia-400/10 text-fuchsia-200"
+                                : "border-muted/40 bg-muted/5 text-muted")
+                        }>
+                        {task.failure_reason}{task.retry_count > 0 ? ` ×${task.retry_count}` : ""}
+                      </span>
+                    )}
+                    {task.next_retry_at && new Date(task.next_retry_at).getTime() > Date.now() && (
+                      <div className="mt-1 text-[11px] text-muted">
+                        {t("Auto-retry scheduled at")} <span className="font-mono">{new Date(task.next_retry_at).toLocaleTimeString()}</span>
+                      </div>
+                    )}
                     {task.status === "scheduled" && task.cluster_id && pressureByCluster.has(task.cluster_id) && (() => {
                       const p = pressureByCluster.get(task.cluster_id)!;
                       return (
@@ -132,7 +164,7 @@ export default function TasksPage() {
                           try {
                             const exec = await api.latestExecForTask(task.id);
                             if (exec?.id) router.push(`/executions/${exec.id}`);
-                            else alert("No execution record yet");
+                            else toast.warn("No execution record yet");
                           } finally { setBusy(null); }
                         }}>
                         {task.status === "running"
@@ -159,7 +191,9 @@ export default function TasksPage() {
                     {(task.status === "failed" || task.status === "cancelled") && (
                       <button className="btn btn-primary" disabled={busy===task.id}
                         onClick={() => act(() => api.retryTask(task.id), task.id)}
-                        title="Reset the task to approved so you can click Run again">
+                        title={task.failure_message
+                          ? `Last error (${task.failure_reason || "unknown"}): ${task.failure_message}`
+                          : "Reset the task to approved so you can click Run again"}>
                         <RotateCcw size={14}/> Retry
                       </button>
                     )}

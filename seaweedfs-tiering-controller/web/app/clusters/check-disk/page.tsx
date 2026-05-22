@@ -10,6 +10,7 @@ import { api } from "@/lib/api";
 import { useCluster } from "@/lib/cluster-context";
 import { useT } from "@/lib/i18n";
 import { Can } from "@/components/can";
+import { ErrorPanel } from "@/components/error-panel";
 
 type Row = { volume_id: number; server: string; ok: boolean; message?: string };
 
@@ -77,11 +78,7 @@ function Inner() {
         {busy && <span className="text-xs text-muted">{t("This may take several minutes on a large cluster.")}</span>}
       </section>
 
-      {error && (
-        <div className="card p-3 text-xs text-rose-300 border-rose-400/30 bg-rose-400/10 inline-flex items-center gap-2">
-          <AlertTriangle size={14}/> {error}
-        </div>
-      )}
+      {error && <ErrorPanel error={error}/>}
 
       {rows !== null && (
         <>

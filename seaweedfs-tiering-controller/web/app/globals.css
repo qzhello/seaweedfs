@@ -2,12 +2,105 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
-html, body { background: oklch(14% 0.01 255); color: oklch(96% 0 0); }
-body { font-feature-settings: "ss01", "cv11"; }
+/* ------------------------------------------------------------------
+   Design tokens
+   ------------------------------------------------------------------
+   Every UI color is a CSS variable so the same component tree can render
+   light or dark by swapping `[data-theme]` on <html>. Values are stored
+   as raw OKLCH channels (L C H, no oklch() wrapper) so Tailwind can
+   compose them with its <alpha-value> placeholder, e.g. bg-accent/15.
 
+   Why OKLCH: perceptually uniform — same chroma reads the same weight
+   across hues, which keeps the palette feeling balanced. Why CSS vars:
+   one source of truth, instant theme switches, no FOUC if we set the
+   attribute before paint.
+   ------------------------------------------------------------------ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --c-bg:      15% 0.008 255;
+  --c-panel:   19% 0.012 255;
+  --c-panel2: 23.5% 0.014 255;
+  --c-border:  30% 0.014 255;
+  --c-text:    97% 0 0;
+  --c-muted:   70% 0.015 255;
+
+  --c-accent:  72% 0.16 235;
+  --c-success: 75% 0.16 152;
+  --c-warning: 82% 0.16 82;
+  --c-danger:  70% 0.20 22;
+
+  /* Elevation: subtle lift on cards, stronger on modals. Dark mode
+     leans on luminance bumps + soft outer glow rather than heavy
+     shadows, which look muddy on dark surfaces. */
+  --shadow-card: 0 1px 0 0 oklch(100% 0 0 / 0.04) inset,
+                 0 12px 32px -16px oklch(0% 0 0 / 0.55);
+  --shadow-pop:  0 1px 0 0 oklch(100% 0 0 / 0.05) inset,
+                 0 24px 60px -24px oklch(0% 0 0 / 0.7);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --c-bg:      98.5% 0.002 255;
+  --c-panel:   100% 0 0;
+  --c-panel2:  96% 0.004 255;
+  --c-border:  90% 0.006 255;
+  --c-text:    18% 0.02 255;
+  --c-muted:   46% 0.012 255;
+
+  --c-accent:  55% 0.18 248;
+  --c-success: 52% 0.16 152;
+  --c-warning: 62% 0.18 72;
+  --c-danger:  55% 0.22 25;
+
+  /* Light mode shadows come from real diffuse light direction — soft
+     downward shadow + a very subtle ambient halo. Heavy drop shadows
+     look like 2010-era web; keep them honest. */
+  --shadow-card: 0 1px 2px 0 oklch(0% 0 0 / 0.04),
+                 0 8px 24px -12px oklch(0% 0 0 / 0.08);
+  --shadow-pop:  0 2px 4px 0 oklch(0% 0 0 / 0.04),
+                 0 24px 56px -16px oklch(0% 0 0 / 0.18);
+}
+
+/* Default before the theme attribute is set (e.g. very first SSR
+   render): use the dark palette so the page never flashes white. */
+:root:not([data-theme]) {
+  color-scheme: dark;
+  --c-bg:      15% 0.008 255;
+  --c-panel:   19% 0.012 255;
+  --c-panel2: 23.5% 0.014 255;
+  --c-border:  30% 0.014 255;
+  --c-text:    97% 0 0;
+  --c-muted:   70% 0.015 255;
+  --c-accent:  72% 0.16 235;
+  --c-success: 75% 0.16 152;
+  --c-warning: 82% 0.16 82;
+  --c-danger:  70% 0.20 22;
+  --shadow-card: 0 1px 0 0 oklch(100% 0 0 / 0.04) inset,
+                 0 12px 32px -16px oklch(0% 0 0 / 0.55);
+  --shadow-pop:  0 1px 0 0 oklch(100% 0 0 / 0.05) inset,
+                 0 24px 60px -24px oklch(0% 0 0 / 0.7);
+}
+
+html, body {
+  background: oklch(var(--c-bg));
+  color: oklch(var(--c-text));
+}
+body {
+  font-feature-settings: "ss01", "cv11";
+  /* Cross-theme transition so a manual toggle feels intentional rather
+     than a hard cut. Limited to color-ish properties to avoid layout
+     animation. */
+  transition: background-color 240ms ease, color 240ms ease;
+}
+
+/* ------------------------------------------------------------------
+   Reusable component classes
+   ------------------------------------------------------------------ */
 .card {
-  @apply rounded-xl border border-border bg-panel shadow-soft;
+  @apply rounded-xl border border-border bg-panel;
+  box-shadow: var(--shadow-card);
 }
 .kbd {
   @apply rounded border border-border bg-panel2 px-1.5 py-0.5 text-xs text-muted;
@@ -18,12 +111,12 @@ body { font-feature-settings: "ss01", "cv11"; }
 .btn {
   @apply inline-flex items-center gap-2 rounded-md border border-border bg-panel2 px-3 py-1.5 text-sm
          hover:bg-panel hover:border-border/80 disabled:opacity-50 disabled:cursor-not-allowed
-         transition-colors shadow-sm;
+         transition-colors;
 }
 .btn:focus-visible {
   @apply outline-none ring-2 ring-accent/50;
 }
-.btn-primary { @apply bg-accent/15 border-accent/40 text-accent hover:bg-accent/25 hover:border-accent/60; }
+.btn-primary { @apply bg-accent text-white border-accent hover:bg-accent/90 hover:border-accent; }
 .btn-danger  { @apply bg-danger/15  border-danger/40  text-danger  hover:bg-danger/25  hover:border-danger/60; }
 .btn-ghost   { @apply bg-transparent border-transparent hover:bg-panel2 hover:border-border; }
 
@@ -31,13 +124,12 @@ body { font-feature-settings: "ss01", "cv11"; }
    classes (e.g. w-72, w-auto) can still override .input's defaults. */
 @layer components {
 .input, .select, .textarea {
-  @apply w-full rounded-md border border-border bg-bg/60 px-3 py-1.5 text-sm
+  @apply w-full rounded-md border border-border bg-panel px-3 py-1.5 text-sm
          text-text placeholder:text-muted/60
          hover:border-border/80
          disabled:opacity-50 disabled:cursor-not-allowed
          transition-colors;
   font-variant-numeric: tabular-nums;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
 }
 .input:focus, .select:focus, .textarea:focus {
   @apply outline-none border-accent/60 ring-2 ring-accent/40;
@@ -47,11 +139,12 @@ body { font-feature-settings: "ss01", "cv11"; }
 }
 .textarea { @apply min-h-[6rem] font-mono leading-relaxed; }
 
-/* Native chevron for selects — neutral so it works on dark surfaces */
+/* Native chevron for selects — token-driven so it inverts between
+   light and dark without per-theme overrides. */
 .select {
   background-image:
-    linear-gradient(45deg,  transparent 50%, oklch(70% 0 0) 50%),
-    linear-gradient(135deg, oklch(70% 0 0) 50%, transparent 50%);
+    linear-gradient(45deg,  transparent 50%, oklch(var(--c-muted) / 0.7) 50%),
+    linear-gradient(135deg, oklch(var(--c-muted) / 0.7) 50%, transparent 50%);
   background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
   background-size: 5px 5px, 5px 5px;
   background-repeat: no-repeat;
@@ -86,13 +179,27 @@ table.grid th, table.grid td { display: table-cell; }
 table.grid th {
   @apply text-left text-muted font-medium px-3 py-2 border-b border-border;
   position: sticky; top: 0; z-index: 1;
-  background: oklch(18% 0.015 255);
+  background: oklch(var(--c-panel));
   backdrop-filter: saturate(140%) blur(6px);
 }
 table.grid td { @apply px-3 py-2 border-b border-border/60; }
-table.grid tr:hover td { background: oklch(20% 0.02 255); }
+table.grid tr:hover td { background: oklch(var(--c-panel2) / 0.5); }
 
 /* Numeric column convention — right aligned + tabular figures + monospace
    so values line up cleanly. Apply with className="num" on <th> and <td>. */
 table.grid th.num, table.grid td.num { text-align: right; }
 table.grid td.num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; @apply font-mono text-xs; }
+
+/* Scrollbar polish — default browser scrollbars look chunky on light
+   panels. Thin, theme-aware track + thumb. */
+@supports selector(::-webkit-scrollbar) {
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: oklch(var(--c-muted) / 0.25);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: oklch(var(--c-muted) / 0.45); background-clip: content-box; }
+}

@@ -128,8 +128,8 @@ function Sparkline({ targetId }: { targetId: string }) {
         { type: "value", min: 0, max: 1, axisLabel: { color: C.textMuted }, splitLine: { show: false } },
       ],
       series: [
-        { name: "latency_ms", type: "line", smooth: true, data: lat, lineStyle: { color: "oklch(74% 0.18 230)", width: 2 } },
-        { name: "ok",        type: "bar",  yAxisIndex: 1, data: ok, itemStyle: { color: (p: any) => p.value ? "oklch(76% 0.18 150)" : "oklch(68% 0.22 20)" } },
+        { name: "latency_ms", type: "line", smooth: true, data: lat, lineStyle: { color: "#3b9eff", width: 2 } },
+        { name: "ok",        type: "bar",  yAxisIndex: 1, data: ok, itemStyle: { color: (p: any) => p.value ? "#22c55e" : "#ef4444" } },
       ],
     }}/>
   );

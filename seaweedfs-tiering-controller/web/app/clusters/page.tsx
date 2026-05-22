@@ -21,6 +21,7 @@ type ClusterRow = {
   grpc_tls: boolean;
   enabled: boolean;
   weed_bin_path?: string;
+  filer_jwt?: string;
 };
 
 export default function ClustersPage() {
@@ -145,6 +146,7 @@ function ClusterDialog({ initial, onClose, onSaved }: {
     grpc_tls: initial?.grpc_tls ?? false,
     enabled: initial?.enabled ?? true,
     weed_bin_path: initial?.weed_bin_path ?? "",
+    filer_jwt: initial?.filer_jwt ?? "",
   });
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string>("");
@@ -224,6 +226,15 @@ function ClusterDialog({ initial, onClose, onSaved }: {
               placeholder="/opt/seaweedfs/weed/weed"
               value={d.weed_bin_path}
               onChange={e => setD({ ...d, weed_bin_path: e.target.value })}/>
+          </Field>
+          <Field
+            label={t("Filer JWT signing secret (optional)")}
+            hint={t("Paste the `key =` value from security.toml under [jwt.filer_signing] (or [jwt.signing] for older builds). The controller signs a short-lived HS256 token per request — DO NOT paste a JWT here, paste the HMAC secret. Location: typically /etc/seaweedfs/security.toml or ~/.seaweedfs/security.toml on the filer host; check `weed filer -h` for the active path. Leave empty if your filer has JWT disabled.")}>
+            <input className="input w-full font-mono text-xs"
+              type="password"
+              placeholder="abc123def456…  (HMAC secret, not a JWT)"
+              value={d.filer_jwt}
+              onChange={e => setD({ ...d, filer_jwt: e.target.value })}/>
           </Field>
           <div className="col-span-2 flex items-center gap-6 text-sm border-t border-border pt-3 mt-1">
             <label className="flex items-center gap-2 select-none">

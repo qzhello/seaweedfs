@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -18,14 +19,19 @@ type AssistantChat struct {
 }
 
 // AssistantMessage is a single user-or-assistant turn within a chat.
+// ToolTranscript is non-nil only on assistant turns that involved
+// tool calls; the UI uses it to redraw inline tool bubbles when the
+// chat is reopened. See migrations/pg/030_assistant_tool_transcript.sql
+// for the JSON shape.
 type AssistantMessage struct {
-	ID        uuid.UUID  `json:"id"`
-	ChatID    uuid.UUID  `json:"chat_id"`
-	Role      string     `json:"role"`
-	Content   string     `json:"content"`
-	ClusterID *uuid.UUID `json:"cluster_id,omitempty"`
-	PagePath  string     `json:"page_path,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID             uuid.UUID       `json:"id"`
+	ChatID         uuid.UUID       `json:"chat_id"`
+	Role           string          `json:"role"`
+	Content        string          `json:"content"`
+	ClusterID      *uuid.UUID      `json:"cluster_id,omitempty"`
+	PagePath       string          `json:"page_path,omitempty"`
+	CreatedAt      time.Time       `json:"created_at"`
+	ToolTranscript json.RawMessage `json:"tool_transcript,omitempty"`
 }
 
 // ListAssistantChats returns the user's chats, most-recently-updated first.
@@ -99,9 +105,9 @@ func (p *PG) ListAssistantMessages(ctx context.Context, chatID uuid.UUID, limit 
 		limit = 50
 	}
 	rows, err := p.Pool.Query(ctx, `
-		SELECT id, chat_id, role, content, cluster_id, COALESCE(page_path,''), created_at
+		SELECT id, chat_id, role, content, cluster_id, COALESCE(page_path,''), created_at, tool_transcript
 		FROM (
-			SELECT id, chat_id, role, content, cluster_id, page_path, created_at
+			SELECT id, chat_id, role, content, cluster_id, page_path, created_at, tool_transcript
 			FROM assistant_messages
 			WHERE chat_id=$1
 			ORDER BY created_at DESC
@@ -115,7 +121,7 @@ func (p *PG) ListAssistantMessages(ctx context.Context, chatID uuid.UUID, limit 
 	out := []AssistantMessage{}
 	for rows.Next() {
 		var m AssistantMessage
-		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.ClusterID, &m.PagePath, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.ClusterID, &m.PagePath, &m.CreatedAt, &m.ToolTranscript); err != nil {
 			return nil, fmt.Errorf("scan assistant message: %w", err)
 		}
 		out = append(out, m)
@@ -125,15 +131,27 @@ func (p *PG) ListAssistantMessages(ctx context.Context, chatID uuid.UUID, limit 
 
 // AppendAssistantMessage inserts a new turn for the chat. Callers are
 // responsible for ordering (user before assistant) and for calling
-// TrimAssistantHistory afterward.
+// TrimAssistantHistory afterward. Pass toolTranscript=nil for legacy
+// pure-text turns; AppendAssistantMessageWithTranscript is the
+// streaming-handler entry point that stores the play-by-play.
 func (p *PG) AppendAssistantMessage(ctx context.Context, chatID uuid.UUID, role, content string, clusterID *uuid.UUID, pagePath string) (AssistantMessage, error) {
+	return p.AppendAssistantMessageWithTranscript(ctx, chatID, role, content, clusterID, pagePath, nil)
+}
+
+// AppendAssistantMessageWithTranscript is the canonical insert path.
+// `transcript` is JSONB; pass nil/empty for messages without tool use.
+func (p *PG) AppendAssistantMessageWithTranscript(ctx context.Context, chatID uuid.UUID, role, content string, clusterID *uuid.UUID, pagePath string, transcript json.RawMessage) (AssistantMessage, error) {
 	var m AssistantMessage
+	var transcriptArg any
+	if len(transcript) > 0 {
+		transcriptArg = []byte(transcript)
+	}
 	row := p.Pool.QueryRow(ctx, `
-		INSERT INTO assistant_messages (chat_id, role, content, cluster_id, page_path)
-		VALUES ($1, $2, $3, $4, NULLIF($5,''))
-		RETURNING id, chat_id, role, content, cluster_id, COALESCE(page_path,''), created_at`,
-		chatID, role, content, clusterID, pagePath)
-	if err := row.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.ClusterID, &m.PagePath, &m.CreatedAt); err != nil {
+		INSERT INTO assistant_messages (chat_id, role, content, cluster_id, page_path, tool_transcript)
+		VALUES ($1, $2, $3, $4, NULLIF($5,''), $6)
+		RETURNING id, chat_id, role, content, cluster_id, COALESCE(page_path,''), created_at, tool_transcript`,
+		chatID, role, content, clusterID, pagePath, transcriptArg)
+	if err := row.Scan(&m.ID, &m.ChatID, &m.Role, &m.Content, &m.ClusterID, &m.PagePath, &m.CreatedAt, &m.ToolTranscript); err != nil {
 		return AssistantMessage{}, fmt.Errorf("append assistant message: %w", err)
 	}
 	return m, nil

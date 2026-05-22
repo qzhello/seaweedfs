@@ -23,10 +23,30 @@ import (
 // (`{{step1.output}}`), or a named regex capture from a previous step
 // (`{{step1.capture.bucket}}`). See ops_template_render.go.
 type opsStep struct {
+	// ID is the stable identifier other steps reference via DependsOn.
+	// Generated server-side at save time when missing so AI drafts and
+	// legacy templates both get sane IDs. Format: short slug ("s1",
+	// "s2") for human readability in audit logs.
+	ID           string `json:"id,omitempty"`
+	// Kind selects which engine processes this step. Empty / "shell"
+	// runs Command via `weed shell` (the legacy default). "analyzer"
+	// runs an analyzer_scripts row against a prior step's stdout —
+	// see Analyzer below.
+	Kind         string `json:"kind,omitempty"`
 	Command      string `json:"command"`
 	Args         string `json:"args,omitempty"`
 	Reason       string `json:"reason,omitempty"`
 	PauseOnError bool   `json:"pause_on_error,omitempty"`
+	// DependsOn lists the IDs of steps that must finish successfully
+	// before this step runs. Empty = root step (runs first). Steps
+	// sharing the same dependency set run in parallel. Cycles are
+	// rejected at save time.
+	DependsOn []string `json:"depends_on,omitempty"`
+	// Position is purely a UI hint for the ReactFlow editor; the
+	// runner ignores it. Stored so the graph layout persists across
+	// reloads. Defaults to (0,0) — the editor auto-lays-out missing
+	// values on render.
+	Position *opsStepPos `json:"position,omitempty"`
 	// Capture pulls named regex matches off this step's stdout into the
 	// rendering scope so later steps can reference them.
 	Capture []opsCapture `json:"capture,omitempty"`
@@ -34,6 +54,72 @@ type opsStep struct {
 	// from the catalog so the UI can decide whether to render a per-step
 	// streaming tail or wait for the buffered output.
 	Streams bool `json:"streams,omitempty"`
+	// ConfirmBefore makes the runner pause before executing this step,
+	// surface the rendered command + proposed variable values, and wait
+	// for an explicit operator approval. Use for any step whose effect
+	// is hard to undo (move, delete, encode), and for any step whose
+	// arguments come from AI inference (so the human eyeballs them).
+	ConfirmBefore bool `json:"confirm_before,omitempty"`
+	// InferVars asks the controller to call the configured AI provider
+	// before this step runs, feed it the prior steps' outputs, and ask
+	// it to produce values for the listed variable names. The
+	// inferred values land in the proposal that the await-confirm
+	// pause surfaces to the operator (so they're always reviewable;
+	// the LLM never silently writes a variable used in a mutating
+	// command). Implies ConfirmBefore=true in practice — the runner
+	// auto-pauses whenever inference fills a variable.
+	InferVars []opsVarInference `json:"infer_vars,omitempty"`
+	// Analyzer is the per-step config for kind="analyzer" steps.
+	// Lets a template plug a Python post-processor in between two
+	// shell steps without leaving the editor or trusting the LLM
+	// for the parse.
+	Analyzer *opsStepAnalyzer `json:"analyzer,omitempty"`
+}
+
+// opsStepAnalyzer wires a "kind: analyzer" step to its source data
+// and the script that processes it. The runner pulls the upstream
+// step's captured stdout, feeds it to the script with the rendered
+// params, and stores the JSON result back into the scope so later
+// steps can reference it via `{{stepN.analyzer.<key>}}`.
+type opsStepAnalyzer struct {
+	// ScriptName is the analyzer_scripts.name (stable). Stored as a
+	// name (not UUID) so dev/staging/prod share the same template
+	// JSON even when scripts are re-seeded with new UUIDs.
+	ScriptName string `json:"script_name"`
+	// FromStep is the ID of the step whose captured stdout should be
+	// piped into the script's input. Empty = "use the most recent
+	// completed step in this DAG branch".
+	FromStep string `json:"from_step,omitempty"`
+	// Params is a map of declared param → template string. Each value
+	// is rendered against the scope before invocation, so the
+	// operator can reference variables / prior captures the same way
+	// shell step args do.
+	Params map[string]string `json:"params,omitempty"`
+}
+
+// opsStepPos is the editor-layout coordinate for a step node. Kept
+// minimal — ReactFlow takes {x,y} directly.
+type opsStepPos struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+// opsVarInference declares one variable the AI should derive from
+// prior step output before the parent step runs.
+//
+// Example: step 1 runs `volume.list`; step 2 needs to know which
+// server has the most volumes. Step 2's InferVars would be:
+//
+//	[{var: "source_server", from_step: 1, hint: "the volume server with the most volumes"}]
+//
+// At run time, the controller hands step 1's stdout + the hint to
+// the LLM and asks for a JSON object `{"source_server": "..."}`.
+// The hint is what the operator wrote when authoring the template;
+// keep it operator-readable so they can audit the inference.
+type opsVarInference struct {
+	Var      string `json:"var"`                // variable key this fills
+	FromStep int    `json:"from_step,omitempty"` // 1-indexed; 0 = "all prior steps"
+	Hint     string `json:"hint"`                // free-form intent the AI must satisfy
 }
 
 // stepsBlob is the shape we marshal into the OpsTemplate.Steps jsonb
@@ -75,6 +161,15 @@ type opsTemplatePayload struct {
 	Category    string           `json:"category,omitempty"`
 	Steps       []opsStep        `json:"steps"`
 	Variables   []opsTemplateVar `json:"variables,omitempty"`
+	// AIPrecheck toggles the per-step risk advisor. Pointer so the
+	// frontend can omit the field and we'll fall back to the
+	// existing-row value on update. Nil-on-insert defaults to TRUE
+	// in the DB (safer to nag than to silently skip).
+	AIPrecheck  *bool            `json:"ai_precheck,omitempty"`
+	// Alerts is the optional per-flow notification routing. Sending
+	// nil (or no field) preserves the existing row; sending {} or a
+	// config with empty channel_ids clears alerts for this template.
+	Alerts      *opsTemplateAlerts `json:"alerts,omitempty"`
 }
 
 // renderTemplate flattens a stored OpsTemplate into the shape the UI
@@ -90,16 +185,18 @@ func renderTemplate(t store.OpsTemplate) gin.H {
 		vars = []opsTemplateVar{}
 	}
 	return gin.H{
-		"id":          t.ID,
-		"name":        t.Name,
-		"description": t.Description,
-		"category":    t.Category,
-		"steps":       steps,
-		"variables":   vars,
-		"created_by":  t.CreatedBy,
-		"updated_by":  t.UpdatedBy,
-		"created_at":  t.CreatedAt,
-		"updated_at":  t.UpdatedAt,
+		"id":           t.ID,
+		"name":         t.Name,
+		"description":  t.Description,
+		"category":     t.Category,
+		"steps":        steps,
+		"variables":    vars,
+		"ai_precheck":  t.AIPrecheck,
+		"alerts":       decodeOpsTemplateAlerts(t.Alerts),
+		"created_by":   t.CreatedBy,
+		"updated_by":   t.UpdatedBy,
+		"created_at":   t.CreatedAt,
+		"updated_at":   t.UpdatedAt,
 	}
 }
 
@@ -155,6 +252,21 @@ func upsertOpsTemplate(d Deps) gin.HandlerFunc {
 		clean := make([]opsStep, 0, len(body.Steps))
 		for i, s := range body.Steps {
 			s.Command = strings.TrimSpace(s.Command)
+			// Analyzer steps don't carry a catalog command — they
+			// reference an analyzer_scripts row by name. Use a
+			// synthetic command label so the rest of the validation
+			// (placeholder check, audit) has something to log.
+			if s.Kind == "analyzer" {
+				if s.Analyzer == nil || strings.TrimSpace(s.Analyzer.ScriptName) == "" {
+					c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("step %d: analyzer step requires analyzer.script_name", i+1)})
+					return
+				}
+				if s.Command == "" {
+					s.Command = "analyzer:" + s.Analyzer.ScriptName
+				}
+				clean = append(clean, s)
+				continue
+			}
 			if s.Command == "" {
 				c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("step %d: command required", i+1)})
 				return
@@ -165,9 +277,45 @@ func upsertOpsTemplate(d Deps) gin.HandlerFunc {
 				return
 			}
 			s.Streams = cat.Streams
+			// Sanitize infer_vars: the first step has no prior output
+			// to ground inference against, so AI inference there can
+			// only hallucinate. Silently strip rather than reject —
+			// the operator can still hand-fill the values in the
+			// approval card. Forward references (from_step pointing
+			// past the current step) get the same treatment.
+			if len(s.InferVars) > 0 {
+				keep := s.InferVars[:0]
+				for _, iv := range s.InferVars {
+					if i == 0 {
+						continue // step 1 — no priors to read
+					}
+					if iv.FromStep > i {
+						continue // forward reference (i is 0-based, step nums are 1-based)
+					}
+					keep = append(keep, iv)
+				}
+				s.InferVars = keep
+			}
 			clean = append(clean, s)
 		}
-		if err := validateTemplatePlaceholders(body.Variables, clean); err != nil {
+		// Normalize the DAG: fill missing step IDs, repair invalid
+		// depends_on refs, linearize templates that have no
+		// dependency info at all (legacy / AI drafts that didn't
+		// emit the field). Cycles get caught here too.
+		var derr error
+		clean, derr = normalizeDAG(clean)
+		if derr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": derr.Error()})
+			return
+		}
+		// Auto-declare any `{{X}}` placeholder that's missing from
+		// the variables list. Without this the AI's draft (and any
+		// hand-typed template) would fail save validation the moment
+		// a step references `{{volume_id}}` without an explicit
+		// variable row — annoying UX with no real safety benefit, since
+		// the run dialog will still prompt for every declared var.
+		vars := autoDeclareMissingVars(body.Variables, clean)
+		if err := validateTemplatePlaceholders(vars, clean); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
@@ -175,13 +323,27 @@ func upsertOpsTemplate(d Deps) gin.HandlerFunc {
 		// Persist envelope: {steps, variables}. decodeStepsBlob keeps
 		// legacy bare-array rows readable so this is forward-only —
 		// no migration of existing rows needed.
-		blob, _ := json.Marshal(stepsBlob{Steps: clean, Variables: body.Variables})
+		blob, _ := json.Marshal(stepsBlob{Steps: clean, Variables: vars})
 
 		t := store.OpsTemplate{
 			Name:        body.Name,
 			Description: body.Description,
 			Category:    body.Category,
 			Steps:       blob,
+			// Default-on; explicit false from frontend disables it.
+			AIPrecheck:  true,
+		}
+		if body.AIPrecheck != nil {
+			t.AIPrecheck = *body.AIPrecheck
+		}
+		// Encode alerts blob. Empty channel_ids → JSON null so the
+		// runner sees "no routing" via decodeOpsTemplateAlerts.
+		if body.Alerts != nil && len(body.Alerts.ChannelIDs) > 0 {
+			if blob, err := json.Marshal(body.Alerts); err == nil {
+				t.Alerts = blob
+			}
+		} else {
+			t.Alerts = json.RawMessage("null")
 		}
 		if body.ID != "" {
 			if parsed, err := uuid.Parse(body.ID); err == nil {
@@ -401,16 +563,29 @@ func draftOpsTemplate(d Deps) gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{"ok": true, "mode": "json", "draft": draft})
 			return
 		}
-		chatter, ok := d.AI.(jsonChatter)
+		// Resolve through the same path as the floating assistant so a
+		// provider configured in /ai-config is used (the old code path
+		// only saw d.AI, the static-config provider wired at process
+		// start, and missed DB-managed defaults entirely).
+		provider, provErr := resolveAssistantProvider(c.Request.Context(), d)
+		if provErr != nil {
+			c.JSON(http.StatusOK, gin.H{"ok": false, "mode": "ai", "error": provErr.Error()})
+			return
+		}
+		chatter, ok := provider.(jsonChatter)
 		if !ok {
 			c.JSON(http.StatusOK, gin.H{
 				"ok":    false,
 				"mode":  "ai",
-				"error": "AI provider not configured (provider can't do free-form chat). Paste raw JSON or configure an OpenAI/Anthropic provider.",
+				"error": "Configured AI provider does not support freeform JSON chat. Paste raw JSON, or pick an OpenAI/Anthropic-compatible provider in /ai-config.",
 			})
 			return
 		}
-		prompt := buildOpsTemplatePrompt(text)
+		// Pull analyzer scripts so the model knows when to insert
+		// kind="analyzer" steps. Best-effort: empty list on DB error
+		// still produces a usable shell-only draft.
+		analyzers, _ := d.PG.ListAnalyzerScripts(c.Request.Context())
+		prompt := buildOpsTemplatePromptWith(c.Request.Context(), text, analyzers)
 		raw, err := chatter.JSONChat(c.Request.Context(), prompt)
 		if err != nil {
 			c.JSON(http.StatusOK, gin.H{"ok": false, "mode": "ai", "error": "AI call failed: " + err.Error()})
@@ -437,6 +612,9 @@ type opsTemplateDraft struct {
 	Category    string           `json:"category"`
 	Steps       []opsStep        `json:"steps"`
 	Variables   []opsTemplateVar `json:"variables,omitempty"`
+	// AIPrecheck mirrors the persisted column. The model is asked to
+	// set this true for any template containing a mutating step.
+	AIPrecheck  *bool            `json:"ai_precheck,omitempty"`
 }
 
 func tryParseOpsDraft(text string) (*opsTemplateDraft, bool) {
@@ -450,12 +628,32 @@ func tryParseOpsDraft(text string) (*opsTemplateDraft, bool) {
 	allow := shellAllowedNames()
 	for i := range d.Steps {
 		d.Steps[i].Command = strings.TrimSpace(d.Steps[i].Command)
+		// Analyzer steps don't belong to the shell catalog — their
+		// "command" is a synthetic label like "analyzer:<script>".
+		// Require the analyzer config to be non-empty instead.
+		if d.Steps[i].Kind == "analyzer" {
+			if d.Steps[i].Analyzer == nil || strings.TrimSpace(d.Steps[i].Analyzer.ScriptName) == "" {
+				return nil, false
+			}
+			if d.Steps[i].Command == "" {
+				d.Steps[i].Command = "analyzer:" + d.Steps[i].Analyzer.ScriptName
+			}
+			continue
+		}
 		if _, ok := allow[d.Steps[i].Command]; !ok {
 			return nil, false
 		}
 	}
-	// Reject drafts whose placeholders don't resolve so a bad model
-	// hallucination can't slip past as "valid JSON."
+	// Auto-declare any placeholders the model forgot to list under
+	// `variables`. The previous behaviour rejected such drafts as
+	// invalid, which surfaced to the operator as a vague "AI did not
+	// return a valid template JSON" — they'd have no idea what to fix.
+	// We now repair the draft and let the form show the operator what
+	// was added so they can review/rename.
+	d.Variables = autoDeclareMissingVars(d.Variables, d.Steps)
+	// After auto-declaration the only remaining failures are illegal
+	// stepN.* references; reject those because they can't be repaired
+	// by adding a variable.
 	if err := validateTemplatePlaceholders(d.Variables, d.Steps); err != nil {
 		return nil, false
 	}
@@ -469,14 +667,53 @@ func tryParseOpsDraft(text string) (*opsTemplateDraft, bool) {
 // command catalog (name + summary + risk) so the model only proposes
 // commands the controller actually accepts — and so we can correct it
 // when it tries to invent a command name.
-func buildOpsTemplatePrompt(userText string) string {
+func buildOpsTemplatePrompt(ctx context.Context, userText string) string {
+	return buildOpsTemplatePromptWith(ctx, userText, nil)
+}
+
+// buildOpsTemplatePromptWith is the same as buildOpsTemplatePrompt but
+// also embeds the available analyzer-scripts library so the model can
+// route deterministic post-processing (top-N node, filter-by-collection,
+// shard health, …) through Python instead of hallucinating numbers in
+// the AI inference path. Pass nil to skip the section.
+func buildOpsTemplatePromptWith(ctx context.Context, userText string, analyzers []store.AnalyzerScript) string {
 	var catalogLines strings.Builder
 	for _, c := range shellCatalog {
 		fmt.Fprintf(&catalogLines, "  - %s (%s, %s): %s\n", c.Name, c.Category, c.Risk, c.Summary)
+		// Expose the exact flag names so the model doesn't hallucinate
+		// (e.g. inventing -from/-to for volume.move which actually wants
+		// -source/-target). Without this the catalog is too thin to ground
+		// args generation.
+		if len(c.Args) > 0 {
+			var flags []string
+			for _, a := range c.Args {
+				marker := ""
+				if a.Required {
+					marker = "*"
+				}
+				if a.Kind != "" {
+					flags = append(flags, fmt.Sprintf("%s=<%s>%s", a.Flag, a.Kind, marker))
+				} else {
+					flags = append(flags, fmt.Sprintf("%s%s", a.Flag, marker))
+				}
+			}
+			fmt.Fprintf(&catalogLines, "      flags: %s\n", strings.Join(flags, " "))
+		}
+	}
+	// Tell the model which language to write the human-readable fields
+	// in. The schema keys, command names, and flag syntax stay in English
+	// because they're parsed by the controller — only the prose the
+	// operator reads (name/description/reason/hint/variable labels)
+	// should follow the UI locale.
+	langDirective := "Write all human-readable fields (`name`, `description`, every step's `reason`, every `infer_vars[].hint`, and every `variables[].label`) in English."
+	if IsZh(ctx) {
+		langDirective = "用简体中文撰写所有面向操作员阅读的字段:`name`、`description`、每个步骤的 `reason`、`infer_vars[].hint`、以及 `variables[].label`。注意:JSON 的字段名、`command` 的取值、`args` 中的 `-flag=value` 语法、`variables[].key` 必须保持英文,不要翻译。"
 	}
 	return fmt.Sprintf(`You convert a SeaweedFS operator's natural-language playbook into a
 JSON ops template. Reply ONLY with the JSON object, no markdown, no
 prose.
+
+Language: %s
 
 Output schema:
 {
@@ -488,12 +725,18 @@ Output schema:
   ],
   "steps": [
     {
+      "id": "s1",
       "command": "exact dotted weed shell name from the catalog below",
       "args": "single string of flags, e.g. \"-name={{bucket_name}} -quotaMB={{quota_mb}}\"",
       "reason": "short reason recorded in the audit log",
+      "depends_on": [],
       "pause_on_error": false,
+      "confirm_before": false,
       "capture": [
         { "as": "owner_id", "regex": "owner:\"([^\"]+)\"" }
+      ],
+      "infer_vars": [
+        { "var": "source_server", "from_step": 1, "hint": "the volume server with the most volumes" }
       ]
     }
   ]
@@ -503,17 +746,64 @@ Rules:
 - Only emit commands that appear in the catalog below. Never invent.
 - Use the dotted catalog name verbatim (e.g. "s3.bucket.create", not "create bucket").
 - args is a single string in the form weed shell expects: "-flag=value" pairs separated by spaces.
+- **Use ONLY the flag names listed under each command's "flags:" line. Never invent flag names. Common mistake to avoid: volume.move uses -source/-target, NOT -from/-to.**
+- Flags marked with "*" are required and MUST appear in args. Optional flags may be omitted.
 - For values the operator should supply at run time (bucket name, target node, quota, etc.) declare a "variables" entry and reference it as "{{var_key}}" inside args. Use snake_case keys. Prefer placeholders over hard-coding values the operator would obviously want to vary.
 - To use the previous step's stdout in args, reference "{{stepN.output}}" or extract a piece via "capture" + "{{stepN.capture.alias}}".
 - Every "{{...}}" in args MUST resolve to a declared variable or a prior step's capture/output, otherwise the template is rejected.
+- NEVER put "infer_vars" on the FIRST step. The first step has no prior output to read, so AI inference there is impossible. If the operator's intent needs an AI-derived value, the first step must be a read-only command (e.g. "volume.list", "volume.balance" with -force=false) that prints the data, and the "infer_vars" lives on step 2 or later, pointing back at the read step via from_step.
+- For values that should be DERIVED from a prior step's output by AI analysis (e.g. "the server with the most volumes", "the volume id that's largest"), do NOT declare a variable — instead:
+    1. Reference the placeholder normally in args, e.g. "-from={{source_server}}".
+    2. Add an entry to this step's "infer_vars": [{ "var": "source_server", "from_step": <N>, "hint": "human-readable instruction" }].
+   The runner pauses before this step, calls the AI to extract the value from step N's stdout, presents it to the operator for review, and proceeds only after explicit human approval.
+- Set "confirm_before": true on every step that mutates state (creates/deletes/moves anything). The runner will pause and require an explicit operator approval before executing. Set false on pure read/query steps.
+- Every step has a unique "id" (short slug like "s1", "s2"). "depends_on" is the list of step ids that MUST finish before this one runs. An empty depends_on means it runs first / can run in parallel with other root steps.
+- PREFER PARALLELISM. If two steps don't actually need each other's output, give them the same depends_on and they will run in parallel. Example: creating two unrelated buckets — both have depends_on=[], they fan out simultaneously. Conversely, if step B references {{stepA.output}} or step A's capture, B's depends_on MUST include A.
 - Keep the steps minimal — the operator can add follow-ups later.
 - If the user mentions cluster names, hostnames, or things outside weed shell, ignore them; weed shell already knows the cluster context.
+- **Prefer analyzer steps over infer_vars whenever the question is deterministic** (top-N node, filter by collection, find largest volume, count by rack, EC shard health). Analyzer steps are Python scripts the platform ships and never hallucinate. Use AI inference (infer_vars) only for fuzzy judgment calls the scripts don't cover.
+- An analyzer step looks like this (place between a read step and a mutating step):
+    {"id":"s2","kind":"analyzer","depends_on":["s1"],"analyzer":{"script_name":"<one of the names below>","from_step":"s1","params":{"n":"1"}}}
+  Downstream steps reference its result via {{s2.analyzer}} (whole JSON), {{s2.analyzer.<key>}} (top-level field), or via capture.
 - If you don't know how to express the user's intent with the catalog, return {"name":"","description":"","category":"","steps":[]}.
 
 Catalog (name (category, risk): summary):
 %s
-
+%s
 User request:
 %s
-`, catalogLines.String(), userText)
+`, langDirective, catalogLines.String(), analyzerSection(analyzers), userText)
+}
+
+// analyzerSection renders the available analyzer scripts as a short
+// catalog the model can pick from. Empty when no scripts exist or
+// the caller didn't pass any — we want the AI prompt to degrade
+// gracefully on fresh installs.
+func analyzerSection(analyzers []store.AnalyzerScript) string {
+	if len(analyzers) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\nAnalyzer scripts (kind=\"analyzer\" steps; deterministic Python post-processors):\n")
+	for _, s := range analyzers {
+		if !s.Enabled {
+			continue
+		}
+		fmt.Fprintf(&b, "  - %s — %s", s.Name, s.Title)
+		if len(s.ForCommands) > 0 {
+			fmt.Fprintf(&b, "  [for: %s]", strings.Join(s.ForCommands, ", "))
+		}
+		if len(s.Tags) > 0 {
+			fmt.Fprintf(&b, "  [tags: %s]", strings.Join(s.Tags, ", "))
+		}
+		b.WriteByte('\n')
+		if s.Description != "" {
+			fmt.Fprintf(&b, "      %s\n", s.Description)
+		}
+		// Surface declared params so the model knows what to fill.
+		if len(s.Params) > 0 && string(s.Params) != "[]" {
+			fmt.Fprintf(&b, "      params: %s\n", string(s.Params))
+		}
+	}
+	return b.String()
 }

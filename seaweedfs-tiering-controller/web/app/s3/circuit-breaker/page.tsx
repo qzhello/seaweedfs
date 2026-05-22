@@ -12,6 +12,7 @@ import { api } from "@/lib/api";
 import { useCluster } from "@/lib/cluster-context";
 import { useT } from "@/lib/i18n";
 import { Can } from "@/components/can";
+import { ErrorPanel } from "@/components/error-panel";
 
 const TYPES = ["Count", "MB"];
 
@@ -95,7 +96,7 @@ function Inner() {
         </div>
       </section>
 
-      {error && <div className="card p-3 text-xs text-rose-300 border-rose-400/30 bg-rose-400/10 inline-flex items-center gap-2"><AlertTriangle size={14}/> {error}</div>}
+      {error && <ErrorPanel error={error}/>}
       {output && (
         <section className="card p-3">
           <div className="text-xs uppercase tracking-wider text-muted mb-1">{t("Output")}</div>

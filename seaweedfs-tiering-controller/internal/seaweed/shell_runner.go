@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -25,6 +26,21 @@ type ShellLineSink func(line string)
 // the field — better to surface a timeout to the operator than to leave the
 // task wedged forever. Override per-call via context deadline if needed.
 const shellTimeout = 10 * time.Minute
+
+// lockAcquireTimeout bounds how long we wait for `weed shell`'s `lock`
+// to grant the cluster-wide admin lock before giving up. Short on purpose
+// — the operator should retry rather than stare at a spinner.
+//
+// Mutating commands are wrapped as `lock\n<cmd>\nunlock\nexit`. SeaweedFS
+// `lock` (wdclient/exclusive_locks.RequestLock) is an UNBOUNDED infinite
+// retry loop — no flag, no timeout — so if the admin lock is held by
+// another session, or the master quorum is unhealthy and LeaseAdminToken
+// keeps erroring, `lock` blocks forever. `lock` itself prints nothing and
+// the wrapped command can't start until it returns, so "zero stdout from
+// weed within this window on a mutating run" is a precise signal that the
+// lock is stuck. We kill the subprocess, fire a best-effort unlock in a
+// fresh session, and surface a "timeout, please retry" error.
+const lockAcquireTimeout = 15 * time.Second
 
 // resolvedWeedBin caches the result of resolveWeedBin so we don't probe the
 // filesystem on every shell call.
@@ -258,7 +274,14 @@ func (c *Client) runShellInner(ctx context.Context, master, binOverride, name st
 
 	// Drain stdout in real time. We accumulate to `out` for the return value
 	// and feed `sink` every line for the live UI tail.
+	//
+	// Caveat: weed shell's stdout is block-buffered (~4KB) when piped.
+	// Long-running commands (volume.fsck, volume.balance) print enough
+	// to flush incrementally; short commands like a quick volume.move
+	// may only appear all at once on exit. The UI shows a "running…"
+	// hint so the operator knows it isn't frozen.
 	var out strings.Builder
+	var sawOutput atomic.Bool
 	scanDone := make(chan struct{})
 	go func() {
 		defer close(scanDone)
@@ -267,6 +290,7 @@ func (c *Client) runShellInner(ctx context.Context, master, binOverride, name st
 		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 		for scanner.Scan() {
 			ln := scanner.Text()
+			sawOutput.Store(true)
 			out.WriteString(ln)
 			out.WriteByte('\n')
 			if sink != nil {
@@ -277,11 +301,47 @@ func (c *Client) runShellInner(ctx context.Context, master, binOverride, name st
 		_, _ = io.Copy(&out, stdoutPipe)
 	}()
 
+	// Stuck-lock watchdog (mutating runs only — these are the ones wrapped
+	// in `lock … unlock`). If weed emits zero stdout within
+	// lockAcquireTimeout, `lock` is blocked on a held admin lock or an
+	// unhealthy master quorum; kill the subprocess so we fail fast with a
+	// clear message instead of spinning for shellTimeout (10m).
+	var lockStuck atomic.Bool
+	if !readOnly {
+		stopWatch := make(chan struct{})
+		defer close(stopWatch)
+		go func() {
+			select {
+			case <-stopWatch:
+			case <-ctx.Done():
+			case <-time.After(lockAcquireTimeout):
+				if !sawOutput.Load() {
+					lockStuck.Store(true)
+					_ = cmd.Process.Kill()
+				}
+			}
+		}()
+	}
+
 	waitErr := cmd.Wait()
 	<-scanDone
 
+	if lockStuck.Load() {
+		// We killed the subprocess before `unlock` could run. If lock had
+		// actually been granted server-side (race: granted just before we
+		// killed) the lease would leak until TTL. Fire a best-effort
+		// unlock in a brand-new short-lived session to release it now.
+		bestEffortUnlock(bin, target)
+		return "", fmt.Errorf("lock acquire timeout after %s: %q did not start because `weed shell` couldn't get the cluster admin lock in time. Please retry — if it keeps failing, another shell session may be holding the lock, or the master quorum is unhealthy", lockAcquireTimeout, line)
+	}
+
 	if waitErr != nil {
 		errOut := strings.TrimSpace(stderrBuf.String())
+		// Mutating run died before reaching `unlock` in stdin — best-effort
+		// release the cluster lock in a fresh session so we don't leak it.
+		if !readOnly {
+			bestEffortUnlock(bin, target)
+		}
 		// Surface ctx-cancel separately so the operator's stop button
 		// produces a sensible error message instead of "exit status -1".
 		if ctx.Err() != nil {
@@ -290,4 +350,17 @@ func (c *Client) runShellInner(ctx context.Context, master, binOverride, name st
 		return strings.TrimRight(out.String(), "\n"), fmt.Errorf("%s %q failed: %w (stderr: %s)", bin, line, waitErr, errOut)
 	}
 	return strings.TrimRight(out.String(), "\n"), nil
+}
+
+// bestEffortUnlock starts a throwaway `weed shell` and runs a single
+// `unlock` command. Called when a mutating run is killed before its own
+// stdin-driven `unlock\nexit` had a chance to execute. Failures are
+// swallowed — there's nothing meaningful the caller can do, and a stale
+// lock will TTL out on its own; this just shortens the window.
+func bestEffortUnlock(bin, master string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "shell", "-master="+master)
+	cmd.Stdin = strings.NewReader("unlock\nexit\n")
+	_ = cmd.Run()
 }

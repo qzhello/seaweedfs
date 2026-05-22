@@ -27,6 +27,12 @@ type Event struct {
 	Body     string
 	Payload  map[string]interface{}
 	At       time.Time
+	// ChannelIDs, when non-empty, bypasses the rule engine and
+	// delivers the event directly to the listed channels. Used by
+	// per-template/per-flow routing where the routing decision was
+	// made by the caller (ops_template config) instead of a global
+	// matcher rule. Silence + rate-limit still apply per channel.
+	ChannelIDs []uuid.UUID
 }
 
 type Dispatcher struct {
@@ -77,11 +83,6 @@ func (d *Dispatcher) Emit(e Event) {
 }
 
 func (d *Dispatcher) process(ctx context.Context, e Event) {
-	rules, err := d.pg.ListAlertRules(ctx)
-	if err != nil {
-		d.log.Warn("list rules", zap.Error(err))
-		return
-	}
 	channels, err := d.pg.ListAlertChannels(ctx)
 	if err != nil {
 		d.log.Warn("list channels", zap.Error(err))
@@ -90,6 +91,20 @@ func (d *Dispatcher) process(ctx context.Context, e Event) {
 	chByID := map[uuid.UUID]store.AlertChannel{}
 	for _, c := range channels {
 		chByID[c.ID] = c
+	}
+
+	// Direct routing path: caller already decided which channels to
+	// hit (e.g. per-flow alert config). Skip rule matching but still
+	// honour rate limiting + severity filter on each channel.
+	if len(e.ChannelIDs) > 0 {
+		d.deliverDirect(ctx, e, chByID)
+		return
+	}
+
+	rules, err := d.pg.ListAlertRules(ctx)
+	if err != nil {
+		d.log.Warn("list rules", zap.Error(err))
+		return
 	}
 
 	matched := selectRules(rules, e)
@@ -145,6 +160,47 @@ func (d *Dispatcher) process(ctx context.Context, e Event) {
 		}
 	}
 	d.persistEvent(ctx, e, suppressed, suppressedReason, deliveries)
+}
+
+// deliverDirect handles the per-flow / caller-routed path: a fixed
+// channel list, no rule lookup, no silence window. Rate limit still
+// applies because operators can still mis-configure a tight loop.
+func (d *Dispatcher) deliverDirect(ctx context.Context, e Event, chByID map[uuid.UUID]store.AlertChannel) {
+	type delivery struct {
+		Channel string `json:"channel"`
+		OK      bool   `json:"ok"`
+		Error   string `json:"error,omitempty"`
+	}
+	deliveries := []delivery{}
+	any := false
+	for _, cid := range e.ChannelIDs {
+		c, ok := chByID[cid]
+		if !ok || !c.Enabled {
+			deliveries = append(deliveries, delivery{Channel: cid.String(), OK: false, Error: "channel disabled or missing"})
+			continue
+		}
+		if !severityAllowed(c.Severities, e.Severity) {
+			deliveries = append(deliveries, delivery{Channel: c.Name, OK: false, Error: "severity filtered"})
+			continue
+		}
+		if !d.allow(c) {
+			deliveries = append(deliveries, delivery{Channel: c.Name, OK: false, Error: "channel rate limited"})
+			continue
+		}
+		err := deliver(ctx, c, e)
+		result := "ok"
+		if err != nil {
+			result = "failed"
+			deliveries = append(deliveries, delivery{Channel: c.Name, OK: false, Error: err.Error()})
+			d.log.Warn("alert direct deliver failed", zap.String("channel", c.Name), zap.Error(err))
+			metrics.AlertsEmitted.WithLabelValues(e.Kind, e.Severity, c.Kind, result).Inc()
+			continue
+		}
+		deliveries = append(deliveries, delivery{Channel: c.Name, OK: true})
+		any = true
+		metrics.AlertsEmitted.WithLabelValues(e.Kind, e.Severity, c.Kind, result).Inc()
+	}
+	d.persistEvent(ctx, e, !any, "", deliveries)
 }
 
 func (d *Dispatcher) persistEvent(ctx context.Context, e Event, suppressed bool, reason string, deliveries interface{}) {

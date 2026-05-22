@@ -40,14 +40,14 @@ export function TrendChart({ points, title = "Reads / Writes", height = 320 }: {
         {
           name: "reads", type: "line", smooth: true, data: reads,
           areaStyle: { opacity: 0.15 },
-          lineStyle: { width: 2, color: "oklch(74% 0.18 230)" },
-          itemStyle: { color: "oklch(74% 0.18 230)" },
+          lineStyle: { width: 2, color: "#3b9eff" },
+          itemStyle: { color: "#3b9eff" },
           markArea: markAreas.length ? { silent: true, label: { show: true, color: "#aaa" }, data: markAreas } : undefined,
         },
         {
           name: "writes", type: "line", smooth: true, data: writes,
-          lineStyle: { width: 2, color: "oklch(74% 0.18 30)" },
-          itemStyle: { color: "oklch(74% 0.18 30)" },
+          lineStyle: { width: 2, color: "#f97316" },
+          itemStyle: { color: "#f97316" },
         },
       ],
     }}/>

@@ -1,0 +1,203 @@
+"use client";
+
+// AI migration-policy advisor modal. On open it asks the backend to
+// analyse the cluster's volume-temperature picture; the backend returns
+// policy *drafts*. Picking one closes this modal and opens the normal
+// policy dialog prefilled with the draft — that dialog runs the real
+// params validation and is where the policy is actually saved.
+
+import { useEffect, useState, useCallback } from "react";
+import { Sparkles, X, RefreshCw, AlertTriangle, ArrowRight, Snowflake } from "lucide-react";
+import { api, type PolicyAdviceResp, type PolicyRecommendation } from "@/lib/api";
+import { bytes } from "@/lib/utils";
+import { useT } from "@/lib/i18n";
+
+const CONFIDENCE_TONE: Record<string, string> = {
+  high: "border-success/40 text-success",
+  medium: "border-warning/40 text-warning",
+  low: "border-muted/40 text-muted",
+};
+
+export function AiAdvisorModal({
+  onClose,
+  onUse,
+}: {
+  onClose: () => void;
+  onUse: (rec: PolicyRecommendation) => void;
+}) {
+  const { t } = useT();
+  const [data, setData] = useState<PolicyAdviceResp | null>(null);
+  const [err, setErr] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+
+  const run = useCallback(async () => {
+    setLoading(true);
+    setErr("");
+    try {
+      setData(await api.aiRecommendPolicies());
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      setData(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    run();
+  }, [run]);
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 backdrop-blur-sm p-4 md:p-8"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="card w-full max-w-3xl my-auto shadow-2xl">
+        <header className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <div>
+            <h2 className="text-base font-semibold flex items-center gap-2">
+              <Sparkles size={16} className="text-accent" /> {t("AI migration advice")}
+            </h2>
+            <p className="text-xs text-muted mt-0.5">
+              {t("Analyses volume temperature and proposes migration policies you can review and save.")}
+            </p>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={run}
+              disabled={loading}
+              className="p-1.5 rounded-md hover:bg-panel2 text-muted hover:text-text disabled:opacity-40"
+              title={t("Re-analyse")}
+            >
+              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-md hover:bg-panel2 text-muted hover:text-text"
+              title={t("Close")}
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </header>
+
+        <div className="px-5 py-5 space-y-4 max-h-[70vh] overflow-y-auto">
+          {loading && (
+            <div className="py-10 flex flex-col items-center justify-center gap-3 text-muted">
+              <Sparkles size={22} className="text-accent animate-pulse" />
+              <div className="text-sm">{t("Analysing volume temperature…")}</div>
+              <div className="text-xs">{t("This can take a few seconds.")}</div>
+            </div>
+          )}
+
+          {!loading && err && (
+            <div className="card p-3 border-danger/40 bg-danger/5 text-sm text-danger flex items-start gap-2">
+              <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+              <div>
+                {t("AI analysis failed.")}
+                <div className="text-xs opacity-80 mt-1 font-mono break-all">{err}</div>
+              </div>
+            </div>
+          )}
+
+          {!loading && !err && data && (
+            <>
+              {data.summary && <p className="text-sm text-text leading-relaxed">{data.summary}</p>}
+
+              {data.recommendations.length === 0 ? (
+                <div className="card p-6 text-center text-sm text-muted">
+                  <Snowflake size={18} className="inline mr-1.5 text-muted" />
+                  {t("No migration is worth recommending right now.")}
+                </div>
+              ) : (
+                data.recommendations.map((rec, i) => (
+                  <RecommendationCard key={i} rec={rec} t={t} onUse={() => onUse(rec)} />
+                ))
+              )}
+
+              {data.provider && (
+                <p className="text-[11px] text-muted text-right">
+                  {t("Generated by")} <span className="font-mono">{data.provider}</span>
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RecommendationCard({
+  rec,
+  t,
+  onUse,
+}: {
+  rec: PolicyRecommendation;
+  t: (k: string) => string;
+  onUse: () => void;
+}) {
+  const paramEntries = Object.entries(rec.params ?? {});
+  return (
+    <div className="card p-4 space-y-2.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-sm">{rec.name}</span>
+            <span className="badge text-[10px]">{t(rec.strategy)}</span>
+            <span
+              className={`badge text-[10px] ${CONFIDENCE_TONE[rec.confidence] ?? CONFIDENCE_TONE.medium}`}
+            >
+              {t(rec.confidence)}
+            </span>
+          </div>
+          <div className="text-[11px] text-muted mt-1">
+            {t("Scope")}: <span className="badge text-[10px]">{t(rec.scope_kind)}</span>{" "}
+            <span className="font-mono">{rec.scope_value}</span>
+          </div>
+        </div>
+        <button
+          className="btn btn-primary text-xs flex items-center gap-1 shrink-0"
+          onClick={onUse}
+        >
+          {t("Use this draft")} <ArrowRight size={12} />
+        </button>
+      </div>
+
+      <p className="text-xs text-muted leading-relaxed">{rec.rationale}</p>
+
+      <div className="flex items-center gap-4 text-[11px] text-muted flex-wrap">
+        <span>
+          {t("Est. impact")}:{" "}
+          <span className="font-mono text-text">{rec.expected_volumes.toLocaleString()}</span>{" "}
+          {t("volumes")} · <span className="font-mono text-text">{bytes(rec.expected_bytes)}</span>
+        </span>
+        <span>
+          {t("Sample rate")}: <span className="font-mono text-text">{rec.sample_rate}</span>
+        </span>
+      </div>
+
+      {paramEntries.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pt-0.5">
+          {paramEntries.map(([k, v]) => (
+            <span
+              key={k}
+              className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-panel2 text-muted"
+            >
+              {k}={String(v)}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

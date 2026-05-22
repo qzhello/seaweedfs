@@ -50,6 +50,7 @@ type Inputs struct {
 	BusinessDomain string
 	CohortContext  string // e.g. "domain=hotel n=42 mean_z=0.0 stddev=1.2"
 	PatternContext string // e.g. "cycle=daily acf24=0.71"
+	TrendContext   string // e.g. "window=30d reads7d_trend=-40% volatility=low" — see trend_context.go
 	Risk           string // optional risk hint from skill registry
 	Lang           string // "zh" or "en" — controls reasoning/note language. Empty == en.
 }
@@ -260,11 +261,12 @@ Volume: %d collection=%q action=%s score=%.3f
 Business domain: %s
 Cohort context: %s
 Pattern context: %s
+Trend context: %s
 Rule explanation: %s
 
 Reply only with the JSON object.`,
 		headerFor(in.Lang), in.VolumeID, in.Collection, in.Action, in.Score,
-		in.BusinessDomain, in.CohortContext, in.PatternContext, in.Explanation)
+		in.BusinessDomain, in.CohortContext, in.PatternContext, in.TrendContext, in.Explanation)
 }
 
 func promptDevilsAdvocate(in Inputs) string {
@@ -280,10 +282,11 @@ Volume: %d action=%s score=%.3f
 Business domain: %s
 Cohort context: %s
 Pattern context: %s
+Trend context: %s
 
 Reply only with the JSON object.`,
 		headerFor(in.Lang), in.VolumeID, in.Action, in.Score,
-		in.BusinessDomain, in.CohortContext, in.PatternContext)
+		in.BusinessDomain, in.CohortContext, in.PatternContext, in.TrendContext)
 }
 
 // ----------------------- response parsing ----------------------------------

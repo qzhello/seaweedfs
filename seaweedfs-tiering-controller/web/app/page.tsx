@@ -1,15 +1,19 @@
 "use client";
-import { useSummary, useTasks, useTrend, useTrendByDomain, useClusters, useHolidays, useHealthGate, useSafetyStatus, useClusterPressure, useVolumes, useClusterDisk, api } from "@/lib/api";
+import { useSummary, useTasks, useTrend, useTrendByDomain, useClusters, useHolidays, useHealthGate, useSafetyStatus, useClusterPressure, useVolumes, useClusterDisk, useCollectionTemperatures, useCurrentCosts } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { chartColors as C, tooltipStyle, legendStyle } from "@/lib/chart-theme";
 import { bytes } from "@/lib/utils";
-import { Activity, Database, Flame, Snowflake, Zap, RefreshCw, ShieldAlert, ShieldCheck, Server, Lock, HardDrive, X, Layout } from "lucide-react";
+import { Activity, Database, Flame, Snowflake, Zap, RefreshCw, ShieldAlert, ShieldCheck, Server, Lock, HardDrive, Layout, Play, AlertOctagon, ThermometerSnowflake, DollarSign } from "lucide-react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { TrendChart } from "@/components/trend-chart";
 import { SortableRow, type SortableItem } from "@/components/sortable-row";
 import { resetAllOrders } from "@/lib/dashboard-layout";
+import { DeepCheckModal } from "@/components/deep-check-modal";
+import { TodaysAttention } from "@/components/dashboard/todays-attention";
+import { CapacityIncidentsBanner } from "@/components/capacity-incidents";
+import { CapacityForecastPanel } from "@/components/capacity-forecast";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
@@ -17,6 +21,11 @@ export default function Dashboard() {
   const { t } = useT();
   const { data: s, mutate } = useSummary();
   const { data: pending } = useTasks("pending");
+  // Operator pulse: running + failed task counts so the dashboard
+  // doubles as an "is anything wrong right now?" view. SWR's
+  // refreshInterval keeps these fresh without manual reload.
+  const { data: running } = useTasks("running");
+  const { data: failedAll } = useTasks("failed");
   const { data: clusters } = useClusters();
   const { data: holidays } = useHolidays();
   const { data: gate }     = useHealthGate();
@@ -25,8 +34,7 @@ export default function Dashboard() {
   const [range, setRange] = useState<"1d"|"7d"|"30d">("7d");
   const { data: trend } = useTrend(range);
   const { data: trendDomain } = useTrendByDomain(range);
-  const [running, setRunning] = useState(false);
-  const [scoreToast, setScoreToast] = useState<string | null>(null);
+  const [deepCheckOpen, setDeepCheckOpen] = useState(false);
   // "" = all clusters; otherwise cluster.id. Persisted in localStorage so
   // the operator's pick survives reloads without server state.
   //
@@ -47,9 +55,9 @@ export default function Dashboard() {
 
   const total = s?.bytes_total || 0;
   const tiers = [
-    { name: t("Hot (SSD/NVMe)"),  value: s?.bytes_hot  || 0, color: "oklch(74% 0.18 30)"  },
-    { name: t("Warm (HDD/EC)"),   value: s?.bytes_warm || 0, color: "oklch(74% 0.18 230)" },
-    { name: t("Cold (Cloud)"),    value: s?.bytes_cold || 0, color: "oklch(74% 0.10 270)" },
+    { name: t("Hot (SSD/NVMe)"),  value: s?.bytes_hot  || 0, color: "#f97316"  },
+    { name: t("Warm (HDD/EC)"),   value: s?.bytes_warm || 0, color: "#3b9eff" },
+    { name: t("Cold (Cloud)"),    value: s?.bytes_cold || 0, color: "#a78bfa" },
   ];
 
   // Per-node distribution. Sourced from the same /volumes payload (which also
@@ -60,6 +68,25 @@ export default function Dashboard() {
   // /disk endpoint is per-cluster). Falls back to slot-based estimate
   // in the gauge when not available.
   const { data: diskUsage } = useClusterDisk(scopeCluster || undefined);
+  // Temperature pulse + real cost numbers — only rendered when the
+  // backing data is available. Both default to "show nothing" so an
+  // empty cluster doesn't paint zeros on the dashboard.
+  const { data: tempData } = useCollectionTemperatures();
+  const { data: costsNow } = useCurrentCosts(scopeCluster || undefined);
+  const coldCollections = useMemo(
+    () => (tempData?.items ?? [])
+      .filter((c: any) => (c.cold_n ?? 0) + (c.frozen_n ?? 0) > 0)
+      .sort((a: any, b: any) => (b.cold_size + b.frozen_size) - (a.cold_size + a.frozen_size))
+      .slice(0, 5),
+    [tempData],
+  );
+  // "Failed in the last 24h" — the global failed bucket can grow
+  // without bound, but only the very recent failures need operator
+  // attention. Older ones live in /tasks for forensic browsing.
+  const failedRecent = useMemo(() => {
+    const cutoff = Date.now() - 24 * 3600 * 1000;
+    return (failedAll?.items ?? []).filter((t: any) => new Date(t.created_at).getTime() >= cutoff);
+  }, [failedAll]);
   const [distMode, setDistMode] = useState<"node" | "rack">("node");
   const [distMetric, setDistMetric] = useState<"count" | "size" | "usage">("count");
   const nodes = useMemo(
@@ -110,15 +137,6 @@ export default function Dashboard() {
               <button key={r} className={`btn ${range===r?"btn-primary":""}`} onClick={() => setRange(r)}>{r}</button>
             ))}
           </div>
-          {scoreToast && (
-            <div className="absolute right-8 top-20 z-30 max-w-md card p-4 border-accent/40 bg-panel shadow-soft">
-              <div className="flex items-start gap-2">
-                <RefreshCw size={14} className="text-accent mt-0.5"/>
-                <div className="flex-1 text-sm whitespace-pre-line">{scoreToast}</div>
-                <button aria-label="Dismiss" className="text-muted hover:text-text" onClick={() => setScoreToast(null)}><X size={14}/></button>
-              </div>
-            </div>
-          )}
           <select
             value={scopeCluster}
             onChange={(e) => onScopeChange(e.target.value)}
@@ -142,24 +160,28 @@ export default function Dashboard() {
             }}>
             <Layout size={13}/>
           </button>
-          <button className="btn btn-primary" disabled={running}
-            onClick={async () => {
-              setRunning(true); setScoreToast(null);
-              try {
-                const res = await api.scoreNow(scopeCluster || undefined) as { ok?: boolean; report?: ScoreReport; error?: string };
-                await mutate();
-                setScoreToast(formatScoreReport(res, t));
-              } catch (e) {
-                setScoreToast(`Error: ${e instanceof Error ? e.message : String(e)}`);
-              } finally {
-                setRunning(false);
-              }
-            }}>
-            <RefreshCw size={14} className={running ? "animate-spin" : ""} />
+          <button
+            className="btn btn-primary inline-flex items-center gap-1"
+            onClick={() => setDeepCheckOpen(true)}>
+            <RefreshCw size={14}/>
             {scopeCluster ? t("Scan selected cluster") : t("Run scoring")}
           </button>
         </div>
       </header>
+
+      {/* Capacity incidents — auto-paused clusters. Sits above everything
+          else: a held cluster is the most urgent thing on the page. */}
+      <CapacityIncidentsBanner/>
+
+      {/* Today's attention — aggregated diagnostic panel that surfaces
+          signals across clusters (raft quorum, EC shard health, admin
+          lock holders, pending tasks, gate, safety, alerts) so the
+          operator sees the punchlist before the charts. */}
+      <TodaysAttention/>
+
+      {/* Capacity forecast — proactive "full in ~N days" per cluster,
+          the forward-looking twin of the capacity-incident banner. */}
+      <CapacityForecastPanel/>
 
       {/* KPI cards — each item carries a stable id so the operator's
           drag-and-drop order survives reloads. `visible` toggles a card
@@ -251,8 +273,34 @@ export default function Dashboard() {
               ),
             },
             {
-              id: "saving",
+              id: "running",
+              visible: (running?.items?.length ?? 0) > 0,
               node: (
+                <Stat href="/tasks?status=running" icon={<Play size={18} />} label={t("Running")}
+                      value={running?.items?.length ?? 0}
+                      sub={t("in flight")}/>
+              ),
+            },
+            {
+              id: "failed_24h",
+              visible: failedRecent.length > 0,
+              node: (
+                <Stat href="/tasks?status=failed" icon={<AlertOctagon size={18} />} label={t("Failed (24h)")}
+                      value={failedRecent.length}
+                      sub={`${failedRecent.filter((x:any)=>x.failure_reason==="transient").length} ${t("auto-retrying")}`}/>
+              ),
+            },
+            {
+              id: "saving",
+              // Prefer real cost numbers when a cluster is picked + pricing
+              // is configured. Falls back to the legacy byte-based estimate
+              // (warm+cold halved against 3-replica baseline) so the tile
+              // still says something useful in the bare-bones install.
+              node: costsNow && costsNow.monthly_saving > 0 ? (
+                <Stat href="/costs" icon={<DollarSign size={18}/>} label={t("Monthly savings")}
+                      value={`${costsNow.currency} ${costsNow.monthly_saving.toFixed(0)}`}
+                      sub={t("vs. all-hot baseline")} />
+              ) : (
                 <Stat href="/executions" icon={<Snowflake size={18}/>} label={t("Saving est.")}
                       value={bytes(((s?.bytes_warm||0)+(s?.bytes_cold||0))*0.5)} sub={t("vs. 3-replica baseline")} />
               ),
@@ -351,6 +399,38 @@ export default function Dashboard() {
               ),
             },
             {
+              id: "coldest_collections",
+              visible: coldCollections.length > 0,
+              node: (
+                <div className="card p-3 flex flex-col">
+                  <header className="flex items-center justify-between mb-1">
+                    <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted inline-flex items-center gap-1">
+                      <ThermometerSnowflake size={10}/> {t("Coldest collections")}
+                    </h2>
+                    <a href="/temperature" className="text-[10px] text-muted hover:text-accent">{t("Details")}</a>
+                  </header>
+                  <div className="overflow-y-auto" style={{ height: 170 }}>
+                    <ul className="space-y-0.5">
+                      {coldCollections.map((c: any) => {
+                        const coldBytes = (c.cold_size || 0) + (c.frozen_size || 0);
+                        const coldVols = (c.cold_n || 0) + (c.frozen_n || 0);
+                        return (
+                          <li key={c.collection || "__default__"}
+                            className="flex items-center gap-2 px-1.5 py-1 rounded text-[11px] hover:bg-panel2 transition-colors">
+                            <span className="font-mono text-text truncate flex-1 min-w-0" title={c.collection || "(default)"}>
+                              {c.collection || "(default)"}
+                            </span>
+                            <span className="text-muted tabular-nums shrink-0">{coldVols} {t("vols_lc")}</span>
+                            <span className="font-mono text-accent tabular-nums shrink-0 w-16 text-right">{bytes(coldBytes)}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                </div>
+              ),
+            },
+            {
               id: "cluster_pressure",
               visible: (pressure?.items?.length ?? 0) > 0,
               node: pressure ? (
@@ -420,11 +500,11 @@ export default function Dashboard() {
         {(distMetric === "usage" ? nodeStats.entries.length : nodes.bars.length) === 0 ? (
           <div className="text-xs text-muted py-6 text-center">{t("No data returned.")}</div>
         ) : (
-          <ReactECharts style={{ height: 260 }} option={
-            distMetric === "count" ? buildNodePie(nodes, "count")
-              : distMetric === "size" ? buildNodePie(nodes, "size")
-              : buildUsageBar(nodeStats)
-          }/>
+          <NodeDistBars
+            metric={distMetric}
+            bars={distMetric === "usage" ? [] : nodes.bars}
+            usage={distMetric === "usage" ? nodeStats.entries : []}
+          />
         )}
       </section>
 
@@ -444,6 +524,13 @@ export default function Dashboard() {
           </div>
         </section>
       )}
+
+      <DeepCheckModal
+        open={deepCheckOpen}
+        scopeCluster={scopeCluster}
+        onClose={() => setDeepCheckOpen(false)}
+        onCompleted={() => mutate()}
+      />
     </div>
   );
 }
@@ -613,79 +700,6 @@ function buildNodeStats(nodesRaw: any[], mode: "node" | "rack" = "node") {
   return { entries, totalGroups: entries.length, usedSlots, maxSlots };
 }
 
-// Horizontal "fuel gauge" — used vs free slots per node/rack. Red if >85%,
-// amber if >70%, otherwise accent blue.
-function buildUsageBar(stats: ReturnType<typeof buildNodeStats>) {
-  const entries = stats.entries.slice(0, 12); // cap height so it never overflows
-  const colorFor = (util: number) => util >= 0.85
-    ? "oklch(70% 0.19 30)"
-    : util >= 0.70 ? "oklch(74% 0.18 60)"
-    : "oklch(74% 0.18 230)";
-  const usedSeries = entries.map(e => ({
-    value: e.used,
-    itemStyle: { color: colorFor(e.util), borderRadius: [3, 0, 0, 3] },
-  }));
-  return {
-    backgroundColor: "transparent",
-    grid: { left: 130, right: 56, top: 6, bottom: 4 },
-    tooltip: {
-      trigger: "axis", axisPointer: { type: "shadow" },
-      backgroundColor: C.tooltipBg, borderColor: C.tooltipBorder, textStyle: { color: C.text, fontSize: 12 },
-      formatter: (params: any) => {
-        const idx = params[0].dataIndex;
-        const e = entries[idx];
-        const pct = (e.util * 100).toFixed(1);
-        const cl = e.clusters?.length
-          ? `<br/><span style="color:#999">cluster: ${e.clusters.join(", ")}</span>` : "";
-        return `<b>${e.key}</b><br/>` +
-          `slots: <b>${e.used}</b> / ${e.max} · <b>${pct}%</b><br/>` +
-          `<span style="color:#999">free: ${e.free} · stored: ${bytes(e.bytes)}</span>${cl}`;
-      },
-    },
-    xAxis: {
-      type: "value",
-      max: Math.max(1, ...entries.map(e => e.max)),
-      axisLabel: { color: C.textMuted, fontSize: 11 },
-      splitLine: { lineStyle: { color: C.grid } },
-    },
-    yAxis: {
-      type: "category", inverse: true,
-      data: entries.map(e => e.key),
-      axisLabel: {
-        color: C.textMuted, fontSize: 10,
-        formatter: (v: string) => v.length > 22 ? "…" + v.slice(-21) : v,
-      },
-      axisLine: { lineStyle: { color: C.axisLine } },
-      axisTick: { show: false },
-    },
-    series: [
-      {
-        name: "Used", type: "bar", stack: "u", barMaxWidth: 16,
-        data: usedSeries,
-        emphasis: { focus: "series" },
-        label: {
-          show: true, position: "insideLeft", color: "#0e1320",
-          fontSize: 11, fontWeight: 700,
-          formatter: (p: any) => p.value > 0 ? p.value : "",
-        },
-      },
-      {
-        name: "Free", type: "bar", stack: "u", barMaxWidth: 16,
-        itemStyle: { color: "rgba(255,255,255,0.06)", borderRadius: [0, 3, 3, 0] },
-        data: entries.map(e => Math.max(0, e.max - e.used)),
-        emphasis: { focus: "series" },
-        label: {
-          show: true, position: "right", color: C.textMuted,
-          fontSize: 11, fontWeight: 600,
-          formatter: (p: any) => {
-            const e = entries[p.dataIndex];
-            return e.max > 0 ? `${(e.util * 100).toFixed(0)}%` : "—";
-          },
-        },
-      },
-    ],
-  };
-}
 
 // Horizontal bar of per-cluster pressure scores vs. the configured
 // threshold. Tiny chart sized to fit the 4-col dashboard row.
@@ -695,7 +709,7 @@ function buildPressureBar(p: PressureResp, clustersIdx: Array<{ id: string; name
   const data = items.map(it => ({
     value: it.score,
     itemStyle: {
-      color: it.is_busy ? "oklch(70% 0.19 30)" : it.score >= p.threshold * 0.7 ? "oklch(74% 0.18 60)" : "oklch(74% 0.18 230)",
+      color: it.is_busy ? "#ef4444" : it.score >= p.threshold * 0.7 ? "#f59e0b" : "#3b9eff",
       borderRadius: [3, 3, 3, 3],
     },
   }));
@@ -746,179 +760,108 @@ function buildPressureBar(p: PressureResp, clustersIdx: Array<{ id: string; name
   };
 }
 
-function buildNodePie(nodes: ReturnType<typeof buildNodeDist>, metric: "count" | "size" = "count") {
-  const palette = [
-    "oklch(74% 0.18 230)", "oklch(70% 0.18 30)",  "oklch(74% 0.10 270)",
-    "oklch(70% 0.15 150)", "oklch(70% 0.15 60)",  "oklch(68% 0.16 320)",
-    "oklch(72% 0.14 200)", "oklch(70% 0.16 100)",
-  ];
-  const MAX_SLICES = 8;
-  const valueOf = (b: any) => metric === "size" ? b.bytes : (b.writable + b.readonly);
-  // Re-sort by the active metric so the largest contributor leads.
-  const sorted = [...nodes.bars].sort((a, b) => valueOf(b) - valueOf(a));
-  const visible = sorted.slice(0, MAX_SLICES);
-  const tail = sorted.slice(MAX_SLICES);
-  const data = visible.map((b: any, i: number) => ({
-    name: b.server,
-    value: valueOf(b),
-    writable: b.writable,
-    readonly: b.readonly,
-    bytes: b.bytes,
-    count: b.writable + b.readonly,
-    clusters: b.clusters,
-    itemStyle: { color: palette[i % palette.length] },
-  }));
-  if (tail.length > 0) {
-    const w = tail.reduce((s: number, b: any) => s + b.writable, 0);
-    const r = tail.reduce((s: number, b: any) => s + b.readonly, 0);
-    const bts = tail.reduce((s: number, b: any) => s + b.bytes, 0);
-    data.push({
-      name: `${tail.length} other${tail.length === 1 ? "" : "s"}`,
-      value: metric === "size" ? bts : (w + r),
-      writable: w, readonly: r, bytes: bts, count: w + r, clusters: [],
-      itemStyle: { color: "oklch(48% 0.02 255)" },
-    });
+
+
+
+// NodeDistBars replaces the dashboard's per-node pie chart + usage bar
+// with one consistent horizontal-list view. Why:
+//   - Pie with >8 slices collapses small nodes into "N others" and
+//     hides the actual distribution.
+//   - The old ECharts horizontal bar truncated to 12 rows.
+//   - Both used different visual languages, which made the metric
+//     switcher feel disjoint.
+// One sortable scrollable list covers all three metrics with the same
+// visual rhythm.
+function NodeDistBars({
+  metric, bars, usage,
+}: {
+  metric: "count" | "size" | "usage";
+  bars: Array<{ server: string; writable: number; readonly: number; bytes: number; clusters: string[] }>;
+  usage: Array<{ key: string; used: number; max: number; free: number; bytes: number; util: number; clusters: string[] }>;
+}) {
+  const { t } = useT();
+  if (metric === "usage") {
+    const max = usage.reduce((m, e) => Math.max(m, e.max), 0);
+    return (
+      <ul className="max-h-[320px] overflow-y-auto pr-1 space-y-0.5">
+        {usage.map((e) => {
+          const usedPct = max > 0 ? (e.used / max) * 100 : 0;
+          const maxPct  = max > 0 ? (e.max  / max) * 100 : 0;
+          const utilTxt = `${(e.util * 100).toFixed(0)}%`;
+          const fillClass = e.util >= 0.85
+            ? "bg-rose-400/80"
+            : e.util >= 0.70
+              ? "bg-amber-400/80"
+              : "bg-accent/80";
+          const utilColor = e.util >= 0.85
+            ? "text-rose-300"
+            : e.util >= 0.70
+              ? "text-amber-300"
+              : "text-text";
+          return (
+            <li
+              key={e.key}
+              className="grid items-center gap-2 px-1.5 py-1 text-[11px] hover:bg-panel2/60 rounded"
+              style={{ gridTemplateColumns: "minmax(0, 14rem) 1fr 7rem" }}
+              title={`${e.key}\nslots: ${e.used} / ${e.max} (${utilTxt})\nfree: ${e.free}\nstored: ${bytes(e.bytes)}${e.clusters.length ? `\ncluster: ${e.clusters.join(", ")}` : ""}`}
+            >
+              <span className="font-mono truncate text-muted">{e.key}</span>
+              <div className="relative h-2 bg-panel2 rounded overflow-hidden">
+                {/* Capacity track shows max%, used fill on top so the
+                    operator sees both headroom and current load. */}
+                <div className="absolute inset-y-0 left-0 bg-muted/15 rounded" style={{ width: `${maxPct}%` }}/>
+                <div className={`absolute inset-y-0 left-0 ${fillClass} rounded`} style={{ width: `${usedPct}%` }}/>
+              </div>
+              <span className={`tabular-nums font-mono text-right ${utilColor}`}>
+                {e.used}/{e.max} · {utilTxt}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    );
   }
-  return {
-    backgroundColor: "transparent",
-    tooltip: {
-      trigger: "item",
-      backgroundColor: C.tooltipBg, borderColor: C.tooltipBorder,
-      textStyle: { color: C.text, fontSize: 12 },
-      formatter: (p: any) => {
-        const d = p.data;
-        const ro = d.readonly > 0
-          ? `<span style="color:#f5b06b">●</span> read-only: <b>${d.readonly}</b><br/>` : "";
-        const cl = d.clusters?.length
-          ? `<span style="color:#999">cluster: ${d.clusters.join(", ")}</span><br/>` : "";
-        return `<b>${p.name}</b> · ${p.percent}%<br/>` +
-          `<span style="color:#74a4ff">●</span> writable: <b>${d.writable}</b><br/>${ro}` +
-          `<span style="color:#999">count: ${d.count} · size: ${bytes(d.bytes)}</span><br/>${cl}`;
-      },
-    },
-    legend: {
-      type: "scroll", orient: "vertical", right: 8, top: "center",
-      textStyle: { color: C.textMuted, fontSize: 10 },
-      icon: "roundRect", itemWidth: 8, itemHeight: 8, itemGap: 6,
-      pageIconColor: "#888", pageTextStyle: { color: C.textMuted, fontSize: 10 },
-      formatter: (name: string) => name.length > 20 ? "…" + name.slice(-19) : name,
-    },
-    series: [{
-      type: "pie",
-      radius: ["48%", "72%"],
-      center: ["38%", "50%"],
-      padAngle: 2,
-      itemStyle: { borderRadius: 4, borderColor: "transparent", borderWidth: 0 },
-      label: {
-        show: true, color: C.text, fontSize: 10,
-        formatter: (p: any) => p.percent >= 6 ? `${p.percent}%` : "",
-      },
-      labelLine: { show: false },
-      emphasis: { scale: true, scaleSize: 4 },
-      data,
-    }],
-  };
+  // count / size mode — single value per row, optional read-only stripe
+  // for count mode.
+  const valueOf = (b: typeof bars[number]) =>
+    metric === "size" ? b.bytes : (b.writable + b.readonly);
+  const sorted = [...bars].sort((a, b) => valueOf(b) - valueOf(a));
+  const max = sorted.reduce((m, b) => Math.max(m, valueOf(b)), 0);
+  return (
+    <ul className="max-h-[320px] overflow-y-auto pr-1 space-y-0.5">
+      {sorted.map((b) => {
+        const total = b.writable + b.readonly;
+        const value = valueOf(b);
+        const valuePct = max > 0 ? (value / max) * 100 : 0;
+        const wRatio = total > 0 ? b.writable / total : 1;
+        const wPct = valuePct * wRatio;
+        const rPct = valuePct - wPct;
+        const valueLabel = metric === "size"
+          ? bytes(b.bytes)
+          : String(total) + (b.readonly > 0 ? ` (${b.readonly} R/O)` : "");
+        return (
+          <li
+            key={b.server}
+            className="grid items-center gap-2 px-1.5 py-1 text-[11px] hover:bg-panel2/60 rounded"
+            style={{ gridTemplateColumns: "minmax(0, 14rem) 1fr 7rem" }}
+            title={`${b.server}\nwritable: ${b.writable}, read-only: ${b.readonly}\nsize: ${bytes(b.bytes)}${b.clusters.length ? `\ncluster: ${b.clusters.join(", ")}` : ""}`}
+          >
+            <span className="font-mono truncate text-muted">{b.server}</span>
+            <div className="relative h-2 bg-panel2 rounded overflow-hidden flex">
+              {wPct > 0 && (
+                <div className="h-full bg-accent/80" style={{ width: `${wPct}%` }}/>
+              )}
+              {rPct > 0 && (
+                <div className="h-full bg-amber-400/80" style={{ width: `${rPct}%` }}/>
+              )}
+            </div>
+            <span className="tabular-nums font-mono text-right text-text">{valueLabel}</span>
+          </li>
+        );
+      })}
+      {sorted.length === 0 && (
+        <li className="text-center text-muted text-xs py-4">{t("No data.")}</li>
+      )}
+    </ul>
+  );
 }
-
-interface ScoreReport {
-  clusters: number;
-  clusters_ok: number;
-  volumes_scanned: number;
-  volumes_noop: number;
-  recs_by_action?: Record<string, number>;
-  under_replicated: number;
-  missing_volumes?: number[];
-  tasks_inserted: number;
-  tasks_duplicate: number;
-  tasks_failed: number;
-  errors?: string[];
-  per_cluster?: ClusterScanReport[];
-}
-
-interface ClusterScanReport {
-  name: string;
-  master_addr?: string;
-  business_domain?: string;
-  volumes: number;
-  recs: number;
-  under_replicated: number;
-  missing_volumes?: number[];
-  inserted: number;
-  duplicate: number;
-  failed: number;
-  error?: string;
-}
-
-function formatScoreReport(
-  res: { ok?: boolean; report?: ScoreReport; error?: string },
-  t: (k: string) => string,
-): string {
-  if (res?.error) return `${t("Error:")} ${res.error}`;
-  const r = res?.report;
-  if (!r) return t("Scoring complete.");
-  const lines: string[] = [];
-
-  // Step 1 — connectivity & inventory
-  lines.push(`① ${t("Clusters:")} ${r.clusters_ok}/${r.clusters} ${t("online")}`);
-  lines.push(`② ${t("Volumes scanned:")} ${r.volumes_scanned}`);
-
-  // Step 2 — coldness scoring breakdown
-  const recs = r.recs_by_action ?? {};
-  const recCount = Object.entries(recs)
-    .filter(([k]) => k !== "fix_replication")
-    .reduce((s, [, n]) => s + n, 0);
-  if (r.volumes_noop === r.volumes_scanned && recCount === 0) {
-    lines.push(`③ ${t("Cold-score:")} ${t("all noop (too hot / too small / cooling window unmet)")}`);
-  } else {
-    const detail = Object.entries(recs)
-      .filter(([k]) => k !== "fix_replication")
-      .map(([k, n]) => `${k}=${n}`).join(", ");
-    lines.push(`③ ${t("Cold-score:")} ${recCount} ${t("recs")}${detail ? ` (${detail})` : ""}, ${r.volumes_noop} ${t("noop")}`);
-  }
-
-  // Step 3 — under-replication
-  if (r.under_replicated > 0) {
-    const sample = (r.missing_volumes ?? []).slice(0, 5).join(", ");
-    const more = (r.missing_volumes ?? []).length > 5 ? "…" : "";
-    lines.push(`④ ${t("Replication:")} ${r.under_replicated} ${t("under-replicated")} (${t("vol")} ${sample}${more})`);
-  } else {
-    lines.push(`④ ${t("Replication:")} ${t("all replicas present")}`);
-  }
-
-  // Step 4 — final
-  if (r.tasks_inserted > 0) {
-    lines.push(`⑤ ${t("Inserted")} ${r.tasks_inserted} ${t("new task(s) — see /tasks")}`);
-  } else if (r.tasks_failed > 0) {
-    lines.push(`⑤ ${r.tasks_failed} ${t("task insert(s) failed (see errors below)")}`);
-  } else {
-    lines.push(`⑤ ${t("No new tasks")}${r.tasks_duplicate > 0 ? ` (${r.tasks_duplicate} ${t("deduped on idempotency key")})` : ""}`);
-  }
-  if (r.errors?.length) lines.push(`${t("Errors:")}\n  - ` + r.errors.join("\n  - "));
-
-  // Per-cluster breakdown — surfaces WHICH cluster did what so the operator
-  // can locate findings in multi-cluster setups.
-  if ((r.per_cluster?.length ?? 0) > 0) {
-    lines.push("");
-    lines.push(t("Per cluster:"));
-    for (const c of r.per_cluster!) {
-      const tag = c.business_domain ? ` [${c.business_domain}]` : "";
-      const addr = c.master_addr ? ` ${c.master_addr}` : "";
-      if (c.error) {
-        lines.push(`  • ${c.name}${tag}${addr} — ❌ ${c.error}`);
-        continue;
-      }
-      const parts: string[] = [`${t("vols")}=${c.volumes}`];
-      if (c.recs > 0) parts.push(`${t("recs")}=${c.recs}`);
-      if (c.under_replicated > 0) {
-        const sample = (c.missing_volumes ?? []).slice(0, 5).join(",");
-        parts.push(`${t("under-replicated")}=${c.under_replicated} (${t("vol")} ${sample})`);
-      }
-      if (c.inserted > 0) parts.push(`${t("new")}=${c.inserted}`);
-      if (c.duplicate > 0) parts.push(`${t("dup")}=${c.duplicate}`);
-      if (c.failed > 0) parts.push(`${t("failed")}=${c.failed}`);
-      lines.push(`  • ${c.name}${tag}${addr} — ${parts.join(" · ")}`);
-    }
-  }
-  return lines.join("\n");
-}
-

@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { Layers, Loader2 } from "lucide-react";
-import { useCollections, type CollectionRow } from "@/lib/api";
+import { useCollections, useVolumes, type CollectionRow } from "@/lib/api";
 import { useCluster } from "@/lib/cluster-context";
 import { useT } from "@/lib/i18n";
 import { bytes } from "@/lib/utils";
@@ -10,18 +11,38 @@ import { Pagination, usePagination } from "@/components/pagination";
 import { RefreshButton } from "@/components/refresh-button";
 import { EmptyState } from "@/components/empty-state";
 import {
-  ShellActionMenu, ShellActionDialog, type ShellAction,
+  ShellActionMenu, ShellActionDialog, APPLY_INPUT_KEY, type ShellAction,
 } from "@/components/shell-action";
+import { VolumeBalanceDialog } from "@/components/volume/balance-dialog";
 
-// One destructive action — deleting a collection removes every volume
-// in it. Everything else operators want to do at the collection scope
-// (vacuum, balance, tier upload, ec.encode) is already on the catalog
-// commands those take `-collection=X`, so we just point operators at
-// the Ops Console.
+// "balance" is intercepted in onPick and opens the dedicated
+// VolumeBalanceDialog (Plan/Apply dual-mode) pre-scoped to the row's
+// collection — buildArgs is never invoked for it. "delete" goes through
+// the generic ShellActionDialog. Everything else collection-scoped
+// (vacuum, tier upload, ec.encode) stays in the Ops Console.
+const BALANCE_KEY = "balance";
 const COLLECTION_ACTIONS: ShellAction<CollectionRow>[] = [
   {
-    key: "delete", label: "Delete collection", command: "collection.delete", risk: "destructive",
+    key: BALANCE_KEY, label: "Balance volumes (plan / apply)…", command: "volume.balance", risk: "mutate",
     buildArgs: (c) => `-collection=${c.name}`,
+  },
+  {
+    key: "delete", label: "Delete collection", command: "collection.delete", risk: "destructive",
+    // Stream: with -apply the master deletes every volume in the
+    // collection. The buffered POST stays silent the whole time and the
+    // proxy times out → 500. SSE keeps bytes flowing and shows progress.
+    stream: true,
+    apply: {
+      label: "Apply (actually delete this collection)",
+      help: "Unchecked = simulation: the shell only prints what would be deleted. Checked appends -apply and permanently removes every volume in the collection.",
+    },
+    // `_default_` is collection.delete's sentinel for the empty-named
+    // (default) collection — an empty -collection= would be rejected.
+    buildArgs: (c, input) => {
+      const name = c.name || "_default_";
+      const apply = (input[APPLY_INPUT_KEY] || "") === "1" ? " -apply" : "";
+      return `-collection=${name}${apply}`;
+    },
   },
 ];
 
@@ -29,6 +50,10 @@ export default function CollectionsPage() {
   const { t } = useT();
   const { clusterID } = useCluster();
   const { data, isLoading, isValidating, mutate, error } = useCollections(clusterID || undefined);
+  // Volumes power the Balance dialog's collection / DC / rack / node
+  // autocomplete and its dry-run move parsing.
+  const { data: vd } = useVolumes(clusterID || undefined);
+  const allVolumes = vd?.items ?? [];
   const items = data?.items ?? [];
   const [text, setText] = useState("");
 
@@ -40,6 +65,9 @@ export default function CollectionsPage() {
   const pg = usePagination(filtered, 50);
 
   const [dialog, setDialog] = useState<{ row: CollectionRow; action: ShellAction<CollectionRow> } | null>(null);
+  // Separate state for the Balance dialog so it can carry the clicked
+  // collection name independently of the generic shell dialog.
+  const [balanceCollection, setBalanceCollection] = useState<string | null>(null);
 
   const totalVols = filtered.reduce((s, c) => s + c.volume_count, 0);
   const totalSize = filtered.reduce((s, c) => s + c.size, 0);
@@ -98,7 +126,18 @@ export default function CollectionsPage() {
               <tbody>
                 {pg.slice.map((c) => (
                   <tr key={c.name}>
-                    <td className="font-mono text-sm">{c.name || <span className="text-muted">(default)</span>}</td>
+                    <td className="font-mono text-sm">
+                      {clusterID ? (
+                        <Link
+                          href={`/clusters/${clusterID}/collections/${encodeURIComponent(c.name || "_default_")}`}
+                          className="hover:underline"
+                        >
+                          {c.name || <span className="text-muted">(default)</span>}
+                        </Link>
+                      ) : (
+                        c.name || <span className="text-muted">(default)</span>
+                      )}
+                    </td>
                     <td className="num">{c.volume_count.toLocaleString()}</td>
                     <td className="num">{bytes(c.size)}</td>
                     <td className="num">{c.file_count.toLocaleString()}</td>
@@ -107,7 +146,13 @@ export default function CollectionsPage() {
                       <ShellActionMenu
                         row={c}
                         actions={COLLECTION_ACTIONS}
-                        onPick={(a) => setDialog({ row: c, action: a })}
+                        onPick={(a) => {
+                          if (a.key === BALANCE_KEY) {
+                            setBalanceCollection(c.name);
+                          } else {
+                            setDialog({ row: c, action: a });
+                          }
+                        }}
                       />
                     </td>
                   </tr>
@@ -128,6 +173,16 @@ export default function CollectionsPage() {
             setDialog(null);
             if (didRun) mutate();
           }}
+        />
+      )}
+
+      {balanceCollection !== null && clusterID && (
+        <VolumeBalanceDialog
+          clusterID={clusterID}
+          allVolumes={allVolumes}
+          initialCollection={balanceCollection}
+          onClose={() => setBalanceCollection(null)}
+          onDone={() => mutate()}
         />
       )}
     </div>

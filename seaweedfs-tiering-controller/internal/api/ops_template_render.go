@@ -32,6 +32,71 @@ type opsCapture struct {
 // expand into a flag boundary.
 var placeholderRE = regexp.MustCompile(`{{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*}}`)
 
+// autoDeclareMissingVars scans all step args for `{{...}}` placeholders
+// that don't already resolve to a declared variable or a prior step
+// output, and appends a default opsTemplateVar entry for each. This
+// makes save-time validation pass even when the operator (or the AI)
+// wrote placeholders without remembering to declare them in the
+// `variables` array — the same UX you'd get from a templating engine
+// like Jinja that lets undefined values be filled at run time.
+//
+// The auto-added vars are marked Required and get a humanized label
+// so the run dialog asks for a value. Operators can still edit them
+// (rename, mark optional, add defaults) on the next visit.
+//
+// Returns the (possibly augmented) variable slice; safe to call with
+// nil inputs.
+func autoDeclareMissingVars(vars []opsTemplateVar, steps []opsStep) []opsTemplateVar {
+	declared := map[string]bool{}
+	for _, v := range vars {
+		declared[v.Key] = true
+	}
+	seen := map[string]bool{}
+	out := append([]opsTemplateVar{}, vars...)
+	for _, s := range steps {
+		for _, ref := range extractPlaceholders(s.Args) {
+			// stepN.* references are resolved against prior steps,
+			// not variables — leave them alone.
+			if strings.HasPrefix(ref, "step") && strings.Contains(ref, ".") {
+				continue
+			}
+			// Don't auto-declare dotted refs that aren't stepN.* —
+			// those are nested keys we don't currently support, and
+			// silently adding a variable named "foo.bar" would
+			// confuse the run dialog. Let validation surface them.
+			if strings.Contains(ref, ".") {
+				continue
+			}
+			if declared[ref] || seen[ref] {
+				continue
+			}
+			seen[ref] = true
+			out = append(out, opsTemplateVar{
+				Key:      ref,
+				Label:    humanizeKey(ref),
+				Required: true,
+			})
+		}
+	}
+	return out
+}
+
+// humanizeKey turns "volume_id" into "Volume id" so the auto-added
+// variable shows up in the run form with a reasonable label instead
+// of the bare identifier. Operators can rename later.
+func humanizeKey(k string) string {
+	if k == "" {
+		return ""
+	}
+	parts := strings.Split(k, "_")
+	for i, p := range parts {
+		if i == 0 && len(p) > 0 {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
 // extractPlaceholders returns every `{{key}}` referenced in `s`.
 func extractPlaceholders(s string) []string {
 	if !strings.Contains(s, "{{") {
@@ -98,6 +163,43 @@ func validateTemplatePlaceholders(vars []opsTemplateVar, steps []opsStep) error 
 									goto ok
 								}
 							}
+						}
+					case "analyzer":
+						// {{stepN.analyzer}} or {{stepN.analyzer.<key>}}.
+						// Any top-level key is allowed because the
+						// script's output shape is determined at run
+						// time. We at least require the prior step to
+						// BE an analyzer step.
+						if prior.Kind == "analyzer" && len(parts) >= 2 {
+							goto ok
+						}
+					}
+				}
+			}
+			// Also accept references by step ID (not position): e.g.
+			// {{s2.analyzer.max_node}} or {{s2.output}}. Useful
+			// because operators wire DAGs by id, not source order.
+			if len(parts) >= 2 {
+				for k, prior := range steps {
+					if k >= i || prior.ID == "" || prior.ID != parts[0] {
+						continue
+					}
+					switch parts[1] {
+					case "output":
+						if len(parts) == 2 {
+							goto ok
+						}
+					case "capture":
+						if len(parts) == 3 {
+							for _, cap := range prior.Capture {
+								if cap.As == parts[2] {
+									goto ok
+								}
+							}
+						}
+					case "analyzer":
+						if prior.Kind == "analyzer" && len(parts) >= 2 {
+							goto ok
 						}
 					}
 				}

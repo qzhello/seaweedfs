@@ -221,10 +221,11 @@ var shellCatalog = []shellCommand{
 	// ---------------- Collection ----------------
 	{Name: "collection.list", Category: "collection", Risk: "read", ReadOnly: true,
 		Summary: "List all collections and their volume counts."},
-	{Name: "collection.delete", Category: "collection", Risk: "destructive",
+	{Name: "collection.delete", Category: "collection", Risk: "destructive", Streams: true,
 		Summary: "Delete an entire collection — every volume in it is removed.",
 		Args: []shellArg{
 			{Flag: "-collection", Label: "Collection name", Kind: "string", Required: true},
+			{Flag: "-apply", Label: "Apply (actually delete)", Kind: "bool"},
 		}},
 
 	// ---------------- Filer FS ----------------

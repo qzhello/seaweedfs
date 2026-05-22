@@ -1,9 +1,10 @@
 "use client";
 import { useState, useMemo } from "react";
 import { useAIProviders, api } from "@/lib/api";
+import Link from "next/link";
 import {
   Sparkles, Plus, Trash2, CheckCircle2, XCircle, Loader2, Star, KeyRound,
-  Zap, AlertCircle, X,
+  Zap, AlertCircle, X, ShieldCheck,
 } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 
@@ -90,9 +91,14 @@ export default function AIConfigPage() {
             </p>
           )}
         </div>
-        <button className="btn btn-primary" onClick={startNew}>
-          <Plus size={14}/> Add provider
-        </button>
+        <div className="flex items-center gap-2">
+          <Link href="/ai-config/tools" className="btn inline-flex items-center gap-1.5">
+            <ShieldCheck size={14}/> Tool authorization
+          </Link>
+          <button className="btn btn-primary" onClick={startNew}>
+            <Plus size={14}/> Add provider
+          </button>
+        </div>
       </header>
 
       <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -176,9 +182,9 @@ function ProviderCard({
             <span className="badge mr-2">{tpl?.label ?? row.kind}</span>
             <span className="font-mono">{(row.config?.model as string) || "—"}</span>
           </div>
-          {row.config?.base_url && (
+          {Boolean(row.config?.base_url) && (
             <div className="text-xs text-muted font-mono truncate mt-1">
-              {String(row.config.base_url)}
+              {String(row.config!.base_url)}
             </div>
           )}
         </div>

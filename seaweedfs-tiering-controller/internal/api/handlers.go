@@ -121,6 +121,78 @@ func volumeFeatures(d Deps) gin.HandlerFunc {
 	}
 }
 
+// volumeFeatureTrend returns a time-series of feature snapshots for
+// a single volume so the UI can render a sparkline (size, reads_7d,
+// reads_30d, quiet_days) and postmortem can show before/after.
+//
+// Window defaults to 30 days; `days` query param caps at 90 (collector
+// TTL). The slice is oldest-first so the UI can plot directly.
+func volumeFeatureTrend(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idU, err := strconv.ParseUint(c.Param("id"), 10, 32)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "bad id"})
+			return
+		}
+		days := 30
+		if s := c.Query("days"); s != "" {
+			if n, perr := strconv.Atoi(s); perr == nil && n > 0 && n <= 90 {
+				days = n
+			}
+		}
+		since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+		samples, err := d.CH.VolumeFeatureTrend(c.Request.Context(), uint32(idU), since, 0)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"items": samples, "days": days})
+	}
+}
+
+// volumeFeatureTrendBulk returns daily-downsampled feature history for a
+// set of volumes in a single round trip — backs the per-row sparklines on
+// the volumes list page. `ids` is a comma-separated list (capped at 500 so
+// one page request can't fan out unbounded); `days` defaults to 30, max 90
+// (collector TTL). Response `items` is keyed by volume id (string, since
+// JSON object keys must be strings).
+func volumeFeatureTrendBulk(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		raw := c.Query("ids")
+		if raw == "" {
+			c.JSON(http.StatusOK, gin.H{"items": map[string]any{}, "days": 0})
+			return
+		}
+		const maxIDs = 500
+		ids := make([]uint32, 0, 64)
+		for _, part := range strings.Split(raw, ",") {
+			if n, err := strconv.ParseUint(strings.TrimSpace(part), 10, 32); err == nil {
+				ids = append(ids, uint32(n))
+			}
+			if len(ids) >= maxIDs {
+				break
+			}
+		}
+		days := 30
+		if s := c.Query("days"); s != "" {
+			if n, perr := strconv.Atoi(s); perr == nil && n > 0 && n <= 90 {
+				days = n
+			}
+		}
+		since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+		trend, err := d.CH.VolumeFeatureTrendBulk(c.Request.Context(), ids, since)
+		if err != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
+			return
+		}
+		items := make(map[string][]store.VolumeFeatureDailyPoint, len(trend))
+		for id, pts := range trend {
+			items[strconv.FormatUint(uint64(id), 10)] = pts
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items, "days": days})
+	}
+}
+
 func scoreOne(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idU, err := strconv.ParseUint(c.Param("id"), 10, 32)
@@ -156,6 +228,25 @@ func listPolicies(d Deps) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"items": ps})
+	}
+}
+
+// policyROI returns the per-policy task rollup — how many tasks each
+// policy's scope has produced, by status. Powers the policies page's
+// activity column. Tasks with no policy attribution are excluded.
+func policyROI(d Deps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		stats, err := d.PG.PolicyTaskStats(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		// JSON object keys must be strings.
+		items := make(map[string]store.PolicyTaskStat, len(stats))
+		for id, s := range stats {
+			items[id.String()] = s
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items})
 	}
 }
 
@@ -330,19 +421,8 @@ func retryTask(d Deps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "bad id"})
 			return
 		}
-		ts, err := d.PG.ListTasks(c.Request.Context(), "", 5000)
+		found, err := d.PG.GetTask(c.Request.Context(), id)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		var found *store.Task
-		for i := range ts {
-			if ts[i].ID == id {
-				found = &ts[i]
-				break
-			}
-		}
-		if found == nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 			return
 		}
@@ -350,7 +430,11 @@ func retryTask(d Deps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("task is %s, only failed/cancelled tasks can be retried", found.Status)})
 			return
 		}
-		if err := d.PG.UpdateTaskStatus(c.Request.Context(), id, "approved", userOf(c)); err != nil {
+		// ResetTaskForManualRetry zeros the retry_count + clears the
+		// backoff so the dispatcher picks the task on the next tick.
+		// We deliberately don't preserve the prior retry_count: an
+		// operator clicking Retry signals "this is a fresh attempt".
+		if err := d.PG.ResetTaskForManualRetry(c.Request.Context(), id, userOf(c)); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}

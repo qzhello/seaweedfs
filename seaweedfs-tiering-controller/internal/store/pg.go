@@ -112,6 +112,10 @@ type Task struct {
 	ApprovedBy     *string         `json:"approved_by,omitempty"`
 	ClusterID      *uuid.UUID      `json:"cluster_id,omitempty"`
 	AutonomyScore  json.RawMessage `json:"autonomy_score,omitempty"`
+	FailureReason  *string         `json:"failure_reason,omitempty"`
+	FailureMessage *string         `json:"failure_message,omitempty"`
+	RetryCount     int             `json:"retry_count"`
+	NextRetryAt    *time.Time      `json:"next_retry_at,omitempty"`
 }
 
 func (p *PG) InsertTask(ctx context.Context, t Task) (uuid.UUID, error) {
@@ -151,22 +155,45 @@ var ErrDuplicateTask = fmt.Errorf("duplicate active task for volume/action")
 // GetTask returns one task by id. Used by the AI review endpoint.
 func (p *PG) GetTask(ctx context.Context, id uuid.UUID) (*Task, error) {
 	row := p.Pool.QueryRow(ctx, `
-		SELECT id,volume_id,collection,src_server,src_disk_type,action,target,score,features,explanation,policy_id,status,created_at,approved_at,approved_by,cluster_id,autonomy_score
+		SELECT id,volume_id,collection,src_server,src_disk_type,action,target,score,features,explanation,policy_id,status,created_at,approved_at,approved_by,cluster_id,autonomy_score,failure_reason,failure_message,retry_count,next_retry_at
 		FROM tasks WHERE id=$1`, id)
 	var t Task
 	if err := row.Scan(&t.ID, &t.VolumeID, &t.Collection, &t.SrcServer, &t.SrcDiskType,
 		&t.Action, &t.Target, &t.Score, &t.Features, &t.Explanation, &t.PolicyID,
-		&t.Status, &t.CreatedAt, &t.ApprovedAt, &t.ApprovedBy, &t.ClusterID, &t.AutonomyScore); err != nil {
+		&t.Status, &t.CreatedAt, &t.ApprovedAt, &t.ApprovedBy, &t.ClusterID, &t.AutonomyScore,
+		&t.FailureReason, &t.FailureMessage, &t.RetryCount, &t.NextRetryAt); err != nil {
 		return nil, fmt.Errorf("get task: %w", err)
 	}
 	return &t, nil
+}
+
+// CountTasksByStatus returns a count of tasks at the given status.
+// Used by the lightweight /counts endpoint that drives nav badges —
+// indexed COUNT is much cheaper than the full ListTasks scan we used
+// to do for the same purpose.
+func (p *PG) CountTasksByStatus(ctx context.Context, status string) (int, error) {
+	var n int
+	if err := p.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM tasks WHERE status=$1`, status).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count tasks: %w", err)
+	}
+	return n, nil
+}
+
+// CountExecutionsByStatus returns a count of executions at the given
+// status. Same use case as CountTasksByStatus — see notes there.
+func (p *PG) CountExecutionsByStatus(ctx context.Context, status string) (int, error) {
+	var n int
+	if err := p.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM executions WHERE status=$1`, status).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count executions: %w", err)
+	}
+	return n, nil
 }
 
 func (p *PG) ListTasks(ctx context.Context, status string, limit int) ([]Task, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
-	q := `SELECT id,volume_id,collection,src_server,src_disk_type,action,target,score,features,explanation,policy_id,status,created_at,approved_at,approved_by,cluster_id,autonomy_score
+	q := `SELECT id,volume_id,collection,src_server,src_disk_type,action,target,score,features,explanation,policy_id,status,created_at,approved_at,approved_by,cluster_id,autonomy_score,failure_reason,failure_message,retry_count,next_retry_at
 	      FROM tasks`
 	args := []any{}
 	if status != "" {
@@ -184,7 +211,8 @@ func (p *PG) ListTasks(ctx context.Context, status string, limit int) ([]Task, e
 		var t Task
 		if err := rows.Scan(&t.ID, &t.VolumeID, &t.Collection, &t.SrcServer, &t.SrcDiskType,
 			&t.Action, &t.Target, &t.Score, &t.Features, &t.Explanation, &t.PolicyID,
-			&t.Status, &t.CreatedAt, &t.ApprovedAt, &t.ApprovedBy, &t.ClusterID, &t.AutonomyScore); err != nil {
+			&t.Status, &t.CreatedAt, &t.ApprovedAt, &t.ApprovedBy, &t.ClusterID, &t.AutonomyScore,
+			&t.FailureReason, &t.FailureMessage, &t.RetryCount, &t.NextRetryAt); err != nil {
 			return nil, fmt.Errorf("scan task: %w", err)
 		}
 		out = append(out, t)
@@ -207,6 +235,95 @@ func (p *PG) UpdateTaskStatus(ctx context.Context, id uuid.UUID, status string, 
 		return fmt.Errorf("update task: %w", err)
 	}
 	return nil
+}
+
+// MarkTaskFailureForRetry records a classified failure and, if the
+// caller decided to retry, schedules the next eligible run. Passing
+// retryAt=nil leaves status='failed' (terminal); a non-nil value flips
+// the task back to 'approved' with next_retry_at set so the dispatcher
+// will pick it up only after the backoff has elapsed.
+//
+// retry_count is incremented every call so terminal failures still
+// surface the number of attempts to the operator.
+func (p *PG) MarkTaskFailureForRetry(ctx context.Context, id uuid.UUID, reason, message string, retryAt *time.Time) error {
+	if retryAt != nil {
+		_, err := p.Pool.Exec(ctx, `
+			UPDATE tasks
+			SET status = 'approved',
+			    failure_reason  = $1,
+			    failure_message = $2,
+			    retry_count     = retry_count + 1,
+			    next_retry_at   = $3
+			WHERE id = $4`, reason, message, *retryAt, id)
+		if err != nil {
+			return fmt.Errorf("schedule retry: %w", err)
+		}
+		return nil
+	}
+	_, err := p.Pool.Exec(ctx, `
+		UPDATE tasks
+		SET status = 'failed',
+		    failure_reason  = $1,
+		    failure_message = $2,
+		    retry_count     = retry_count + 1,
+		    next_retry_at   = NULL
+		WHERE id = $3`, reason, message, id)
+	if err != nil {
+		return fmt.Errorf("mark task failed: %w", err)
+	}
+	return nil
+}
+
+// RetryCount fetches the current retry_count without hydrating the
+// whole task. Callers use it to decide whether they've burned through
+// their allotted attempts.
+func (p *PG) RetryCount(ctx context.Context, id uuid.UUID) (int, error) {
+	var n int
+	if err := p.Pool.QueryRow(ctx, `SELECT retry_count FROM tasks WHERE id=$1`, id).Scan(&n); err != nil {
+		return 0, fmt.Errorf("retry count: %w", err)
+	}
+	return n, nil
+}
+
+// ResetTaskForManualRetry zeros the retry counter and clears the
+// scheduled backoff so an operator clicking "Retry" gets an immediate
+// re-dispatch — distinct from the auto-retry path which respects
+// backoff.
+func (p *PG) ResetTaskForManualRetry(ctx context.Context, id uuid.UUID, actor string) error {
+	_, err := p.Pool.Exec(ctx, `
+		UPDATE tasks
+		SET status = 'approved',
+		    failure_reason  = NULL,
+		    failure_message = NULL,
+		    retry_count     = 0,
+		    next_retry_at   = NULL,
+		    approved_at     = NOW(),
+		    approved_by     = COALESCE(NULLIF($2, ''), approved_by)
+		WHERE id = $1`, id, actor)
+	if err != nil {
+		return fmt.Errorf("reset task: %w", err)
+	}
+	return nil
+}
+
+// TaskFailureSnapshot returns the classification + raw error tuple
+// for a task. Used by the inspector UI when rendering the failure
+// banner.
+type TaskFailureSnapshot struct {
+	Reason       *string    `json:"failure_reason,omitempty"`
+	Message      *string    `json:"failure_message,omitempty"`
+	RetryCount   int        `json:"retry_count"`
+	NextRetryAt  *time.Time `json:"next_retry_at,omitempty"`
+}
+
+func (p *PG) TaskFailureSnapshot(ctx context.Context, id uuid.UUID) (*TaskFailureSnapshot, error) {
+	var s TaskFailureSnapshot
+	if err := p.Pool.QueryRow(ctx, `
+		SELECT failure_reason, failure_message, retry_count, next_retry_at
+		FROM tasks WHERE id=$1`, id).Scan(&s.Reason, &s.Message, &s.RetryCount, &s.NextRetryAt); err != nil {
+		return nil, fmt.Errorf("failure snapshot: %w", err)
+	}
+	return &s, nil
 }
 
 // ---------------------------- Executions ----------------------------

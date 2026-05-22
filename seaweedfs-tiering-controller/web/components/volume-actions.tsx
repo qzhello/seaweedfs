@@ -12,13 +12,14 @@
 // most volume commands take a single -volumeId; mixing volumes from
 // different clusters or nodes also forces per-row calls anyway.
 
-import { useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   MoreVertical, Move, Copy, Trash2, Eraser, Lock, Unlock,
   ArrowUpToLine, ArrowDownToLine, ShieldAlert, AlertTriangle, Loader2, X, CheckCircle2,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { CommandPreview } from "@/components/cli/command-preview";
 
 // ----------------------------------------------------------------------------
 // Action catalog
@@ -148,22 +149,84 @@ export function VolumeRowActions({ v, onPick }: {
 }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  // Dropdown is position:fixed so it can break out of the table's
+  // overflow-x:auto container. We compute the anchor point from the
+  // trigger button's getBoundingClientRect every time the menu opens,
+  // and flip the dropdown upward when there isn't enough room below.
+  const [pos, setPos] = useState<{
+    top?: number; bottom?: number; right: number;
+  } | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Estimated max menu height — used to decide flip-up vs flip-down
+  // before the menu has rendered. The actual menu auto-sizes from
+  // ACTIONS.length; once mounted we re-measure for accuracy.
+  const ESTIMATED_MENU_H = 320;
+
+  const computePosition = () => {
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const menuH = menuRef.current?.offsetHeight ?? ESTIMATED_MENU_H;
+    const rightOffset = window.innerWidth - rect.right;
+    if (spaceBelow < menuH + 8 && rect.top > menuH + 8) {
+      // Flip up — anchor menu's bottom to the button's top.
+      setPos({ bottom: window.innerHeight - rect.top + 4, right: rightOffset });
+    } else {
+      setPos({ top: rect.bottom + 4, right: rightOffset });
+    }
+  };
+
+  // Re-measure on first mount of the menu (offsetHeight is only known
+  // after the DOM node exists). useLayoutEffect avoids a one-frame flash.
+  useLayoutEffect(() => { if (open) computePosition(); }, [open]);
+
+  // Close on scroll / resize so the floating menu doesn't drift away
+  // from its trigger — re-opening will recompute against the new layout.
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [open]);
+
   return (
-    <div className="relative">
+    <>
       <button
-        onClick={(e) => { e.stopPropagation(); setOpen((x) => !x); }}
+        ref={btnRef}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (open) { setOpen(false); return; }
+          // Seed an approximate position immediately so the menu doesn't
+          // flicker at 0,0 before useLayoutEffect re-measures.
+          computePosition();
+          setOpen(true);
+        }}
         className="p-1 text-muted hover:text-text"
         title={t("Actions")}
       >
         <MoreVertical size={14}/>
       </button>
-      {open && (
+      {open && pos && (
         <>
           <button
             onClick={() => setOpen(false)}
             className="fixed inset-0 z-30 cursor-default" aria-hidden
           />
-          <div className="absolute right-0 mt-1 z-40 w-52 rounded-md border border-border bg-panel shadow-lg py-1">
+          <div
+            ref={menuRef}
+            style={{
+              position: "fixed",
+              top: pos.top,
+              bottom: pos.bottom,
+              right: pos.right,
+            }}
+            className="z-40 w-52 rounded-md border border-border bg-panel shadow-lg py-1">
             {ACTIONS.map((a) => {
               if (a.skipIf && a.skipIf(v)) return null;
               const Icon = a.icon;
@@ -183,7 +246,7 @@ export function VolumeRowActions({ v, onPick }: {
           </div>
         </>
       )}
-    </div>
+    </>
   );
 }
 
@@ -365,6 +428,22 @@ export function VolumeActionDialog({
                 ))}
               </ul>
             </details>
+
+            {/* Command preview — one `weed shell -- <cmd> <args>` line
+                per row that will actually run. Skipped rows are
+                excluded. Updates live as the operator types into the
+                action's input fields. */}
+            <CommandPreview
+              command={action.command}
+              args={[]}
+              multi={rows
+                .filter(r => !(action.skipIf && action.skipIf(r)) && r.cluster_id)
+                .map(r => {
+                  const raw = act.buildArgs(r, input);
+                  return raw ? raw.split(/\s+/).filter(Boolean) : [];
+                })
+                .filter(a => a.length > 0)}
+            />
           </div>
         )}
 

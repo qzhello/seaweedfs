@@ -207,7 +207,12 @@ func clusterShellExec(d Deps) gin.HandlerFunc {
 // clusterShellExec at the admin layer.
 func shellCatalogList(_ Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"items": shellCatalog})
+		// Localize Summary + arg labels per the operator's locale so
+		// the ops console doesn't show "List all volumes..." next to
+		// "新建 S3 用户" — the user explicitly called out mixed-
+		// language UI as unacceptable. Falls back to English for any
+		// command that doesn't have a translation entry yet.
+		c.JSON(http.StatusOK, gin.H{"items": localizedCatalog(IsZh(c.Request.Context()))})
 	}
 }
 

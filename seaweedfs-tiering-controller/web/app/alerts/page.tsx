@@ -1,7 +1,8 @@
 "use client";
-import { useAlertChannels, useAlertRules, useAlertEvents, api } from "@/lib/api";
+import { useAlertChannels, useAlertRules, useAlertEvents, useAlertTemplates, api, type AlertTemplate } from "@/lib/api";
+import { toast } from "@/lib/toast";
 import { EmptyState } from "@/components/empty-state";
-import { Bell, Plus, Trash2, TestTube2, AlertTriangle, CheckCircle2 , Send , ShieldAlert } from "lucide-react";
+import { Bell, Plus, Trash2, TestTube2, AlertTriangle, CheckCircle2 , Send , ShieldAlert, FileText, Eye } from "lucide-react";
 import { useState } from "react";
 import { relTime } from "@/lib/utils";
 import { Pagination, usePagination } from "@/components/pagination";
@@ -16,40 +17,200 @@ export default function AlertsPage() {
   const { data: channels, mutate: refetchChannels, isValidating: chanValidating } = useAlertChannels();
   const { data: rules,    mutate: refetchRules, isValidating: ruleValidating } = useAlertRules();
   const { data: events, mutate: refetchEvents, isLoading: eventsLoading, isValidating: eventsValidating } = useAlertEvents();
-  const [tab, setTab] = useState<"events"|"channels"|"rules">("events");
+  const { data: templates, mutate: refetchTemplates, isValidating: tplValidating } = useAlertTemplates();
+  const [tab, setTab] = useState<"events"|"channels"|"rules"|"templates">("events");
   const [editingChan, setEditingChan] = useState<any | null>(null);
   const [editingRule, setEditingRule] = useState<any | null>(null);
+  const [editingTpl, setEditingTpl] = useState<Partial<AlertTemplate> | null>(null);
 
   return (
     <div className="space-y-6">
       <header className="flex items-center justify-between">
         <h1 className="text-base font-semibold tracking-tight flex items-center gap-2"><Bell size={20}/> Alerts</h1>
         <div className="flex gap-1 items-center text-sm">
-          {(["events","channels","rules"] as const).map(t => (
+          {(["events","channels","rules","templates"] as const).map(t => (
             <button key={t} className={`btn ${tab===t?"btn-primary":""}`} onClick={() => setTab(t)}>{t}</button>
           ))}
           <RefreshButton
-            loading={tab === "events" ? eventsValidating : tab === "channels" ? chanValidating : ruleValidating}
-            onClick={() => tab === "events" ? refetchEvents() : tab === "channels" ? refetchChannels() : refetchRules()}/>
+            loading={
+              tab === "events" ? eventsValidating
+              : tab === "channels" ? chanValidating
+              : tab === "rules" ? ruleValidating
+              : tplValidating
+            }
+            onClick={() => {
+              if (tab === "events") return refetchEvents();
+              if (tab === "channels") return refetchChannels();
+              if (tab === "rules") return refetchRules();
+              return refetchTemplates();
+            }}/>
         </div>
       </header>
 
       {tab === "events" && <EventsTab items={events?.items || []} loading={eventsLoading && !events}/>}
       {tab === "channels" && (
         <ChannelsTab items={channels?.items || []}
-          onEdit={(c) => setEditingChan(c)}
+          onEdit={(c: any) => setEditingChan(c)}
           onAdd={() => setEditingChan({ name: "", kind: "wecom_robot", config: {}, severities: ["warning","critical"], rate_per_hour: 60, enabled: true, notes: "" })}
-          onDelete={async (id) => { await api.deleteAlertChannel(id); refetchChannels(); }}/>
+          onDelete={async (id: string) => { await api.deleteAlertChannel(id); refetchChannels(); }}/>
       )}
       {tab === "rules" && (
         <RulesTab items={rules?.items || []} channels={channels?.items || []}
-          onEdit={(r) => setEditingRule(r)}
+          onEdit={(r: any) => setEditingRule(r)}
           onAdd={() => setEditingRule({ name: "", event_kind: "health.degraded", source_match: "*", severity_min: "warning", channel_ids: [], silence_sec: 600, enabled: true })}
-          onDelete={async (id) => { await api.deleteAlertRule(id); refetchRules(); }}/>
+          onDelete={async (id: string) => { await api.deleteAlertRule(id); refetchRules(); }}/>
+      )}
+
+      {tab === "templates" && (
+        <TemplatesTab items={templates?.items || []}
+          onEdit={(t) => setEditingTpl(t)}
+          onAdd={() => setEditingTpl({ name: "", description: "", title_tmpl: "", body_tmpl: "", severity: "warning" })}
+          onDelete={async (id: string) => {
+            try { await api.deleteAlertTemplate(id); toast.success("Deleted"); refetchTemplates(); }
+            catch (e) { toast.fromError(e, "Delete failed"); }
+          }}/>
       )}
 
       {editingChan && <ChannelModal initial={editingChan} onClose={() => setEditingChan(null)} onSaved={() => { setEditingChan(null); refetchChannels(); }}/>}
       {editingRule && <RuleModal initial={editingRule} channels={channels?.items || []} onClose={() => setEditingRule(null)} onSaved={() => { setEditingRule(null); refetchRules(); }}/>}
+      {editingTpl && <TemplateModal initial={editingTpl} onClose={() => setEditingTpl(null)} onSaved={() => { setEditingTpl(null); refetchTemplates(); }}/>}
+    </div>
+  );
+}
+
+// ---------- Alert template tab ----------
+
+function TemplatesTab({
+  items, onEdit, onAdd, onDelete,
+}: {
+  items: AlertTemplate[];
+  onEdit: (t: AlertTemplate) => void;
+  onAdd: () => void;
+  onDelete: (id: string) => Promise<void> | void;
+}) {
+  return (
+    <section className="card overflow-hidden">
+      <div className="p-3 border-b border-border/40 flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold flex items-center gap-1.5"><FileText size={14}/> Alert templates</h2>
+          <p className="text-xs text-muted mt-0.5">
+            Reusable subject + body templates. Reference one from an Ops flow's alert config.
+            Supports Go template syntax — vars: <code className="font-mono">.Template .Cluster .Status .RunID .StepID .StepIndex .Error .When</code>
+          </p>
+        </div>
+        <button className="btn btn-primary" onClick={onAdd}><Plus size={14}/> New template</button>
+      </div>
+      {items.length === 0
+        ? <EmptyState icon={FileText} title="No templates yet" hint="Built-in defaults seed on first install. Create one to customise per-flow alert bodies."/>
+        : <table className="grid">
+            <thead><tr><th>Name</th><th>Description</th><th>Severity</th><th>Title preview</th><th></th></tr></thead>
+            <tbody>
+              {items.map((t) => (
+                <tr key={t.id}>
+                  <td className="font-mono text-xs">{t.name}</td>
+                  <td className="text-xs text-muted truncate max-w-[260px]" title={t.description}>{t.description || "—"}</td>
+                  <td><SevBadge s={t.severity}/></td>
+                  <td className="text-xs truncate max-w-[260px]" title={t.title_tmpl}>{t.title_tmpl || "—"}</td>
+                  <td>
+                    <div className="flex gap-1 justify-end">
+                      <button className="btn" onClick={() => onEdit(t)}>Edit</button>
+                      <button className="btn" onClick={() => onDelete(t.id)} title="Delete"><Trash2 size={12}/></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>}
+    </section>
+  );
+}
+
+function TemplateModal({
+  initial, onClose, onSaved,
+}: {
+  initial: Partial<AlertTemplate>;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [draft, setDraft] = useState<Partial<AlertTemplate>>(initial);
+  const [preview, setPreview] = useState<{ title: string; body: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (!draft.name?.trim()) { toast.warn("Name required"); return; }
+    setSaving(true);
+    try {
+      await api.upsertAlertTemplate(draft);
+      toast.success("Saved");
+      onSaved();
+    } catch (e) {
+      toast.fromError(e, "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const runPreview = async () => {
+    try {
+      const r = await api.previewAlertTemplate({
+        title_tmpl: draft.title_tmpl || "",
+        body_tmpl: draft.body_tmpl || "",
+      }) as { title: string; body: string };
+      setPreview(r);
+    } catch (e) {
+      toast.fromError(e, "Preview failed");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="card max-w-3xl w-full mx-4 p-5 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-base font-semibold mb-3 flex items-center gap-1.5">
+          <FileText size={16}/> {initial.id ? "Edit alert template" : "New alert template"}
+        </h3>
+        <div className="grid gap-3">
+          <label className="grid gap-1 text-sm">
+            <span className="text-muted text-xs">Name</span>
+            <input className="input font-mono" value={draft.name || ""} onChange={(e) => setDraft({ ...draft, name: e.target.value })}/>
+          </label>
+          <label className="grid gap-1 text-sm">
+            <span className="text-muted text-xs">Description</span>
+            <input className="input" value={draft.description || ""} onChange={(e) => setDraft({ ...draft, description: e.target.value })}/>
+          </label>
+          <label className="grid gap-1 text-sm">
+            <span className="text-muted text-xs">Severity (default — flow config may override)</span>
+            <select className="input" value={draft.severity || "warning"} onChange={(e) => setDraft({ ...draft, severity: e.target.value as AlertTemplate["severity"] })}>
+              {SEVS.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+          <label className="grid gap-1 text-sm">
+            <span className="text-muted text-xs">Title template <span className="text-muted/60">(Go text/template)</span></span>
+            <input className="input font-mono text-xs" placeholder="[Flow {{.Status | upper}}] {{.Template}}"
+              value={draft.title_tmpl || ""} onChange={(e) => setDraft({ ...draft, title_tmpl: e.target.value })}/>
+          </label>
+          <label className="grid gap-1 text-sm">
+            <span className="text-muted text-xs">Body template <span className="text-muted/60">(markdown + Go template)</span></span>
+            <textarea className="input font-mono text-xs min-h-[140px]"
+              placeholder={"Cluster: `{{.Cluster}}`\nRun: `{{.RunID}}`\nStep: `{{.StepID}}` (#{{.StepIndex}})\n\n{{if .Error}}Error:\n```\n{{.Error}}\n```{{end}}"}
+              value={draft.body_tmpl || ""} onChange={(e) => setDraft({ ...draft, body_tmpl: e.target.value })}/>
+          </label>
+          <div className="flex gap-2">
+            <button className="btn" onClick={runPreview}><Eye size={12}/> Preview with sample vars</button>
+          </div>
+          {preview && (
+            <section className="card p-3 bg-panel2 border-border/40">
+              <div className="text-[10px] uppercase tracking-wide text-muted/70">Title</div>
+              <div className="font-mono text-xs mt-0.5 whitespace-pre-wrap">{preview.title || <span className="text-muted">(empty)</span>}</div>
+              <div className="text-[10px] uppercase tracking-wide text-muted/70 mt-2">Body</div>
+              <div className="font-mono text-xs mt-0.5 whitespace-pre-wrap">{preview.body || <span className="text-muted">(empty)</span>}</div>
+            </section>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 mt-4">
+          <button className="btn" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save"}</button>
+        </div>
+      </div>
     </div>
   );
 }

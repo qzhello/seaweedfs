@@ -102,8 +102,32 @@ func (d *dispatcher) dispatch(ctx context.Context) {
 		d.log.Error("list approved tasks", zap.Error(err))
 		return
 	}
+	// Honor exponential-backoff retries: drop tasks whose next_retry_at
+	// is still in the future. The picker checks again on the next tick,
+	// so there's no need for a separate timer goroutine.
+	if len(tasks) > 0 {
+		now := time.Now()
+		filtered := tasks[:0]
+		for _, t := range tasks {
+			if t.NextRetryAt != nil && t.NextRetryAt.After(now) {
+				continue
+			}
+			filtered = append(filtered, t)
+		}
+		tasks = filtered
+	}
 	if len(tasks) == 0 {
 		return
+	}
+	// Capacity holds — a cluster with an open capacity incident has its
+	// tiering paused. Skip its approved tasks too (the scheduler already
+	// stops generating new ones); they stay 'approved' and flow again
+	// once the operator resolves the incident. The dashboard incident
+	// banner is the visible signal, so we don't churn task status here.
+	held, herr := d.pg.ClustersWithOpenIncident(ctx)
+	if herr != nil {
+		d.log.Warn("list capacity holds", zap.Error(herr))
+		held = nil
 	}
 	sort.Slice(tasks, func(i, j int) bool {
 		// Higher score first; tie-break: action priority (tier_upload < ec_encode).
@@ -114,6 +138,11 @@ func (d *dispatcher) dispatch(ctx context.Context) {
 	})
 
 	for _, t := range tasks {
+		// Capacity hold — cluster has an open capacity incident; leave the
+		// task approved and skip it until the incident is resolved.
+		if t.ClusterID != nil && held[*t.ClusterID] {
+			continue
+		}
 		// Phase A: hold tasks whose target cluster is over pressure threshold.
 		// Mark them 'scheduled' so the UI shows the right state and a future
 		// dispatch tick promotes them once pressure drops.

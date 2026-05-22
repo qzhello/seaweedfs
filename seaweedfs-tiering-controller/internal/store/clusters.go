@@ -24,14 +24,22 @@ type Cluster struct {
 	// WeedBinPath is an optional absolute path to the `weed` binary the
 	// controller should invoke for `weed shell` calls against this cluster.
 	// Empty string → fall back to the global resolution chain (env / PATH).
-	WeedBinPath string    `json:"weed_bin_path"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	WeedBinPath string `json:"weed_bin_path"`
+	// FilerJWT is the HMAC signing secret from the filer's security.toml
+	// (the `key` under `[jwt.signing]` / `[jwt.filer_signing]`). When set,
+	// the controller signs a short-lived HS256 token per filer HTTP call
+	// and sends it as `Authorization: Bearer <token>`. We deliberately
+	// store the secret (not a static token) because upstream JWTs expire
+	// quickly (default 10s) — a pasted static token would go stale.
+	// Empty string → filer JWT is disabled, no Authorization header.
+	FilerJWT  string    `json:"filer_jwt"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func (p *PG) ListClusters(ctx context.Context) ([]Cluster, error) {
 	rows, err := p.Pool.Query(ctx, `
-		SELECT id,name,master_addr,filer_addr,grpc_tls,description,business_domain,guard,enabled,weed_bin_path,created_at,updated_at
+		SELECT id,name,master_addr,filer_addr,grpc_tls,description,business_domain,guard,enabled,weed_bin_path,filer_jwt,created_at,updated_at
 		FROM clusters ORDER BY name`)
 	if err != nil {
 		return nil, fmt.Errorf("list clusters: %w", err)
@@ -42,7 +50,7 @@ func (p *PG) ListClusters(ctx context.Context) ([]Cluster, error) {
 		var c Cluster
 		if err := rows.Scan(&c.ID, &c.Name, &c.MasterAddr, &c.FilerAddr, &c.GrpcTLS,
 			&c.Description, &c.BusinessDomain, &c.Guard, &c.Enabled, &c.WeedBinPath,
-			&c.CreatedAt, &c.UpdatedAt); err != nil {
+			&c.FilerJWT, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan cluster: %w", err)
 		}
 		out = append(out, c)
@@ -52,12 +60,12 @@ func (p *PG) ListClusters(ctx context.Context) ([]Cluster, error) {
 
 func (p *PG) GetCluster(ctx context.Context, id uuid.UUID) (*Cluster, error) {
 	row := p.Pool.QueryRow(ctx, `
-		SELECT id,name,master_addr,filer_addr,grpc_tls,description,business_domain,guard,enabled,weed_bin_path,created_at,updated_at
+		SELECT id,name,master_addr,filer_addr,grpc_tls,description,business_domain,guard,enabled,weed_bin_path,filer_jwt,created_at,updated_at
 		FROM clusters WHERE id=$1`, id)
 	var c Cluster
 	if err := row.Scan(&c.ID, &c.Name, &c.MasterAddr, &c.FilerAddr, &c.GrpcTLS,
 		&c.Description, &c.BusinessDomain, &c.Guard, &c.Enabled, &c.WeedBinPath,
-		&c.CreatedAt, &c.UpdatedAt); err != nil {
+		&c.FilerJWT, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("get cluster: %w", err)
 	}
 	return &c, nil
@@ -71,16 +79,17 @@ func (p *PG) UpsertCluster(ctx context.Context, c Cluster) (uuid.UUID, error) {
 		c.Guard = json.RawMessage(`{}`)
 	}
 	_, err := p.Pool.Exec(ctx, `
-		INSERT INTO clusters (id,name,master_addr,filer_addr,grpc_tls,description,business_domain,guard,enabled,weed_bin_path)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		INSERT INTO clusters (id,name,master_addr,filer_addr,grpc_tls,description,business_domain,guard,enabled,weed_bin_path,filer_jwt)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		ON CONFLICT (name) DO UPDATE SET
 		  master_addr=EXCLUDED.master_addr, filer_addr=EXCLUDED.filer_addr,
 		  grpc_tls=EXCLUDED.grpc_tls, description=EXCLUDED.description,
 		  business_domain=EXCLUDED.business_domain, guard=EXCLUDED.guard,
 		  enabled=EXCLUDED.enabled, weed_bin_path=EXCLUDED.weed_bin_path,
+		  filer_jwt=EXCLUDED.filer_jwt,
 		  updated_at=NOW()`,
 		c.ID, c.Name, c.MasterAddr, c.FilerAddr, c.GrpcTLS, c.Description,
-		c.BusinessDomain, c.Guard, c.Enabled, c.WeedBinPath)
+		c.BusinessDomain, c.Guard, c.Enabled, c.WeedBinPath, c.FilerJWT)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("upsert cluster: %w", err)
 	}

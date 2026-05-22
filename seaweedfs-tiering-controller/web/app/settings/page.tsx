@@ -1,53 +1,200 @@
 "use client";
+// Settings page — master/detail layout.
+//   Left rail: groups (with item counts and a search box).
+//   Right pane: header + entries list for the active group, each card
+//   showing description, impact, current value, version + audit, and an
+//   inline editor. All copy is wrapped in t() for the zh/en toggle.
+
 import { useConfig, useConfigHistory, api } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import { EmptyState } from "@/components/empty-state";
-import { useState } from "react";
-import { Flame, Snowflake, History as HistoryIcon, Save, Undo2, AlertTriangle, Eye, EyeOff , Clock } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Flame, Snowflake, History as HistoryIcon, Save, Undo2,
+  AlertTriangle, Eye, EyeOff, Clock, Search, Settings as SettingsIcon, X,
+} from "lucide-react";
 import { relTime } from "@/lib/utils";
 
 type Entry = {
-  key: string; group_name: string; value: any; value_type: string;
+  key: string; group_name: string; value: unknown; value_type: string;
   is_hot: boolean; is_sensitive: boolean; description: string; impact: string;
-  schema: any; updated_by: string; updated_at: string; version: number;
+  schema: unknown; updated_by: string; updated_at: string; version: number;
 };
 
+const ACTIVE_GROUP_KEY = "tier.settings.activeGroup";
+
 export default function SettingsPage() {
+  const { t } = useT();
   const { data, mutate } = useConfig();
-  const groups = data?.groups || {};
-  const groupNames = Object.keys(groups).sort();
+  const groups = (data?.groups || {}) as Record<string, Entry[]>;
+  const groupNames = useMemo(() => Object.keys(groups).sort(), [groups]);
+
+  const [active, setActive] = useState<string>("");
+  const [search, setSearch] = useState("");
   const [historyKey, setHistoryKey] = useState<string | null>(null);
 
+  // Restore last picked group; fall back to the first available.
+  useEffect(() => {
+    if (active || groupNames.length === 0) return;
+    const saved = typeof window !== "undefined" ? localStorage.getItem(ACTIVE_GROUP_KEY) : null;
+    setActive(saved && groupNames.includes(saved) ? saved : groupNames[0]);
+  }, [active, groupNames]);
+
+  const onPickGroup = (g: string) => {
+    setActive(g);
+    if (typeof window !== "undefined") localStorage.setItem(ACTIVE_GROUP_KEY, g);
+  };
+
+  const entries = useMemo<Entry[]>(() => {
+    const items = groups[active] || [];
+    if (!search.trim()) return items;
+    const q = search.trim().toLowerCase();
+    return items.filter(e =>
+      e.key.toLowerCase().includes(q) ||
+      (e.description || "").toLowerCase().includes(q) ||
+      (e.impact || "").toLowerCase().includes(q),
+    );
+  }, [groups, active, search]);
+
+  // Aggregate badges per group (hot count, sensitive count) for the rail.
+  const groupMeta = useMemo(() => {
+    const meta: Record<string, { count: number; hot: number; sensitive: number; critical: boolean }> = {};
+    for (const g of groupNames) {
+      const items = groups[g] || [];
+      meta[g] = {
+        count: items.length,
+        hot: items.filter(e => e.is_hot).length,
+        sensitive: items.filter(e => e.is_sensitive).length,
+        critical: items.some(e => e.key === "safety.emergency_stop"),
+      };
+    }
+    return meta;
+  }, [groups, groupNames]);
+
   return (
-    <div className="space-y-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-base font-semibold tracking-tight">Settings</h1>
-          <p className="text-sm text-muted">All runtime config lives here · <Flame size={12} className="inline text-warning"/> hot-reload · <Snowflake size={12} className="inline text-muted"/> restart required</p>
-        </div>
+    <div className="space-y-4">
+      <header>
+        <h1 className="text-base font-semibold tracking-tight inline-flex items-center gap-2">
+          <SettingsIcon size={16}/> {t("Settings")}
+        </h1>
+        <p className="text-sm text-muted mt-1">
+          {t("All runtime config lives here.")}{" "}
+          <Flame size={11} className="inline text-warning -mt-0.5"/> {t("hot reload")}
+          {" · "}
+          <Snowflake size={11} className="inline text-muted -mt-0.5"/> {t("restart required")}
+        </p>
       </header>
 
-      <div className="space-y-6">
-        {groupNames.map(g => (
-          <section key={g} className="card p-5">
-            <h2 className="text-base font-medium mb-3 capitalize">{g}</h2>
-            <div className="space-y-2">
-              {(groups[g] as Entry[]).map(e => (
-                <ConfigRow key={e.key} entry={e} onSaved={() => mutate()} onShowHistory={() => setHistoryKey(e.key)}/>
-              ))}
+      {groupNames.length === 0 ? (
+        <div className="text-muted text-sm">{t("Loading…")}</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-4">
+          {/* Left rail */}
+          <aside className="card p-2 self-start sticky top-4">
+            <div className="text-[10px] uppercase tracking-wider text-muted px-2 py-1.5">
+              {t("Configuration groups")}
             </div>
-          </section>
-        ))}
-        {groupNames.length === 0 && <div className="text-muted text-sm">Loading…</div>}
-      </div>
+            <nav className="space-y-0.5">
+              {groupNames.map(g => {
+                const m = groupMeta[g];
+                const isActive = g === active;
+                return (
+                  <button
+                    key={g}
+                    onClick={() => onPickGroup(g)}
+                    className={`w-full text-left px-2 py-1.5 rounded text-sm flex items-center justify-between gap-2 transition-colors ${
+                      isActive
+                        ? "bg-accent/15 text-accent border border-accent/30"
+                        : "hover:bg-bg/60 border border-transparent"
+                    }`}>
+                    <span className="capitalize truncate">
+                      {t(g)}
+                      {m.critical && (
+                        <AlertTriangle
+                          size={10}
+                          className="inline ml-1 -mt-0.5 text-danger"
+                          aria-label={t("Contains critical setting")}
+                        />
+                      )}
+                    </span>
+                    <span className="text-[10px] text-muted shrink-0">{m.count}</span>
+                  </button>
+                );
+              })}
+            </nav>
+          </aside>
 
-      {historyKey && <HistoryDrawer keyName={historyKey} onClose={() => setHistoryKey(null)} onRollback={async (id) => {
-        await api.rollbackConfig(historyKey, id); await mutate(); setHistoryKey(null);
-      }}/>}
+          {/* Right detail */}
+          <section className="space-y-3">
+            <div className="card p-3 flex items-center gap-2">
+              <div className="flex-1">
+                <h2 className="text-sm font-medium capitalize">{active ? t(active) : "—"}</h2>
+                <div className="text-[11px] text-muted mt-0.5">
+                  {entries.length} / {(groups[active] || []).length} {t("entries")}
+                </div>
+              </div>
+              <div className="relative">
+                <Search size={12} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted"/>
+                <input
+                  className="input pl-7 pr-7 py-1.5 text-xs w-56"
+                  placeholder={t("Search keys / description")}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                {search && (
+                  <button
+                    aria-label={t("Clear")}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-text"
+                    onClick={() => setSearch("")}>
+                    <X size={12}/>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {entries.length === 0 ? (
+              <div className="card p-6">
+                <EmptyState
+                  icon={Search}
+                  title={t("No matching configuration")}
+                  hint={t("Adjust the search or pick another group.")}
+                />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {entries.map(e => (
+                  <ConfigRow
+                    key={e.key}
+                    entry={e}
+                    onSaved={() => mutate()}
+                    onShowHistory={() => setHistoryKey(e.key)}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {historyKey && (
+        <HistoryDrawer
+          keyName={historyKey}
+          onClose={() => setHistoryKey(null)}
+          onRollback={async (id) => {
+            await api.rollbackConfig(historyKey, id);
+            await mutate();
+            setHistoryKey(null);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-function ConfigRow({ entry, onSaved, onShowHistory }: { entry: Entry; onSaved: () => void; onShowHistory: () => void }) {
+function ConfigRow({
+  entry, onSaved, onShowHistory,
+}: { entry: Entry; onSaved: () => void; onShowHistory: () => void }) {
+  const { t } = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string>(() => JSON.stringify(entry.value));
   const [saving, setSaving] = useState(false);
@@ -57,110 +204,192 @@ function ConfigRow({ entry, onSaved, onShowHistory }: { entry: Entry; onSaved: (
   const original = JSON.stringify(entry.value);
   const changed = draft !== original;
   const masked = entry.is_sensitive && !showSecret;
+  const isCritical = entry.key === "safety.emergency_stop";
 
   return (
-    <div className="border border-border/60 rounded-lg p-3">
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-sm">{entry.key}</span>
-            {entry.is_hot
-              ? <span title="hot reload" className="text-warning"><Flame size={12}/></span>
-              : <span title="restart required" className="text-muted"><Snowflake size={12}/></span>}
-            {entry.key === "safety.emergency_stop" &&
-              <span className="badge border-danger/40 text-danger"><AlertTriangle size={10}/> CRITICAL</span>}
+    <div className={`border rounded-lg p-3 ${isCritical ? "border-danger/40 bg-danger/5" : "border-border/60"}`}>
+      {/* Header row: key + badges + audit */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-mono text-sm break-all">{entry.key}</span>
+            {entry.is_hot ? (
+              <span title={t("hot reload")} className="badge border-warning/40 text-warning">
+                <Flame size={10}/> {t("hot")}
+              </span>
+            ) : (
+              <span title={t("restart required")} className="badge border-border text-muted">
+                <Snowflake size={10}/> {t("restart")}
+              </span>
+            )}
+            {entry.is_sensitive && (
+              <span className="badge border-border text-muted">
+                <Eye size={10}/> {t("sensitive")}
+              </span>
+            )}
+            {isCritical && (
+              <span className="badge border-danger/40 text-danger">
+                <AlertTriangle size={10}/> {t("CRITICAL")}
+              </span>
+            )}
           </div>
-          <div className="text-xs text-muted mt-1">{entry.description}</div>
-          {entry.impact && <div className="text-xs text-warning/80 mt-0.5">↳ {entry.impact}</div>}
+          {entry.description && (
+            <div className="text-xs text-muted mt-1">{t(entry.description)}</div>
+          )}
+          {entry.impact && (
+            <div className="text-xs text-warning/80 mt-0.5">↳ {t(entry.impact)}</div>
+          )}
         </div>
+        <div className="text-[10px] text-muted text-right shrink-0">
+          v{entry.version}
+          <div>{t("edited by")} {entry.updated_by} {relTime(entry.updated_at)}</div>
+        </div>
+      </div>
 
-        <div className="flex items-center gap-2 min-w-[280px]">
+      {/* Value + actions row */}
+      <div className="flex items-center gap-2 flex-wrap mt-3">
+        <div className="flex-1 min-w-0">
           {editing ? (
             <ValueEditor entry={entry} value={draft} onChange={setDraft}/>
           ) : (
-            <code className="font-mono text-xs px-2 py-1 rounded bg-bg border border-border max-w-[300px] truncate">
-              {masked ? "***" : original}
+            <code className="font-mono text-xs px-2 py-1.5 rounded bg-bg border border-border block break-all">
+              {masked ? "•••••••" : original}
             </code>
           )}
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
           {entry.is_sensitive && !editing && (
-            <button className="btn" onClick={() => setShowSecret(!showSecret)}>
+            <button
+              className="btn"
+              aria-label={showSecret ? t("Hide") : t("Show")}
+              onClick={() => setShowSecret(!showSecret)}>
               {showSecret ? <EyeOff size={12}/> : <Eye size={12}/>}
             </button>
           )}
-        </div>
-
-        <div className="flex items-center gap-1">
           {!editing ? (
             <>
-              <button className="btn" onClick={() => { setDraft(original); setEditing(true); setErr(null); }}>Edit</button>
-              <button className="btn" onClick={onShowHistory}><HistoryIcon size={12}/></button>
+              <button
+                className="btn"
+                onClick={() => { setDraft(original); setEditing(true); setErr(null); }}>
+                {t("Edit")}
+              </button>
+              <button
+                className="btn inline-flex items-center gap-1"
+                onClick={onShowHistory}
+                title={t("History")}>
+                <HistoryIcon size={12}/>
+              </button>
             </>
           ) : (
             <>
               {changed && (
-                <button className="btn btn-primary" disabled={saving} onClick={async () => {
-                  setSaving(true); setErr(null);
-                  try {
-                    JSON.parse(draft); // syntax sanity
-                    await api.setConfig(entry.key, {
-                      value: JSON.parse(draft), expected_version: entry.version });
-                    setEditing(false); onSaved();
-                  } catch (e: any) {
-                    setErr(e.message);
-                  } finally { setSaving(false); }
-                }}><Save size={12}/> Save</button>
+                <button
+                  className="btn btn-primary inline-flex items-center gap-1"
+                  disabled={saving}
+                  onClick={async () => {
+                    setSaving(true); setErr(null);
+                    try {
+                      const parsed = JSON.parse(draft);
+                      await api.setConfig(entry.key, { value: parsed, expected_version: entry.version });
+                      setEditing(false); onSaved();
+                    } catch (e) {
+                      setErr(e instanceof Error ? e.message : String(e));
+                    } finally { setSaving(false); }
+                  }}>
+                  <Save size={12}/> {saving ? t("Saving…") : t("Save")}
+                </button>
               )}
-              <button className="btn" onClick={() => { setEditing(false); setErr(null); }}>Cancel</button>
+              <button className="btn" onClick={() => { setEditing(false); setErr(null); }}>
+                {t("Cancel")}
+              </button>
             </>
           )}
         </div>
       </div>
 
       {editing && changed && (
-        <div className="mt-2 text-xs text-muted">
+        <div className="mt-2 text-[11px] text-muted">
           <span className="font-mono">{original}</span> → <span className="font-mono text-warning">{draft}</span>
         </div>
       )}
       {err && <div className="mt-2 text-xs text-danger">{err}</div>}
-      <div className="mt-2 text-[11px] text-muted">
-        v{entry.version} · last edited by {entry.updated_by} {relTime(entry.updated_at)}
-      </div>
     </div>
   );
 }
 
 function ValueEditor({ entry, value, onChange }: { entry: Entry; value: string; onChange: (s: string) => void }) {
+  const { t } = useT();
   if (entry.value_type === "bool") {
     const v = value.trim() === "true";
     return (
-      <button className={`btn ${v ? "btn-primary" : ""}`} onClick={() => onChange(v ? "false" : "true")}>
-        {v ? "true" : "false"}
+      <button
+        className={`btn ${v ? "btn-primary" : ""}`}
+        onClick={() => onChange(v ? "false" : "true")}>
+        {v ? t("true") : t("false")}
       </button>
     );
   }
-  return <input className="input font-mono text-xs w-[300px]" value={value} onChange={e => onChange(e.target.value)}/>;
+  return (
+    <input
+      className="input font-mono text-xs w-full"
+      value={value}
+      onChange={e => onChange(e.target.value)}
+    />
+  );
 }
 
-function HistoryDrawer({ keyName, onClose, onRollback }: { keyName: string; onClose: () => void; onRollback: (id: number) => void }) {
+function HistoryDrawer({
+  keyName, onClose, onRollback,
+}: { keyName: string; onClose: () => void; onRollback: (id: number) => void }) {
+  const { t } = useT();
   const { data } = useConfigHistory(keyName);
   return (
     <div className="fixed inset-0 z-30 bg-black/60 flex justify-end" onClick={onClose}>
-      <div className="w-[600px] bg-panel border-l border-border h-full p-5 overflow-auto" onClick={e => e.stopPropagation()}>
-        <h3 className="text-base font-medium mb-3 font-mono">{keyName} — History</h3>
+      <div
+        className="w-[600px] max-w-full bg-panel border-l border-border h-full p-5 overflow-auto"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-base font-medium font-mono break-all">
+            {keyName} <span className="text-xs text-muted">— {t("History")}</span>
+          </h3>
+          <button className="btn" onClick={onClose} aria-label={t("Close")}>
+            <X size={12}/>
+          </button>
+        </div>
         <div className="space-y-2">
-          {(data?.items || []).map((h: any) => (
+          {(data?.items || []).map((h: { id: number; version: number; changed_by: string; changed_at: string; old_value: unknown; new_value: unknown }) => (
             <div key={h.id} className="border border-border/60 rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-muted">v{h.version} · {h.changed_by} · {relTime(h.changed_at)}</span>
-                <button className="btn" onClick={() => onRollback(h.id)}><Undo2 size={12}/> Restore</button>
+                <span className="text-xs text-muted">
+                  v{h.version} · {h.changed_by} · {relTime(h.changed_at)}
+                </span>
+                <button
+                  className="btn inline-flex items-center gap-1"
+                  onClick={() => onRollback(h.id)}>
+                  <Undo2 size={12}/> {t("Restore")}
+                </button>
               </div>
               <div className="text-xs space-y-1">
-                {h.old_value !== null && <div><span className="text-muted">old:</span> <code className="font-mono">{JSON.stringify(h.old_value)}</code></div>}
-                <div><span className="text-muted">new:</span> <code className="font-mono">{JSON.stringify(h.new_value)}</code></div>
+                {h.old_value !== null && (
+                  <div>
+                    <span className="text-muted">{t("old:")}</span>{" "}
+                    <code className="font-mono">{JSON.stringify(h.old_value)}</code>
+                  </div>
+                )}
+                <div>
+                  <span className="text-muted">{t("new:")}</span>{" "}
+                  <code className="font-mono">{JSON.stringify(h.new_value)}</code>
+                </div>
               </div>
             </div>
           ))}
-          {(!data?.items || !data.items.length) && <EmptyState icon={Clock} title="No config history" hint="Edits to system_config appear here with version + actor."/>}
+          {(!data?.items || !data.items.length) && (
+            <EmptyState
+              icon={Clock}
+              title={t("No config history")}
+              hint={t("Edits to system_config appear here with version + actor.")}
+            />
+          )}
         </div>
       </div>
     </div>

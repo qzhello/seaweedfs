@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
@@ -152,8 +153,21 @@ func (s *Scheduler) scoreOnce(ctx context.Context, clusterFilter map[uuid.UUID]s
 		}
 		return rep, err
 	}
+	// Capacity holds — a cluster with an open capacity incident is
+	// skipped entirely so we stop generating tasks that would just slam
+	// into the same wall. The hold lifts when the incident is resolved.
+	held, herr := s.pg.ClustersWithOpenIncident(ctx)
+	if herr != nil {
+		s.log.Warn("list capacity holds", zap.Error(herr))
+		held = nil
+	}
 	for _, c := range clusters {
 		if !c.Enabled {
+			continue
+		}
+		if held[c.ID] {
+			s.log.Info("skipping cluster — capacity incident open (tiering held)",
+				zap.String("name", c.Name))
 			continue
 		}
 		if clusterFilter != nil {
@@ -200,6 +214,29 @@ func totalRecs(m map[string]int) int {
 	return n
 }
 
+// scopedPolicy is an enabled policy reduced to what task attribution
+// needs: its scope. The regex scope is pre-compiled once per pass.
+type scopedPolicy struct {
+	id    uuid.UUID
+	kind  string
+	value string
+	re    *regexp.Regexp // set only when kind == "regex"
+}
+
+// matches reports whether this policy's scope claims a collection.
+func (sp scopedPolicy) matches(collection string) bool {
+	switch sp.kind {
+	case "", "global":
+		return true
+	case "collection", "bucket":
+		return collection == sp.value
+	case "regex":
+		return sp.re != nil && sp.re.MatchString(collection)
+	default:
+		return false
+	}
+}
+
 func (s *Scheduler) scoreCluster(ctx context.Context, c store.Cluster, masterAddr string, rep *ScoreReport) error {
 	vols, err := s.sw.ListVolumesAt(ctx, masterAddr)
 	if err != nil {
@@ -218,6 +255,27 @@ func (s *Scheduler) scoreCluster(ctx context.Context, c store.Cluster, masterAdd
 	// below its declared replication policy. Independent of the coldness
 	// scoring loop because the math + action are different.
 	s.detectUnderReplicated(ctx, c, vols, rep)
+
+	// Enabled policies, compiled once — used to attribute each task to
+	// the policy whose scope claims it. policy_id powers per-policy ROI
+	// analytics; it does NOT change which tasks the scorer creates.
+	var scopedPolicies []scopedPolicy
+	if pols, perr := s.pg.ListPolicies(ctx); perr == nil {
+		for _, p := range pols {
+			if !p.Enabled {
+				continue
+			}
+			sp := scopedPolicy{id: p.ID, kind: p.ScopeKind, value: p.ScopeValue}
+			if p.ScopeKind == "regex" {
+				re, rerr := regexp.Compile(p.ScopeValue)
+				if rerr != nil {
+					continue // unparseable regex → policy attributes nothing
+				}
+				sp.re = re
+			}
+			scopedPolicies = append(scopedPolicies, sp)
+		}
+	}
 
 	s.log.Info("scoring cluster", zap.String("name", c.Name), zap.Int("volumes", len(vols)))
 	for _, v := range vols {
@@ -247,7 +305,18 @@ func (s *Scheduler) scoreCluster(ctx context.Context, c store.Cluster, masterAdd
 		targetJSON, _ := json.Marshal(rec.Target)
 		clusterID := c.ID
 		domain := c.BusinessDomain
+		// Attribute to the first enabled policy whose scope claims
+		// this collection (attribution only — see scopedPolicy).
+		var policyID *uuid.UUID
+		for i := range scopedPolicies {
+			if scopedPolicies[i].matches(v.Collection) {
+				pid := scopedPolicies[i].id
+				policyID = &pid
+				break
+			}
+		}
 		t := store.Task{
+			PolicyID:    policyID,
 			VolumeID:    int32(v.ID),
 			Collection:  v.Collection,
 			SrcServer:   v.Server,

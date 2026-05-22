@@ -233,7 +233,13 @@ func (e *Executor) Run(ctx context.Context, t store.Task, started func(uuid.UUID
 			s := runErr.Error()
 			errPtr := &s
 			_ = e.pg.FinishExecution(context.Background(), execID, "failed", logBuf.String(), errPtr)
-			_ = e.pg.UpdateTaskStatus(context.Background(), t.ID, "failed", "")
+			// AI veto is treated as a validation-class failure: it's a
+			// decision against running, not a transient infra glitch,
+			// so no auto-retry. Operator can manually retry once the
+			// underlying issue (e.g. blast radius, prereq state) is
+			// resolved.
+			_ = e.pg.MarkTaskFailureForRetry(context.Background(), t.ID,
+				string(FailureValidation), runErr.Error(), nil)
 			if e.postmortem != nil {
 				hook := e.postmortem
 				go hook(execID, t, actionToSkill(t.Action), logBuf.String(), runErr.Error())
@@ -286,11 +292,47 @@ func (e *Executor) Run(ctx context.Context, t store.Task, started func(uuid.UUID
 	if err := e.pg.FinishExecution(ctx, execID, status, logBuf.String(), errPtr); err != nil {
 		e.log.Error("finish execution", zap.Error(err))
 	}
-	if err := e.pg.UpdateTaskStatus(ctx, t.ID, status, ""); err != nil {
-		e.log.Error("update task status", zap.Error(err))
-	}
 	if runErr == nil {
+		if err := e.pg.UpdateTaskStatus(ctx, t.ID, status, ""); err != nil {
+			e.log.Error("update task status", zap.Error(err))
+		}
 		_ = e.pg.MarkCooldown(ctx, t.VolumeID, t.Action, "executed")
+	} else {
+		// Failure path: classify and decide retry vs terminal. Only
+		// transient flakes get the auto-backoff; capacity/validation/
+		// unknown errors are surfaced to the operator immediately so
+		// they don't get masked by silent retry loops.
+		kind := ClassifyFailure(runErr.Error())
+		attempts, _ := e.pg.RetryCount(ctx, t.ID)
+		var nextAt *time.Time
+		if kind == FailureTransient && attempts < MaxTransientRetries {
+			at := time.Now().Add(BackoffFor(attempts))
+			nextAt = &at
+		}
+		if err := e.pg.MarkTaskFailureForRetry(ctx, t.ID, string(kind), runErr.Error(), nextAt); err != nil {
+			e.log.Error("mark task failure", zap.Error(err))
+		}
+		// Capacity wall — open an incident for the task's cluster. The
+		// partial unique index collapses repeats into the existing
+		// incident; the scheduler then holds tiering for this cluster
+		// until an operator resolves it. Best-effort: a failed incident
+		// insert must not mask the task failure itself.
+		if kind == FailureCapacity && t.ClusterID != nil {
+			if inc, created, ierr := e.pg.OpenCapacityIncident(ctx, *t.ClusterID, &t.ID, runErr.Error()); ierr != nil {
+				e.log.Warn("open capacity incident", zap.Error(ierr))
+			} else if created {
+				e.log.Warn("capacity wall hit — tiering auto-paused for cluster",
+					zap.String("cluster", t.ClusterID.String()),
+					zap.String("incident", inc.ID.String()))
+			}
+		}
+		if nextAt != nil {
+			e.log.Info("scheduling task retry",
+				zap.String("task", t.ID.String()),
+				zap.String("kind", string(kind)),
+				zap.Int("attempt", attempts+1),
+				zap.Time("next_at", *nextAt))
+		}
 	}
 	// On failure, kick off AI postmortem in a detached goroutine so the
 	// caller doesn't wait. The hook is set by main.go after wiring aireview;

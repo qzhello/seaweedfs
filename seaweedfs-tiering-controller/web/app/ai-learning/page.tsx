@@ -220,7 +220,7 @@ function OutcomeRow({ o }: { o: Outcome }) {
       {o.business_domain && <span className="badge">{o.business_domain}</span>}
       <a href={`/tasks?focus=${o.task_id}`} className="font-mono text-accent hover:underline">{o.task_id.slice(0, 8)}…</a>
       <span className="text-muted flex-1 truncate">{o.evidence}</span>
-      {o.re_warmed && <AlertTriangle size={12} className="text-danger" title="re-warmed"/>}
+      {o.re_warmed && <span title="re-warmed"><AlertTriangle size={12} className="text-danger"/></span>}
       <span className="text-muted">{new Date(o.created_at).toLocaleString("zh-CN")}</span>
     </div>
   );

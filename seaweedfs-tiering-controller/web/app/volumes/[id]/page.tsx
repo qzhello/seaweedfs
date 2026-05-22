@@ -1,9 +1,13 @@
 "use client";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { useVolumePattern, useCohortBaselines } from "@/lib/api";
+import { useCluster } from "@/lib/cluster-context";
+import { useT } from "@/lib/i18n";
 import dynamic from "next/dynamic";
 import {
-  Activity, Database, Sparkles, AlertTriangle, TrendingUp, TrendingDown,
+  Activity, Database, Sparkles, AlertTriangle, TrendingUp, TrendingDown, MapPin,
 } from "lucide-react";
 import { Breadcrumb } from "@/components/breadcrumb";
 
@@ -42,6 +46,8 @@ const CYCLE_LABEL: Record<PatternResp["cycle_kind"], { label: string; tone: stri
 
 export default function VolumeProfilePage() {
   const { id } = useParams<{ id: string }>();
+  const { clusterID } = useCluster();
+  const { t } = useT();
   const { data: p, error } = useVolumePattern(id);
   const { data: baselines } = useCohortBaselines();
   const pat = p as PatternResp | undefined;
@@ -56,6 +62,15 @@ export default function VolumeProfilePage() {
         <div>
           <h1 className="text-base font-semibold tracking-tight flex items-center gap-3">
             <Database size={24} className="text-accent"/> Volume #{id}
+            {clusterID && (
+              <Link
+                href={`/clusters/${clusterID}/volumes/${id}`}
+                className="text-xs font-normal text-muted hover:text-accent inline-flex items-center gap-1"
+                title={t("View placement (replicas / EC shards)")}
+              >
+                <MapPin size={12}/> {t("View placement")}
+              </Link>
+            )}
           </h1>
           <p className="text-sm text-muted">Access pattern · cohort comparison · 7-day sparkline</p>
         </div>
@@ -67,8 +82,25 @@ export default function VolumeProfilePage() {
         )}
       </header>
 
-      {error && <div className="card p-4 text-danger">No pattern snapshot yet — wait for the next analytics pass (~1h).</div>}
-      {!pat && !error && <div className="card p-6 text-muted">Loading…</div>}
+      <PlacementShortcut clusterID={clusterID} volumeID={id}/>
+
+      {error && (
+        <div className="card p-5 border-border bg-panel2/40 space-y-3">
+          <div className="flex items-start gap-3">
+            <Sparkles size={18} className="text-muted shrink-0 mt-0.5"/>
+            <div className="space-y-1">
+              <div className="font-medium text-sm">{t("No analytics snapshot yet for this volume")}</div>
+              <div className="text-xs text-muted">
+                {t("This page shows read patterns and cohort comparisons, which are produced by the hourly analytics pipeline. New volumes (and volumes the pipeline hasn't reached yet) won't have data here.")}
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <Link href="/volumes" className="btn">{t("Back to volume list")}</Link>
+          </div>
+        </div>
+      )}
+      {!pat && !error && <SlowLoading t={t} clusterID={clusterID} volumeID={id}/>}
 
       {pat && (
         <>
@@ -142,8 +174,8 @@ function Sparkline({ series }: { series: number[] }) {
       series: [{
         type: "line", smooth: true, showSymbol: false,
         data: series,
-        areaStyle: { opacity: 0.2, color: "oklch(74% 0.18 230)" },
-        lineStyle: { color: "oklch(74% 0.18 230)", width: 2 },
+        areaStyle: { opacity: 0.2, color: "#3b9eff" },
+        lineStyle: { color: "#3b9eff", width: 2 },
       }],
     }}/>
   );
@@ -192,6 +224,63 @@ function DistributionGauge({ me, mean, stddev }: { me: number; mean: number; std
         <span className="text-right">μ+3σ {max.toExponential(1)}</span>
       </div>
       <div className="text-xs text-accent">▲ this volume = {me.toExponential(2)}</div>
+    </div>
+  );
+}
+
+
+// Always-visible shortcut to the operational placement view. Renders
+// before any data loads so an operator who only wanted "what nodes hold
+// this volume" can leave immediately instead of waiting for analytics.
+function PlacementShortcut({ clusterID, volumeID }: { clusterID: string; volumeID: string }) {
+  const { t } = useT();
+  if (!clusterID) return null;
+  return (
+    <div className="card p-3 border-border bg-panel2/40 flex items-center justify-between gap-3 text-xs">
+      <span className="text-muted">
+        {t("Want to see replicas / EC shards / nodes? Open the placement view directly:")}
+      </span>
+      <Link
+        href={`/clusters/${clusterID}/volumes/${volumeID}`}
+        className="btn inline-flex items-center gap-1"
+      >
+        <MapPin size={12}/> {t("View placement (replicas / EC shards)")}
+      </Link>
+    </div>
+  );
+}
+
+// SWR sometimes shows isLoading without ever finishing — usually because
+// the route renders before useParams hydrates, or because the browser is
+// running stale JS. After 4 seconds we replace the bare spinner with a
+// diagnostic + escape hatch so the operator isn't trapped.
+function SlowLoading({ t, clusterID, volumeID }: {
+  t: (s: string) => string;
+  clusterID: string;
+  volumeID: string;
+}) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const h = setTimeout(() => setSlow(true), 4000);
+    return () => clearTimeout(h);
+  }, []);
+  if (!slow) {
+    return <div className="card p-6 text-muted">{t("Loading…")}</div>;
+  }
+  return (
+    <div className="card p-5 border-border bg-panel2/40 space-y-3">
+      <div className="font-medium text-sm">{t("Analytics is taking longer than expected")}</div>
+      <div className="text-xs text-muted">
+        {t("If this hangs forever, your browser may be running stale JS. Try a hard refresh (Cmd/Ctrl+Shift+R). Or skip analytics and go straight to the placement view:")}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {clusterID && (
+          <Link href={`/clusters/${clusterID}/volumes/${volumeID}`} className="btn inline-flex items-center gap-1">
+            <MapPin size={12}/> {t("View placement (replicas / EC shards)")}
+          </Link>
+        )}
+        <Link href="/volumes" className="btn">{t("Back to volume list")}</Link>
+      </div>
     </div>
   );
 }
