@@ -1,0 +1,153 @@
+seaweedfs-tiering-controller/web/lib/use-keyboard-shortcuts.ts
+  ai_agent 33-34
+seaweedfs-tiering-controller/web/app/clusters/[id]/_components/nodes-panel.tsx
+  ai_agent 297
+seaweedfs-tiering-controller/web/components/volume-actions.tsx
+  ai_agent 239,279,372,381,396,426,454-456,481
+seaweedfs-tiering-controller/web/app/clusters/page.tsx
+  ai_agent 11,104-115
+seaweedfs-tiering-controller/web/app/volumes/[id]/page.tsx
+  ai_agent 3,269
+seaweedfs-tiering-controller/web/app/ops/templates/page.tsx
+  ai_agent 17,94,156,469,528,582,652,687,746,772
+seaweedfs-tiering-controller/web/app/ops/templates/_components/ai-draft-dialog.tsx
+  ai_agent 81
+seaweedfs-tiering-controller/web/components/cluster-switcher.tsx
+  ai_agent 96-97
+seaweedfs-tiering-controller/web/app/clusters/[id]/topology/page.tsx
+  ai_agent 4,11,14,19-20,22
+seaweedfs-tiering-controller/web/app/collections/page.tsx
+  ai_agent 4,103,110
+seaweedfs-tiering-controller/web/app/clusters/[id]/page.tsx
+  ai_agent 4,10,14,24-28,35,38-39,41
+seaweedfs-tiering-controller/internal/api/server.go
+  ai_agent 33-38,40-52,289-298,351-357
+seaweedfs-tiering-controller/web/app/ops/page.tsx
+  ai_agent 36-38,317,323,435
+seaweedfs-tiering-controller/web/app/skills/[key]/history/page.tsx
+  ai_agent 3,8,19,33-34,39,41,43,51,53,56,60,67-69,76-77
+seaweedfs-tiering-controller/web/components/dashboard/todays-attention.tsx
+  ai_agent 93,112,121,134,143
+seaweedfs-tiering-controller/web/components/table-skeleton.tsx
+  ai_agent 45-62
+seaweedfs-tiering-controller/web/components/nav.tsx
+  ai_agent 8-12,24,29-30,52-55,67,78-84,99,107-109,115-117,215,237-241,247-248,535,747,754
+seaweedfs-tiering-controller/web/app/ec/page.tsx
+  ai_agent 710,712,730
+seaweedfs-tiering-controller/web/lib/i18n.ts
+  ai_agent 2080-2580
+seaweedfs-tiering-controller/internal/api/s3_nl_policy.go
+  ai_agent 1-407
+seaweedfs-tiering-controller/internal/api/s3_multipart.go
+  ai_agent 1-313
+seaweedfs-tiering-controller/migrations/pg/040_ai_s3_proposals.sql
+  ai_agent 1-49
+seaweedfs-tiering-controller/web/lib/api.ts
+  ai_agent 712-729,880-893,1435-1471
+seaweedfs-tiering-controller/internal/api/assistant_s3_tools.go
+  ai_agent 1-332
+seaweedfs-tiering-controller/internal/api/assistant_tools.go
+  ai_agent 259-334
+seaweedfs-tiering-controller/web/app/holidays/page.tsx
+  ai_agent 7,10,19,23,31-32,37,40,46-47
+seaweedfs-tiering-controller/web/app/skills/[key]/page.tsx
+  ai_agent 6,14,36,42,47,49,58,71,80,85,90-91,103,111,121,126,130,134,139,149,162,176,191-192,195,198,201,207
+seaweedfs-tiering-controller/web/app/account/password/page.tsx
+  ai_agent 63,83
+seaweedfs-tiering-controller/web/app/activity/page.tsx
+  ai_agent 3-10,12-14,16,18-23,25-41,45-46,48-50
+seaweedfs-tiering-controller/web/app/clusters/drains/[id]/page.tsx
+  ai_agent 9,17,23,152,184,201,252-253,262,268,276,305
+seaweedfs-tiering-controller/web/app/s3/page.tsx
+  ai_agent 1-41
+seaweedfs-tiering-controller/web/app/executions/[id]/page.tsx
+  ai_agent 3,35,40,142,156
+seaweedfs-tiering-controller/web/components/assistant/tool-result-renderers.tsx
+  ai_agent 3-24,27,29-31,35-42,45-48,50-54,57-67,70-83,85-109,114-118,120-126,130-146,148-163,166-408
+seaweedfs-tiering-controller/web/components/user-menu.tsx
+  ai_agent 82
+seaweedfs-tiering-controller/web/app/skills/new/page.tsx
+  ai_agent 12,41,121,123-124,129-130,146,171,173-175
+seaweedfs-tiering-controller/web/lib/confirm.tsx
+  ai_agent 1-77
+seaweedfs-tiering-controller/web/app/clusters/[id]/files/page.tsx
+  ai_agent 13,128
+seaweedfs-tiering-controller/web/app/clusters/maintenance/page.tsx
+  ai_agent 3-10,12-15,17,20-30,34-35,37-39
+seaweedfs-tiering-controller/web/app/ops/templates/_components/history-dialog.tsx
+  ai_agent 4,52,80,95-96,101
+seaweedfs-tiering-controller/web/app/page.tsx
+  ai_agent 113,118,270,304,356,367,792,794,797,799,855
+seaweedfs-tiering-controller/web/app/skills/page.tsx
+  ai_agent 240-241,254
+seaweedfs-tiering-controller/web/app/clusters/[id]/layout.tsx
+  ai_agent 4,61
+seaweedfs-tiering-controller/web/app/costs/page.tsx
+  ai_agent 3-10,12-13,15,18-32,36-37,39-41
+seaweedfs-tiering-controller/web/components/tabs-layout.tsx
+  ai_agent 3-12,14-17,20-28,30-41,44,46-50,52-57,62-66,68-69,71-111
+seaweedfs-tiering-controller/web/app/clusters/[id]/shell/page.tsx
+  ai_agent 4,11,15
+seaweedfs-tiering-controller/web/app/raft/page.tsx
+  ai_agent 112-113,163,165,170,174,217-218,264,301,303,338,358-359
+seaweedfs-tiering-controller/web/app/backends/page.tsx
+  ai_agent 3,125-131
+seaweedfs-tiering-controller/web/app/s3/_panels/identities.tsx
+  ai_agent 12-13,15,17,29,38-266,280-318,321-324,328,332,339,364,366,384,393-399,431,475,492,510
+seaweedfs-tiering-controller/web/app/admin/page.tsx
+  ai_agent 3-16,18-22,24,27-38,42-43,45-47
+seaweedfs-tiering-controller/web/components/shell.tsx
+  ai_agent 8,82
+seaweedfs-tiering-controller/web/app/ops/templates/_components/shared.tsx
+  ai_agent 10-12
+seaweedfs-tiering-controller/web/components/shell-action.tsx
+  ai_agent 100,265-266,274,278,289,314,318,324,340-341,367,374,389,393
+seaweedfs-tiering-controller/web/app/cohort/page.tsx
+  ai_agent 11,40,71,74,76,83,91,103-104,122,125,129,161,174,178,202-205,210
+seaweedfs-tiering-controller/web/app/ops/templates/_components/alerts-section.tsx
+  ai_agent 54
+seaweedfs-tiering-controller/web/app/files/page.tsx
+  ai_agent 20,342,344,350,354,412,441
+seaweedfs-tiering-controller/internal/store/ai_s3_proposals.go
+  ai_agent 1-41,44-61,64-70,73-110,113-124,127-131,134-188
+seaweedfs-tiering-controller/web/app/ops/templates/_components/approval-card.tsx
+  ai_agent 105-106,114,125,147,150,153,172,184,186,207
+seaweedfs-tiering-controller/web/app/ops/templates/_components/analyzer-step-editor.tsx
+  ai_agent 51,124
+seaweedfs-tiering-controller/web/app/s3/_panels/clean-uploads.tsx
+  ai_agent 2-20,24-29,31-38,40-41,43-47,49-84,87-97,100-104,107-114,116-120,122-125,129-212,214-274,277-282,285-304,307-315,317-359,362,364-391,394-400,402-462,465-488,491-522,524,527,531-552
+seaweedfs-tiering-controller/web/app/s3/_panels/buckets.tsx
+  ai_agent 3-5,17,20-257,295,305,329-404,424,427,447,454-483,486,494-503,516-525,630-636
+seaweedfs-tiering-controller/web/app/costs/_panels/overview.tsx
+  ai_agent 3-11,15-16,18-22,26,29,31-32,34,47-92,96-111,117,119-146,148-188,190-203,209-236,238-253,255-292,294-306,308-325,327-328,331,335-337,339-424
+seaweedfs-tiering-controller/web/app/scripts/page.tsx
+  ai_agent 17,129,145,281,326,430,455-456,567,569,578
+seaweedfs-tiering-controller/web/app/wall/page.tsx
+  ai_agent 11,25,60,66-68,74-79,85,89,96,101,106,114,135,141,187,189
+seaweedfs-tiering-controller/web/app/ops/templates/_components/run-dialog.tsx
+  ai_agent 252,269,322,384-385,435,443,491-493,496,503,536
+seaweedfs-tiering-controller/web/app/skills/[key]/edit/page.tsx
+  ai_agent 3,12,28,50-51,53,62,64,69,72,77,116,118,123,127,136,142,146
+seaweedfs-tiering-controller/web/app/activity/_panels/executions.tsx
+  ai_agent 10,14-15,17,21-22,24,27,30,32-38,43
+seaweedfs-tiering-controller/web/app/reliability/page.tsx
+  ai_agent 3-7,9-15,17-18,20-38
+seaweedfs-tiering-controller/web/components/assistant/floating-assistant.tsx
+  ai_agent 25,461,547,554,852,878-883
+seaweedfs-tiering-controller/web/components/confirm-host.tsx
+  ai_agent 3-6,8-10,12-16,18-21,24-31,33-47,50-69,71-96,99-115,117
+seaweedfs-tiering-controller/web/components/ops/flow-canvas.tsx
+  ai_agent 136-139,145-148,173,187,199
+seaweedfs-tiering-controller/web/components/preflight-lock-probe.tsx
+  ai_agent 87-88
+seaweedfs-tiering-controller/web/app/volumes/_components/dist-key-list.tsx
+  ai_agent 76,102
+seaweedfs-tiering-controller/web/app/path-migrate/page.tsx
+  ai_agent 189,266,348,369,374-376
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "594fdc382ab625fbbe7dc91ef2ff8d36e4ed6616",
+  "prompts": {}
+}
