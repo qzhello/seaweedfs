@@ -1,5 +1,6 @@
 "use client";
 import { useParams, useRouter } from "next/navigation";
+import { CardSkeleton } from "@/components/table-skeleton";
 import { useMemo, useState } from "react";
 import { History, GitFork, AlertTriangle, Wand2, FileCode2 } from "lucide-react";
 import { Breadcrumb } from "@/components/breadcrumb";
@@ -8,6 +9,7 @@ import {
   SkillWizard, type WizardDraft, type SkillDefinition, type RiskLevel,
 } from "@/components/skill-wizard";
 import { api, useSkills } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 import Link from "next/link";
 
 interface SkillRow {
@@ -23,6 +25,7 @@ interface SkillRow {
 type Mode = "wizard" | "json";
 
 export default function EditSkillPage() {
+  const { t } = useT();
   const { key } = useParams<{ key: string }>();
   const router = useRouter();
   const { data, error } = useSkills();
@@ -44,10 +47,10 @@ export default function EditSkillPage() {
     };
   }, [skill]);
 
-  if (error) return <div className="card p-5 text-danger">Failed to load skills.</div>;
-  if (!data) return <div className="card p-5 text-muted">Loading…</div>;
+  if (error) return <div className="card p-5 text-danger">{t("Failed to load skills.")}</div>;
+  if (!data) return <CardSkeleton lines={6}/>;
   if (!skill || !initialWizard) {
-    return <div className="card p-5">Skill <span className="font-mono">{key}</span> not found.</div>;
+    return <div className="card p-5">{t("Skill")} <span className="font-mono">{key}</span> {t("not found.")}</div>;
   }
 
   // System skills are read-only here. Surface the Fork CTA so the operator
@@ -56,25 +59,22 @@ export default function EditSkillPage() {
     return (
       <div className="space-y-4">
         <Breadcrumb items={[
-          { label: "Skills", href: "/skills" },
+          { label: t("Skills"), href: "/skills" },
           { label: skill.key, href: `/skills/${encodeURIComponent(skill.key)}` },
-          { label: "Edit" },
+          { label: t("Edit") },
         ]}/>
         <div className="card p-5 space-y-3">
           <div className="flex items-center gap-2 text-warning">
             <AlertTriangle size={16}/>
-            <span className="font-medium">This is a system skill</span>
+            <span className="font-medium">{t("This is a system skill")}</span>
           </div>
           <p className="text-sm text-muted">
-            <span className="font-mono text-text">{skill.key}</span> ships with the controller and
-            cannot be modified in place. Fork it into a custom skill — your forked copy is
-            fully editable and runs in place of the system one if the engine resolves your
-            custom key first.
+            <span className="font-mono text-text">{skill.key}</span> {t("ships with the controller and cannot be modified in place. Fork it into a custom skill — your forked copy is fully editable and runs in place of the system one if the engine resolves your custom key first.")}
           </p>
           <div className="pt-1">
             <Link href={`/skills/new?fork=${encodeURIComponent(skill.key)}`}
               className="btn btn-primary inline-flex items-center gap-1">
-              <GitFork size={14}/> Fork to custom
+              <GitFork size={14}/> {t("Fork to custom")}
             </Link>
           </div>
         </div>
@@ -113,18 +113,18 @@ export default function EditSkillPage() {
   return (
     <div className="space-y-5">
       <Breadcrumb items={[
-        { label: "Skills", href: "/skills" },
+        { label: t("Skills"), href: "/skills" },
         { label: skill.key, href: `/skills/${encodeURIComponent(skill.key)}` },
-        { label: "Edit" },
+        { label: t("Edit") },
       ]}/>
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-base font-semibold tracking-tight">
-            Edit <span className="font-mono text-base text-accent">{skill.key}</span>
+            {t("Edit")} <span className="font-mono text-base text-accent">{skill.key}</span>
             <span className="text-muted ml-2 text-base">v{skill.version} → v{skill.version + 1}</span>
           </h1>
           <p className="text-sm text-muted mt-1">
-            Saving creates a new version. The latest version is what runs.
+            {t("Saving creates a new version. The latest version is what runs.")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -133,17 +133,17 @@ export default function EditSkillPage() {
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors ${
                 mode === "wizard" ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2 hover:text-text"
               }`}>
-              <Wand2 size={12}/> Wizard
+              <Wand2 size={12}/> {t("Wizard")}
             </button>
             <button onClick={() => setMode("json")}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors ${
                 mode === "json" ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2 hover:text-text"
               }`}>
-              <FileCode2 size={12}/> JSON
+              <FileCode2 size={12}/> {t("JSON")}
             </button>
           </div>
           <Link href={`/skills/${encodeURIComponent(skill.key)}/history`} className="btn">
-            <History size={14}/> Version history
+            <History size={14}/> {t("Version history")}
           </Link>
         </div>
       </header>

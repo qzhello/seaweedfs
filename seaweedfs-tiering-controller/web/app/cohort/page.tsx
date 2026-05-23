@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { Pagination, usePagination } from "@/components/pagination";
+import { useT } from "@/lib/i18n";
 
 interface Baseline {
   BusinessDomain: string;
@@ -36,6 +37,7 @@ const KIND_COLOR: Record<string, string> = {
 };
 
 export default function CohortPage() {
+  const { t } = useT();
   const [filter, setFilter] = useState<string>("");
   const { data: baselineRes, mutate: refetchBase }   = useCohortBaselines();
   const { data: anomalyRes,  mutate: refetchAnom }   = useCohortAnomalies(filter);
@@ -66,19 +68,19 @@ export default function CohortPage() {
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-base font-semibold tracking-tight flex items-center gap-3">
-            <Layers size={24} className="text-accent"/> Cohort overview
+            <Layers size={24} className="text-accent"/> {t("Cohort overview")}
           </h1>
           <p className="text-sm text-muted">
-            Cross-business-domain comparison · {totalVolumes} volumes · {baselines.length} cohorts ·
+            {t("Cross-business-domain comparison")} · {totalVolumes} {t("volumes")} · {baselines.length} {t("cohorts")} ·
             <span className={totalAnomalies > 0 ? "text-danger ml-1" : "ml-1"}>
-              {totalAnomalies} anomalies
+              {totalAnomalies} {t("anomalies")}
             </span>
           </p>
         </div>
         <button onClick={refreshNow} disabled={refreshing}
           className="px-3 py-1.5 rounded-md border border-border hover:bg-panel2 text-sm flex items-center gap-2 disabled:opacity-50">
           <RefreshCw size={14} className={refreshing ? "animate-spin" : ""}/>
-          {refreshing ? "Running…" : "Refresh"}
+          {refreshing ? t("Running…") : t("Refresh")}
         </button>
       </header>
 
@@ -86,7 +88,7 @@ export default function CohortPage() {
       <div className="flex flex-wrap gap-2 text-sm">
         <button onClick={() => setFilter("")}
           className={`px-3 py-1 rounded-full border ${filter === "" ? "bg-accent/15 border-accent/40 text-accent" : "border-border text-muted hover:text-text"}`}>
-          All
+          {t("All")}
         </button>
         {baselines.map(b => (
           <button key={b.BusinessDomain} onClick={() => setFilter(b.BusinessDomain)}
@@ -98,8 +100,8 @@ export default function CohortPage() {
 
       {baselines.length === 0 ? (
         <EmptyState icon={Layers}
-          title="No cohort baselines yet"
-          hint="Wait for the next analytics pass (~1h) or click Refresh above."/>
+          title={t("No cohort baselines yet")}
+          hint={t("Wait for the next analytics pass (~1h) or click Refresh above.")}/>
       ) : (
         <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {baselines
@@ -117,14 +119,14 @@ export default function CohortPage() {
       <section className="card p-5">
         <h2 className="text-lg font-medium mb-3 flex items-center gap-2">
           <AlertTriangle size={18} className="text-danger"/>
-          Anomalous volumes (|z| ≥ {anomalyRes?.threshold ?? 3})
+          {t("Anomalous volumes (|z| ≥ {n})").replace("{n}", String(anomalyRes?.threshold ?? 3))}
         </h2>
         {anomalies.length === 0 ? (
-          <div className="text-sm text-muted">No volumes crossed the threshold.</div>
+          <div className="text-sm text-muted">{t("No volumes crossed the threshold.")}</div>
         ) : (
           <table className="grid">
             <thead>
-              <tr><th>Volume</th><th>Domain</th><th>Cycle</th><th>Z-score</th><th>7d reads</th><th>reads/byte</th></tr>
+              <tr><th>{t("Volume")}</th><th>{t("Domain")}</th><th>{t("Cycle")}</th><th>{t("Z-score")}</th><th>{t("7d reads")}</th><th>{t("reads/byte")}</th></tr>
             </thead>
             <tbody>
               {pg.slice.map(a => (
@@ -156,6 +158,7 @@ function CohortCard({
   breakdown: Record<string, number>;
   anomalies: Anomaly[];
 }) {
+  const { t } = useT();
   const total = Object.values(breakdown).reduce((s, n) => s + n, 0) || baseline.VolumeCount || 1;
   const order = ["daily", "weekly", "flat", "spiky", "unknown"];
   const tone =
@@ -168,11 +171,11 @@ function CohortCard({
       <div className="flex items-center justify-between mb-3">
         <div>
           <div className="font-semibold capitalize">{baseline.BusinessDomain}</div>
-          <div className="text-xs text-muted">{baseline.VolumeCount} vols</div>
+          <div className="text-xs text-muted">{baseline.VolumeCount} {t("vols")}</div>
         </div>
         {anomalies.length > 0 && (
           <span className="px-2 py-0.5 rounded-md border border-danger/40 bg-danger/10 text-danger text-xs">
-            {anomalies.length} anomaly
+            {anomalies.length} {t("anomaly")}
           </span>
         )}
       </div>
@@ -196,15 +199,15 @@ function CohortCard({
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs border-t border-border pt-3">
-        <Row label="μ reads/byte" value={baseline.MeanReadsPerByte.toExponential(2)}/>
-        <Row label="σ"            value={baseline.StddevReadsPerByte.toExponential(2)}/>
-        <Row label="P50 reads"    value={baseline.P50Reads.toLocaleString()}/>
-        <Row label="P95 reads"    value={baseline.P95Reads.toLocaleString()}/>
+        <Row label={t("μ reads/byte")} value={baseline.MeanReadsPerByte.toExponential(2)}/>
+        <Row label={t("σ")}            value={baseline.StddevReadsPerByte.toExponential(2)}/>
+        <Row label={t("P50 reads")}    value={baseline.P50Reads.toLocaleString()}/>
+        <Row label={t("P95 reads")}    value={baseline.P95Reads.toLocaleString()}/>
       </div>
 
       {anomalies.length > 0 && (
         <div className="mt-3 border-t border-border pt-3 space-y-1">
-          <div className="text-xs uppercase tracking-wider text-muted mb-1">Top 3 outliers</div>
+          <div className="text-xs uppercase tracking-wider text-muted mb-1">{t("Top 3 outliers")}</div>
           {anomalies.slice(0, 3).map(a => (
             <a key={a.volume_id} href={`/volumes/${a.volume_id}`}
               className="flex items-center justify-between text-xs hover:bg-panel2 px-2 py-1 rounded -mx-2">

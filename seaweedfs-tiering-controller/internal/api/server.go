@@ -30,26 +30,26 @@ import (
 )
 
 type Deps struct {
-	PG        *store.PG
-	CH        *store.CH
-	Sw        *seaweed.Client
-	Exec      *executor.Executor
-	Sched     *scheduler.Scheduler
-	AI        ai.Provider
+	PG         *store.PG
+	CH         *store.CH
+	Sw         *seaweed.Client
+	Exec       *executor.Executor
+	Sched      *scheduler.Scheduler
+	AI         ai.Provider
 	AIResolver *ai.Resolver
-	Snapshot  *runtime.Snapshot
-	Resolver  *auth.Resolver
-	Caps      *auth.CapsLoader
-	Gate      *health.Gate
-	Alerts    *alerter.Dispatcher
-	Guard     *safety.Guard
-	Skills    *skill.Registry
-	Analytics *analytics.Runner
-	AIReview  *aireview.Service
-	Pressure  *pressure.Snapshot
-	Crypto    *crypto.AESGCM
-	DevAuth   bool // allow X-User shortcut; true only for local dev
-	Log       *zap.Logger
+	Snapshot   *runtime.Snapshot
+	Resolver   *auth.Resolver
+	Caps       *auth.CapsLoader
+	Gate       *health.Gate
+	Alerts     *alerter.Dispatcher
+	Guard      *safety.Guard
+	Skills     *skill.Registry
+	Analytics  *analytics.Runner
+	AIReview   *aireview.Service
+	Pressure   *pressure.Snapshot
+	Crypto     *crypto.AESGCM
+	DevAuth    bool // allow X-User shortcut; true only for local dev
+	Log        *zap.Logger
 	// OpsRuns is the in-memory registry of interactive template
 	// executions awaiting operator approval. One per process; the
 	// SSE runner registers a run on POST and the approve/cancel
@@ -286,6 +286,16 @@ func Router(d Deps) *gin.Engine {
 			auth.RequireCap(d.Caps, "s3.circuit-breaker"), s3CircuitBreaker(d))
 		v1.POST("/clusters/:id/s3/clean-uploads",
 			auth.RequireCap(d.Caps, "s3.clean-uploads"), s3CleanUploads(d))
+		// Structured multipart upload introspection. Walks the filer
+		// directly so the AI tool and the Clean Uploads UI can see
+		// per-upload rows (bucket, key, upload_id, age, size) instead
+		// of the raw shell output from s3.clean.uploads.
+		v1.GET("/clusters/:id/s3/multipart-uploads",
+			auth.RequireCap(d.Caps, "s3.clean-uploads"), s3ListMultipartUploads(d))
+		v1.DELETE("/clusters/:id/s3/multipart-uploads/:bucket/:upload_id",
+			auth.RequireCap(d.Caps, "s3.clean-uploads"), s3AbortMultipartUpload(d))
+		v1.POST("/clusters/:id/s3/nl-policy",
+			auth.RequireCap(d.Caps, "s3.configure"), s3NLPolicy(d))
 		v1.GET("/volumes/:id/features", volumeFeatures(d))
 		v1.GET("/volumes/:id/features/trend", volumeFeatureTrend(d))
 		v1.GET("/volumes/features/trend/bulk", volumeFeatureTrendBulk(d))
@@ -338,6 +348,13 @@ func Router(d Deps) *gin.Engine {
 		v1.GET("/tasks/:id/review", getTaskReview(d))
 		admin.POST("/tasks/:id/review", runTaskReview(d))
 		v1.GET("/ai/learning", learningSummary(d))
+		// S3 policy counterfactual learning — record operator decisions
+		// on NL → IAM proposals so the learning panel can show acceptance
+		// rate per-risk over time. Decide is paired with the proposal
+		// emitted by POST /clusters/:id/s3/nl-policy.
+		v1.POST("/ai/s3-proposals/:id/decide",
+			auth.RequireCap(d.Caps, "s3.configure"), s3NLPolicyDecide(d))
+		v1.GET("/ai/s3-learning", s3LearningSummary(d))
 
 		// --- AI floating assistant (024) ---
 		v1.GET("/ai/assistant/chats",

@@ -22,6 +22,7 @@ import {
 import { api } from "@/lib/api";
 import { Wrench, Hammer, ChevronDown, ChevronUp } from "lucide-react";
 import { mutate as swrMutate } from "swr";
+import { renderToolResult } from "@/components/assistant/tool-result-renderers";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -457,7 +458,7 @@ function AssistantPanel({ path, clusterID, activeChat, setActiveChat, fabPos, on
               <span className="flex-1 truncate" title={c.title}>{c.title || t("Untitled")}</span>
               <button
                 onClick={(e) => { e.stopPropagation(); removeChat(c.id); }}
-                className="opacity-0 group-hover:opacity-100 p-0.5 text-rose-400 hover:text-rose-300"
+                className="opacity-0 group-hover:opacity-100 p-0.5 text-danger hover:text-danger"
                 title={t("Delete chat")}
               >
                 <Trash2 size={11}/>
@@ -543,14 +544,14 @@ function AssistantPanel({ path, clusterID, activeChat, setActiveChat, fabPos, on
                 {t("Open the AI config page, add an OpenAI / Anthropic / Azure / local provider, and mark one as default.")}
               </div>
               <a
-                href="/ai-config"
+                href="/admin?tab=ai-config"
                 className="btn inline-flex items-center gap-1 text-[11px] py-0.5 px-2"
               >
                 {t("Open AI config")} →
               </a>
             </div>
           ) : (
-            <div className="px-3 py-1.5 text-[11px] text-rose-300 border-t border-border inline-flex items-center gap-1">
+            <div className="px-3 py-1.5 text-[11px] text-danger border-t border-border inline-flex items-center gap-1">
               <AlertTriangle size={11}/> {err}
             </div>
           )
@@ -848,7 +849,7 @@ function SkillProposalCard({ result }: { result: ProposalResult }) {
                 {t("Approve & run")}
               </button>
             )}
-            <a href="/tasks" className="text-accent hover:underline">
+            <a href="/activity?tab=tasks" className="text-accent hover:underline">
               {t("Open in Tasks")} →
             </a>
           </div>
@@ -873,6 +874,13 @@ function ToolCallCard({ call }: { call: LiveTool }) {
       return <SkillProposalCard result={parsed}/>;
     }
   }
+
+  // Per-tool deep-link cards — replaces the raw JSON dump for known
+  // tools so the operator gets a summary + "Open <page>" button. Falls
+  // through to the default expandable card when no renderer is
+  // registered, the call errored, or it's still streaming.
+  const customCard = renderToolResult(call);
+  if (customCard) return customCard;
 
   const tone = call.isError
     ? "border-danger/40 bg-danger/5 text-danger"

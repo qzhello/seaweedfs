@@ -48,7 +48,7 @@ export function AnalyzerStepEditor({
       <div className="flex items-center gap-2">
         <FileCode2 size={14} className="text-accent shrink-0"/>
         <span className="text-xs font-medium">{t("Analyzer step")}</span>
-        <button onClick={onRemove} className="p-1 text-muted hover:text-rose-300 ml-auto" title={t("Delete step")}>
+        <button onClick={onRemove} className="p-1 text-muted hover:text-danger ml-auto" title={t("Delete step")}>
           <Trash2 size={14}/>
         </button>
       </div>
@@ -121,7 +121,7 @@ export function AnalyzerStepEditor({
                   <label className="text-[10px] text-muted/80 inline-flex items-center gap-1">
                     <code className="font-mono text-text">{p.name}</code>
                     <span className="text-[9px] uppercase">{p.type}</span>
-                    {p.required && <span className="text-rose-400">*</span>}
+                    {p.required && <span className="text-danger">*</span>}
                   </label>
                   <input
                     value={(cfg.params ?? {})[p.name] ?? ""}

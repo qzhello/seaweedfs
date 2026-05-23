@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import {
   Activity, Database, Server, Flame, Snowflake, ShieldCheck, ShieldAlert, Lock, AlertTriangle, Sparkles, Bell,
 } from "lucide-react";
+import { useT } from "@/lib/i18n";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
@@ -21,6 +22,7 @@ interface AlertEvent {
 }
 
 export default function WallPage() {
+  const { t } = useT();
   const { data: s }       = useSummary();
   const { data: clusters }= useClusters();
   const { data: gate }    = useHealthGate();
@@ -55,53 +57,53 @@ export default function WallPage() {
         <div className="flex items-center gap-4">
           <div className="text-3xl font-semibold tracking-tight flex items-center gap-3">
             <Sparkles className="text-accent" size={28}/>
-            SeaweedFS Tiering NOC
+            {t("SeaweedFS Tiering NOC")}
           </div>
           <div className="text-sm text-muted">{new Date().toLocaleString("zh-CN")}</div>
         </div>
         <BigGateBadge ok={!!overallOK}
           title={
-            !gate?.ok ? `Gate CLOSED: ${gate?.reason}` :
-            !safety?.overall_allowed ? `Safety: ${safety?.safety_code}` :
-            "All clear"
+            !gate?.ok ? t("Gate CLOSED: {reason}").replace("{reason}", String(gate?.reason ?? "")) :
+            !safety?.overall_allowed ? t("Safety: {code}").replace("{code}", String(safety?.safety_code ?? "")) :
+            t("All clear")
           }/>
       </header>
 
       {/* Top KPI strip */}
       <section className="grid grid-cols-6 gap-4 mb-6">
-        <BigStat icon={<Server size={32}/>}    label="Clusters"  value={clusters?.items?.length ?? "—"}/>
-        <BigStat icon={<Database size={32}/>}  label="Volumes"   value={s?.volumes_total ?? "—"}/>
-        <BigStat icon={<Activity size={32}/>}  label="Active"    value={running?.items?.length ?? 0}/>
-        <BigStat icon={<Flame size={32}/>}     label="Pending"   value={pending?.items?.length ?? 0}/>
-        <BigStat icon={<Snowflake size={32}/>} label="Saved"     value={bytes(((s?.bytes_warm||0)+(s?.bytes_cold||0))*0.5)}/>
-        <BigStat icon={<AlertTriangle size={32}/>} label="Alerts/day" value={alertsLast24h}/>
+        <BigStat icon={<Server size={32}/>}    label={t("Clusters")}  value={clusters?.items?.length ?? "—"}/>
+        <BigStat icon={<Database size={32}/>}  label={t("Volumes")}   value={s?.volumes_total ?? "—"}/>
+        <BigStat icon={<Activity size={32}/>}  label={t("Active")}    value={running?.items?.length ?? 0}/>
+        <BigStat icon={<Flame size={32}/>}     label={t("Pending")}   value={pending?.items?.length ?? 0}/>
+        <BigStat icon={<Snowflake size={32}/>} label={t("Saved")}     value={bytes(((s?.bytes_warm||0)+(s?.bytes_cold||0))*0.5)}/>
+        <BigStat icon={<AlertTriangle size={32}/>} label={t("Alerts/day")} value={alertsLast24h}/>
       </section>
 
       {/* Main grid: Sankey + Cluster lights + Trend + Alert ticker */}
       <section className="grid grid-cols-12 gap-4 mb-6">
         <div className="card p-5 col-span-7" style={{ height: 380 }}>
-          <h2 className="text-lg font-medium mb-3">Migration Flow (last 24h)</h2>
+          <h2 className="text-lg font-medium mb-3">{t("Migration Flow (last 24h)")}</h2>
           <SankeyFlow s={s}/>
         </div>
         <div className="card p-5 col-span-5" style={{ height: 380 }}>
-          <h2 className="text-lg font-medium mb-3">Clusters</h2>
+          <h2 className="text-lg font-medium mb-3">{t("Clusters")}</h2>
           <ClusterGrid clusters={clusters?.items || []}/>
         </div>
       </section>
 
       <section className="grid grid-cols-12 gap-4">
         <div className="card p-5 col-span-8" style={{ height: 280 }}>
-          <h2 className="text-lg font-medium mb-3">Access Trend (24h)</h2>
+          <h2 className="text-lg font-medium mb-3">{t("Access Trend (24h)")}</h2>
           <TrendStrip points={trend?.points || []}/>
         </div>
         <div className="card p-5 col-span-4" style={{ height: 280, overflow: "hidden" }}>
           <h2 className="text-lg font-medium mb-3 flex items-center gap-2">
-            <AlertTriangle size={18}/> Recent alerts
+            <AlertTriangle size={18}/> {t("Recent alerts")}
           </h2>
           {cur ? (
             <div className="space-y-1">
               <div className={`text-xs ${sevColor(cur.severity)}`}>● {(cur.severity || "info").toUpperCase()}</div>
-              <div className="text-xl font-medium">{cur.title || "(untitled alert)"}</div>
+              <div className="text-xl font-medium">{cur.title || t("(untitled alert)")}</div>
               <div className="text-sm text-muted">{cur.source || ""}</div>
               <div className="text-xs text-muted">
                 {cur.fired_at ? new Date(cur.fired_at).toLocaleString("zh-CN") : ""}
@@ -109,7 +111,7 @@ export default function WallPage() {
               <div className="text-sm mt-2 text-muted line-clamp-3">{cur.body || ""}</div>
             </div>
           ) : (
-            <div className="h-full flex items-center justify-center"><EmptyState icon={Bell} size="sm" title="No active alerts"/></div>
+            <div className="h-full flex items-center justify-center"><EmptyState icon={Bell} size="sm" title={t("No active alerts")}/></div>
           )}
           <div className="mt-3 text-xs text-muted">
             {recent.length > 0 ? `${(tick % recent.length) + 1}/${recent.length}` : ""}
@@ -130,12 +132,13 @@ function BigStat({ icon, label, value }: { icon: React.ReactNode; label: string;
 }
 
 function BigGateBadge({ ok, title }: { ok: boolean; title: string }) {
+  const { t } = useT();
   return (
     <div className={`flex items-center gap-3 px-6 py-3 rounded-xl border-2 text-lg font-semibold
       ${ok ? "border-success/60 text-success bg-success/10" : "border-danger/60 text-danger bg-danger/10 animate-pulse"}`}>
       {ok ? <ShieldCheck size={28}/> : <ShieldAlert size={28}/>}
       <div>
-        <div>{ok ? "OPERATIONAL" : "DEGRADED"}</div>
+        <div>{ok ? t("OPERATIONAL") : t("DEGRADED")}</div>
         <div className="text-xs font-normal text-muted mt-0.5">{title}</div>
       </div>
     </div>
@@ -181,8 +184,9 @@ function SankeyFlow({ s }: { s: any }) {
 }
 
 function ClusterGrid({ clusters }: { clusters: any[] }) {
+  const { t } = useT();
   if (clusters.length === 0) {
-    return <div className="h-full flex items-center justify-center text-muted">No clusters registered.</div>;
+    return <div className="h-full flex items-center justify-center text-muted">{t("No clusters registered.")}</div>;
   }
   // Simple grid of big lights per cluster.
   return (

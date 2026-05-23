@@ -84,8 +84,8 @@ export function PreflightProbeBanner({ probe }: { probe: PreflightProbe | null }
   return (
     <div className={`text-xs rounded-md px-3 py-2 border ${
       isHeld
-        ? "text-amber-300 bg-amber-400/10 border-amber-400/30"
-        : "text-rose-300 bg-rose-400/10 border-rose-400/30"
+        ? "text-warning bg-warning/10 border-warning/30"
+        : "text-danger bg-danger/10 border-danger/30"
     }`}>
       <div className="font-medium inline-flex items-center gap-1.5">
         {isHeld

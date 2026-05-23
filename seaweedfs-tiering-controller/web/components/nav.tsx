@@ -5,7 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import {
-  LayoutDashboard, Database, Server, ShieldCheck, ListChecks, History, Sparkles, ScrollText, CalendarDays, SlidersHorizontal, Cloud, Activity, Bell, ShieldAlert, Tv, Wrench, Layers, Brain, Languages, Terminal, Box, Boxes, PanelLeftClose, PanelLeftOpen, Key, Scale, Plus, Trash2, HardDriveDownload, Copy, LogOut, UserCog, Zap, Eraser, ChevronDown, Grid3x3, Search, Star, X, FileCode2, FolderTree, Thermometer, DollarSign, Network, Recycle, Tags, LayoutTemplate, Shuffle,
+  LayoutDashboard, Database, Server, ShieldCheck, ListChecks, CalendarDays,
+  SlidersHorizontal, Cloud, Tv, Wrench, Layers, Languages, Terminal, Box, Boxes,
+  PanelLeftClose, PanelLeftOpen, ChevronDown, Grid3x3, Search, Star, X,
+  FileCode2, FolderTree, Thermometer, DollarSign, Network, Recycle,
+  LayoutTemplate, Shuffle,
   type LucideIcon,
 } from "lucide-react";
 import { useCaps } from "@/lib/caps-context";
@@ -17,15 +21,13 @@ type NavGroup = { label: string; items: NavItem[] };
 // Nav groups follow the operator's mental model. Each group is ONE
 // concept — kept deliberately small so the rail scans top-down:
 //   Overview     — read-only big picture
-//   Storage      — the resources you browse (clusters → files → backends)
-//   S3           — the S3 gateway subsystem
+//   Storage      — the resources you browse (clusters → files → S3 → backends)
 //   Insights     — analysis & reporting: heat, cohort, cost
 //   Operations   — the "do things" surface: shell, playbooks, maintenance
 //   Automation   — policies, lifecycle, skills, schedule
 //   Activity     — what the system is doing / has done
-//   Monitoring   — passive watchers: durability, health, alerts, safety
-//   AI           — provider config + learning insights
-//   System       — meta config + audit
+//   Monitoring   — passive watchers: durability, reliability
+//   System       — meta config + audit + AI provider setup
 //
 // Order within a group goes from most-frequently-used to least.
 const GROUPS: NavGroup[] = [
@@ -47,16 +49,11 @@ const GROUPS: NavGroup[] = [
       { href: "/ec",          label: "EC",           icon: Grid3x3,    cap: "volume.read" },
       { href: "/collections", label: "Collections",  icon: Boxes,      cap: "volume.read" },
       { href: "/files",       label: "File Browser", icon: FolderTree, cap: "file.read" },
+      // S3 sits with Storage — it's another way to browse the same
+      // data (gateway view of buckets / identities / circuit-breaker /
+      // clean-uploads, all as tabs inside the page).
+      { href: "/s3",          label: "S3",           icon: Box,        cap: "s3.read" },
       { href: "/backends",    label: "Backends",     icon: Cloud },
-    ],
-  },
-  {
-    label: "S3",
-    items: [
-      { href: "/buckets",            label: "Buckets",          icon: Box,        cap: "s3.read" },
-      { href: "/s3/configure",       label: "Identities",       icon: UserCog,    cap: "s3.configure" },
-      { href: "/s3/circuit-breaker", label: "Circuit breaker",  icon: Zap,        cap: "s3.circuit-breaker" },
-      { href: "/s3/clean-uploads",   label: "Clean uploads",    icon: Eraser,     cap: "s3.clean-uploads" },
     ],
   },
   // Insights = read-only analysis. Pulled out of the old overloaded
@@ -67,8 +64,8 @@ const GROUPS: NavGroup[] = [
     items: [
       { href: "/temperature", label: "Temperature", icon: Thermometer, cap: "volume.read" },
       { href: "/cohort",      label: "Cohort",      icon: Layers },
+      // Costs page now has Pricing as a tab; removed the standalone entry.
       { href: "/costs",       label: "Costs",       icon: DollarSign,  cap: "cost.read" },
-      { href: "/pricing",     label: "Pricing",     icon: Tags,        cap: "cost.read" },
     ],
   },
   // One Operations group replaces the old confusing "Operations" +
@@ -78,14 +75,13 @@ const GROUPS: NavGroup[] = [
   {
     label: "Operations",
     items: [
-      { href: "/ops",                  label: "Ops Console",      icon: Terminal,          cap: "ops.shell.read" },
-      { href: "/ops/templates",        label: "Ops Templates",    icon: LayoutTemplate,    cap: "ops.templates.read" },
-      { href: "/scripts",              label: "Analyzer Scripts", icon: FileCode2 },
-      { href: "/clusters/check-disk",  label: "Check disk",       icon: HardDriveDownload, cap: "volume.check-disk" },
-      { href: "/clusters/replication", label: "Replication",      icon: Copy,              cap: "cluster.replication.configure" },
-      { href: "/path-migrate",         label: "Path migrate",     icon: Shuffle,           cap: "file.read" },
-      { href: "/clusters/leave",       label: "Drain server",     icon: LogOut,            cap: "cluster.volume-server.leave" },
-      { href: "/clusters/drains",      label: "Drain history",    icon: History,           cap: "cluster.volume-server.leave" },
+      { href: "/ops",                    label: "Ops Console",        icon: Terminal,          cap: "ops.shell.read" },
+      { href: "/ops/templates",          label: "Ops Templates",      icon: LayoutTemplate,    cap: "ops.templates.read" },
+      { href: "/scripts",                label: "Analyzer Scripts",   icon: FileCode2 },
+      { href: "/path-migrate",           label: "Path migrate",       icon: Shuffle,           cap: "file.read" },
+      // Cluster maintenance (check-disk / replication / drain server /
+      // drain history) collapsed into one tabbed page.
+      { href: "/clusters/maintenance",   label: "Cluster maintenance", icon: Wrench,           cap: "volume.check-disk" },
     ],
   },
   {
@@ -100,8 +96,7 @@ const GROUPS: NavGroup[] = [
   {
     label: "Activity",
     items: [
-      { href: "/tasks",      label: "Tasks",      icon: ListChecks },
-      { href: "/executions", label: "Executions", icon: History },
+      { href: "/activity", label: "Activity", icon: ListChecks },
     ],
   },
   // Durability (the read-only raft + replication health view) belongs
@@ -109,25 +104,17 @@ const GROUPS: NavGroup[] = [
   {
     label: "Monitoring",
     items: [
-      { href: "/raft",   label: "Durability", icon: Network,      cap: "volume.read" },
-      { href: "/health", label: "Health",     icon: Activity },
-      { href: "/alerts", label: "Alerts",     icon: Bell },
-      { href: "/safety", label: "Safety",     icon: ShieldAlert },
-    ],
-  },
-  {
-    label: "AI",
-    items: [
-      { href: "/ai-config",   label: "AI Config",   icon: Sparkles, cap: "ai.config" },
-      { href: "/ai-learning", label: "AI Learning", icon: Brain,    cap: "ai.learning" },
+      { href: "/raft",        label: "Durability",  icon: Network,     cap: "volume.read" },
+      // Reliability merges Health + Alerts + Safety — the probe→fire→pause chain.
+      { href: "/reliability", label: "Reliability", icon: ShieldCheck },
     ],
   },
   {
     label: "System",
     items: [
-      { href: "/settings",             label: "Settings",    icon: SlidersHorizontal, cap: "settings.read" },
-      { href: "/settings/permissions", label: "Permissions", icon: Key,               cap: "permissions.write" },
-      { href: "/audit",                label: "Audit",       icon: ScrollText,        cap: "audit.read" },
+      // Single Admin entry — settings, permissions, audit, AI config, AI
+      // learning are all tabs inside one /admin page.
+      { href: "/admin", label: "Admin", icon: SlidersHorizontal, cap: "settings.read" },
     ],
   },
 ];
@@ -225,7 +212,7 @@ export function Nav() {
   // direct click (no hover) is cheap. We delay to keep first-paint fast.
   useEffect(() => {
     const tid = setTimeout(() => {
-      ["/", "/clusters", "/volumes", "/tasks", "/executions", "/skills"].forEach(href => {
+      ["/", "/clusters", "/volumes", "/activity", "/skills"].forEach(href => {
         if (!warmed.current.has(href)) {
           warmed.current.add(href);
           router.prefetch(href);
@@ -247,22 +234,18 @@ export function Nav() {
   // since the page itself filters between the two.
   const counts = useRunningCounts();
   const badgeFor = (href: string): NavRowBadge | undefined => {
-    if (href === "/tasks") {
-      const total = counts.pendingTasks + counts.runningTasks;
+    if (href === "/activity") {
+      // Combines pending + running tasks (warn pulse when anything awaits
+      // approval) with running executions. Same numbers the merged page
+      // shows on its tab strip.
+      const total = counts.pendingTasks + counts.runningTasks + counts.runningExecutions;
       if (total === 0) return undefined;
       return {
         count: total,
         tone: counts.pendingTasks > 0 ? "warn" : "info",
         title: counts.pendingTasks > 0
-          ? `${counts.pendingTasks} ${t("pending approval")} · ${counts.runningTasks} ${t("running")}`
-          : `${counts.runningTasks} ${t("running")}`,
-      };
-    }
-    if (href === "/executions" && counts.runningExecutions > 0) {
-      return {
-        count: counts.runningExecutions,
-        tone: "info",
-        title: `${counts.runningExecutions} ${t("running")}`,
+          ? `${counts.pendingTasks} ${t("pending approval")} · ${counts.runningTasks + counts.runningExecutions} ${t("running")}`
+          : `${counts.runningTasks + counts.runningExecutions} ${t("running")}`,
       };
     }
     if (href === "/ops/templates" && counts.runningOpsRuns > 0) {
@@ -549,7 +532,7 @@ export function Nav() {
             {!collapsed && (
               <div className="flex items-center gap-1.5 px-2 mt-2 mb-1
                               text-[10px] font-semibold uppercase tracking-[0.09em] text-muted/75">
-                <Star size={10} className="text-amber-300 fill-amber-300/80"/>
+                <Star size={10} className="text-warning fill-warning/80"/>
                 <span>{t("Favorites")}</span>
               </div>
             )}
@@ -761,14 +744,14 @@ function NavRow({
           className={cn(
             "absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded transition-opacity",
             favorite
-              ? "opacity-100 text-amber-300 hover:text-amber-200"
+              ? "opacity-100 text-warning hover:text-warning"
               : "opacity-0 group-hover:opacity-100 focus:opacity-100 text-muted/60 hover:text-muted"
           )}
           title={favorite ? t("Unpin from favorites") : t("Pin to favorites")}
           aria-label={favorite ? t("Unpin from favorites") : t("Pin to favorites")}
           aria-pressed={favorite}
         >
-          <Star size={12} className={favorite ? "fill-amber-300/80" : ""}/>
+          <Star size={12} className={favorite ? "fill-warning/80" : ""}/>
         </button>
       )}
     </div>

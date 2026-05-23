@@ -707,9 +707,9 @@ function NodeLoadList({
               const hot = avg > 0 && n.count > avg * 1.5;
               const warm = !hot && avg > 0 && n.count > avg * 1.2;
               const barClass = hot
-                ? "bg-rose-400/80"
+                ? "bg-danger/80"
                 : warm
-                  ? "bg-amber-400/80"
+                  ? "bg-warning/80"
                   : "bg-accent/80";
               return (
                 <li
@@ -727,7 +727,7 @@ function NodeLoadList({
                       style={{ width: `${pct}%` }}
                     />
                   </div>
-                  <span className={`tabular-nums text-right font-mono ${hot ? "text-rose-300" : warm ? "text-amber-300" : "text-text"}`}>
+                  <span className={`tabular-nums text-right font-mono ${hot ? "text-danger" : warm ? "text-warning" : "text-text"}`}>
                     {n.count}
                   </span>
                 </li>

@@ -1,5 +1,6 @@
 "use client";
 import { useExecution, useTask, useTaskAutonomy, api } from "@/lib/api";
+import { CardSkeleton } from "@/components/table-skeleton";
 import { useT } from "@/lib/i18n";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -31,12 +32,12 @@ export default function ExecutionDetail() {
     src_server: task?.src_server,
   };
 
-  if (!e) return <div className="text-muted">Loading…</div>;
+  if (!e) return <CardSkeleton lines={6}/>;
 
   return (
     <div className="space-y-6">
       <Breadcrumb items={[
-        { label: "Executions", href: "/executions" },
+        { label: "Executions", href: "/activity?tab=executions" },
         { label: `${e.id.slice(0, 8)}…` },
       ]}/>
 
@@ -138,7 +139,7 @@ export default function ExecutionDetail() {
         </section>
       ) : (
         <section className="card p-5 text-sm text-muted">
-          Legacy execution log (no Skill metadata) — see raw log below.
+          {t("Legacy execution log (no Skill metadata) — see raw log below.")}
         </section>
       )}
 
@@ -152,7 +153,7 @@ export default function ExecutionDetail() {
 
       {/* Raw log (collapsible) */}
       <details className="card p-5">
-        <summary className="text-sm font-medium cursor-pointer">Raw log</summary>
+        <summary className="text-sm font-medium cursor-pointer">{t("Raw log")}</summary>
         <pre className="font-mono text-xs whitespace-pre-wrap bg-bg p-3 rounded border border-border max-h-[600px] overflow-auto mt-3">
 {e.log || "(empty)"}
         </pre>

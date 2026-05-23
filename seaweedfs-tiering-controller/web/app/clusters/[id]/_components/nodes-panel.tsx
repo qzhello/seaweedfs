@@ -294,7 +294,7 @@ function NodeRow({ node, clusterId }: { node: FlatNode; clusterId: string }) {
           <div className="inline-flex items-center gap-1">
             {canDrain ? (
               <Link
-                href={`/clusters/leave?cluster=${encodeURIComponent(clusterId)}&node=${encodeURIComponent(node.id)}`}
+                href={`/clusters/maintenance?tab=drain-server&cluster=${encodeURIComponent(clusterId)}&node=${encodeURIComponent(node.id)}`}
                 title="Drain (volumeServer.leave)"
                 className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded border border-warning/30 text-warning hover:bg-warning/10"
               >

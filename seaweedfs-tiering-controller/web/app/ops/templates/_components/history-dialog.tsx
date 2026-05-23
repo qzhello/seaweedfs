@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckCircle2, Loader2, X } from "lucide-react";
+import { CardSkeleton } from "@/components/table-skeleton";
 import { useAudit, type OpsTemplate } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { ModalShell } from "./modal-shell";
@@ -48,9 +49,7 @@ export function HistoryDialog({
   return (
     <ModalShell onClose={onClose} title={`${t("Run history")}: ${template.name}`} wide>
       {isLoading && (
-        <div className="text-sm text-muted inline-flex items-center gap-2">
-          <Loader2 size={14} className="animate-spin"/> {t("Loading…")}
-        </div>
+        <CardSkeleton lines={4} title={false}/>
       )}
       {!isLoading && runs.length === 0 && (
         <div className="text-sm text-muted text-center py-8">
@@ -78,7 +77,7 @@ export function HistoryDialog({
                     <div className="text-[11px] text-muted">cluster: <span className="font-mono">{cluster.slice(0, 8)}</span></div>
                   )}
                 </div>
-                <span className={`badge ${failed ? "border-rose-400/40 text-rose-300" : "border-emerald-400/40 text-emerald-300"}`}>
+                <span className={`badge ${failed ? "border-danger/40 text-danger" : "border-success/40 text-success"}`}>
                   {failed ? t("failed") : t("ok")} · {steps.length} {t("steps")}
                 </span>
               </div>
@@ -93,13 +92,13 @@ export function HistoryDialog({
                         <div className="font-mono break-all">
                           <span className="text-muted mr-1">{idx + 1}.</span>
                           {ok
-                            ? <CheckCircle2 size={11} className="inline text-emerald-300 mr-1"/>
-                            : <X size={11} className="inline text-rose-300 mr-1"/>}
+                            ? <CheckCircle2 size={11} className="inline text-success mr-1"/>
+                            : <X size={11} className="inline text-danger mr-1"/>}
                           <span>{String(p.command || "")}</span>
                           <span className="text-muted"> {String(p.args || "")}</span>
                         </div>
                         {!ok && p.error ? (
-                          <div className="text-rose-300/90 font-mono pl-4 whitespace-pre-wrap break-all">{String(p.error)}</div>
+                          <div className="text-danger/90 font-mono pl-4 whitespace-pre-wrap break-all">{String(p.error)}</div>
                         ) : null}
                         {p.output ? (
                           <details className="pl-4">

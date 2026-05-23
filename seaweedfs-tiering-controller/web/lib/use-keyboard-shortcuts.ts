@@ -30,8 +30,8 @@ const G_DEST: Record<string, string> = {
   t: "/tasks",
   o: "/ops/templates",
   e: "/executions",
-  a: "/alerts",
-  h: "/health",
+  a: "/reliability?tab=alerts",
+  h: "/reliability?tab=health",
 };
 
 function isTypingTarget(el: EventTarget | null): boolean {

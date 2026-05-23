@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { CardSkeleton } from "@/components/table-skeleton";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useVolumePattern, useCohortBaselines } from "@/lib/api";
@@ -265,7 +266,7 @@ function SlowLoading({ t, clusterID, volumeID }: {
     return () => clearTimeout(h);
   }, []);
   if (!slow) {
-    return <div className="card p-6 text-muted">{t("Loading…")}</div>;
+    return <CardSkeleton lines={6}/>;
   }
   return (
     <div className="card p-5 border-border bg-panel2/40 space-y-3">

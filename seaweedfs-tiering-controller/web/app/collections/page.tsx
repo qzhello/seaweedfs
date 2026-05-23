@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { TableSkeleton } from "@/components/table-skeleton";
 import Link from "next/link";
 import { Layers, Loader2 } from "lucide-react";
 import { useCollections, useVolumes, type CollectionRow } from "@/lib/api";
@@ -99,16 +100,14 @@ export default function CollectionsPage() {
       </header>
 
       {error && (
-        <div className="card p-4 border-rose-400/40 bg-rose-400/10 text-rose-300 text-xs font-mono whitespace-pre-wrap">
+        <div className="card p-4 border-danger/40 bg-danger/10 text-danger text-xs font-mono whitespace-pre-wrap">
           {String((error as Error).message ?? error)}
         </div>
       )}
 
       <section className="card overflow-hidden">
         {isLoading ? (
-          <div className="p-8 text-center text-muted text-sm inline-flex items-center justify-center gap-2 w-full">
-            <Loader2 size={14} className="animate-spin"/> {t("Loading…")}
-          </div>
+          <TableSkeleton rows={6} cols={6}/>
         ) : filtered.length === 0 ? (
           <EmptyState icon={Layers} title={items.length === 0 ? t("No collections found") : t("No collections match the filter")}
             hint={clusterID ? t("Collections are created implicitly when files are stored with a -collection tag.") : t("Select a cluster to see its collections.")}/>

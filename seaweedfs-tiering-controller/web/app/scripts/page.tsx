@@ -14,6 +14,7 @@ import {
   useAnalyzerScripts, useAnalyzerVersions, api,
   type AnalyzerScript, type AnalyzerRunResult,
 } from "@/lib/api";
+import { confirm as confirmDlg } from "@/lib/confirm";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorPanel } from "@/components/error-panel";
 import { RefreshButton } from "@/components/refresh-button";
@@ -125,7 +126,7 @@ export default function ScriptsPage() {
                   </td>
                   <td>
                     {s.origin === "system"
-                      ? <span className="badge border-amber-400/40 text-amber-300 inline-flex items-center gap-1 text-[10px]">
+                      ? <span className="badge border-warning/40 text-warning inline-flex items-center gap-1 text-[10px]">
                           <Lock size={10}/> {t("system")}
                         </span>
                       : <span className="badge text-[10px]">{t("user")}</span>}
@@ -141,7 +142,7 @@ export default function ScriptsPage() {
                           className="btn text-xs inline-flex items-center"
                           title={t("Delete script")}
                           onClick={async () => {
-                            if (!confirm(t('Delete script "{name}"?').replace("{name}", s.name))) return;
+                            if (!(await confirmDlg.danger({ title: t('Delete script "{name}"?').replace("{name}", s.name) }))) return;
                             try {
                               await api.deleteAnalyzerScript(s.id);
                               toast.success(t("Deleted"));
@@ -277,7 +278,7 @@ function ScriptEditorModal({
 
   const revertTo = async (version: number) => {
     if (!initial.id) return;
-    if (!confirm(t("Revert to v{n}? This creates a new version that copies the historical body.").replace("{n}", String(version)))) return;
+    if (!(await confirmDlg.danger({ title: t("Revert to v{n}? This creates a new version that copies the historical body.").replace("{n}", String(version)) }))) return;
     try {
       await api.revertAnalyzerScript(initial.id, version);
       toast.success(t("Reverted to v{n}").replace("{n}", String(version)));
@@ -322,7 +323,7 @@ function ScriptEditorModal({
             <FileCode2 size={16}/>
             {initial.id ? t("Edit script") : t("New script")}
             {isSystem && (
-              <span className="badge border-amber-400/40 text-amber-300 inline-flex items-center gap-1 text-[10px]">
+              <span className="badge border-warning/40 text-warning inline-flex items-center gap-1 text-[10px]">
                 <Lock size={10}/> {t("system")}
               </span>
             )}
@@ -426,7 +427,7 @@ function ScriptEditorModal({
             {initial.id && (
               <section className="card p-3 border-border/60 bg-panel/40 space-y-2">
                 <h3 className="text-sm font-semibold inline-flex items-center gap-1.5">
-                  <Sparkles size={13} className="text-amber-300"/> {t("AI optimize")}
+                  <Sparkles size={13} className="text-warning"/> {t("AI optimize")}
                 </h3>
                 <p className="text-[11px] text-muted">
                   {t("Asks the configured AI to refactor the body for clarity / robustness. Preview the proposal, optionally accept; saving creates a new version with reason ai-optimize.")}
@@ -451,8 +452,8 @@ function ScriptEditorModal({
                     {optimizeProposal.sandbox_result && (
                       <div className={`text-[10px] px-2 py-1 rounded ${
                         optimizeProposal.sandbox_result.ok
-                          ? "bg-emerald-400/10 text-emerald-300"
-                          : "bg-rose-400/10 text-rose-300"
+                          ? "bg-success/10 text-success"
+                          : "bg-danger/10 text-danger"
                       }`}>
                         {t("sandbox")}: {optimizeProposal.sandbox_result.ok ? t("ok") : t("error")} · {optimizeProposal.sandbox_result.elapsed_ms}ms
                         {optimizeProposal.sandbox_result.error ? ` · ${optimizeProposal.sandbox_result.error}` : ""}
@@ -563,9 +564,9 @@ function ScriptEditorModal({
               {t("Run")}
             </button>
             {sandboxResult && (
-              <section className={`card p-3 ${sandboxResult.ok ? "border-emerald-400/40 bg-emerald-400/5" : "border-rose-400/40 bg-rose-400/5"}`}>
+              <section className={`card p-3 ${sandboxResult.ok ? "border-success/40 bg-success/5" : "border-danger/40 bg-danger/5"}`}>
                 <div className="flex items-center justify-between text-xs">
-                  <span className={`inline-flex items-center gap-1 ${sandboxResult.ok ? "text-emerald-300" : "text-rose-300"}`}>
+                  <span className={`inline-flex items-center gap-1 ${sandboxResult.ok ? "text-success" : "text-danger"}`}>
                     {sandboxResult.ok ? <CheckCircle2 size={12}/> : <span>×</span>}
                     {sandboxResult.ok ? t("ok") : t("error")} · {sandboxResult.elapsed_ms}ms
                   </span>
@@ -574,7 +575,7 @@ function ScriptEditorModal({
                   </span>
                 </div>
                 {sandboxResult.error && (
-                  <div className="text-[11px] text-rose-300 mt-2 font-mono whitespace-pre-wrap break-words">
+                  <div className="text-[11px] text-danger mt-2 font-mono whitespace-pre-wrap break-words">
                     {sandboxResult.error}
                   </div>
                 )}

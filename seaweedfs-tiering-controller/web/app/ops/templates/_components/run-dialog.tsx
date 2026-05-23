@@ -249,7 +249,7 @@ export function RunDialog({
   return (
     <ModalShell onClose={onClose} title={`${t("Run")}: ${template.name}`} wide>
       <div className="space-y-3">
-        <div className={`card p-3 ${clusterID ? "bg-panel/40" : "border-amber-400/50 bg-amber-400/5"}`}>
+        <div className={`card p-3 ${clusterID ? "bg-panel/40" : "border-warning/50 bg-warning/5"}`}>
           <div className="flex items-center gap-3 flex-wrap">
             <div className="text-xs uppercase tracking-wider text-muted/70 shrink-0">
               {t("Target cluster")}
@@ -266,7 +266,7 @@ export function RunDialog({
               ))}
             </select>
             {!clusterID && (
-              <span className="text-[11px] text-amber-300 inline-flex items-center gap-1">
+              <span className="text-[11px] text-warning inline-flex items-center gap-1">
                 <AlertTriangle size={12}/>
                 {t("Confirm the cluster before running — commands execute on whichever you pick.")}
               </span>
@@ -319,7 +319,7 @@ export function RunDialog({
                 <div key={v.key} className="grid grid-cols-12 gap-2 items-center">
                   <label className="col-span-3 text-xs text-muted">
                     {v.label || v.key}
-                    {v.required && <span className="text-rose-400 ml-1">*</span>}
+                    {v.required && <span className="text-danger ml-1">*</span>}
                     <span className="block text-[10px] font-mono text-muted/60">{`{{${v.key}}}`}</span>
                   </label>
                   <input
@@ -381,8 +381,8 @@ export function RunDialog({
                   onClick={() => setFocusStepId(id)}
                   className={`badge inline-flex items-center gap-1.5 ${
                     isFocus
-                      ? "border-amber-400/60 text-amber-300 bg-amber-400/10"
-                      : "border-amber-400/30 text-amber-300/80 hover:bg-amber-400/5"
+                      ? "border-warning/60 text-warning bg-warning/10"
+                      : "border-warning/30 text-warning/80 hover:bg-warning/5"
                   }`}
                   title={steps[idx]?.command}
                 >
@@ -432,7 +432,7 @@ export function RunDialog({
           {running && runID && (
             <button
               onClick={cancelRun}
-              className="btn border-rose-400/40 text-rose-300 hover:bg-rose-400/10 inline-flex items-center gap-1.5"
+              className="btn border-danger/40 text-danger hover:bg-danger/10 inline-flex items-center gap-1.5"
               title={t("Stop this run immediately. Already-finished steps are not undone.")}
             >
               <X size={12}/> {t("Cancel run")}
@@ -440,7 +440,7 @@ export function RunDialog({
           )}
           <button onClick={onClose} className="btn">{done ? t("Close") : t("Dismiss")}</button>
           {missingRequired.length > 0 && (
-            <span className="text-[11px] text-rose-300 self-center mr-2">
+            <span className="text-[11px] text-danger self-center mr-2">
               {t("Missing required input(s): {keys}").replace("{keys}", missingRequired.join(", "))}
             </span>
           )}
@@ -488,19 +488,19 @@ function StepRow({
   const effOpen = open || !!pending || status === "running" || status === "error";
   const statusBadge: Record<StepStatus, string> = {
     pending: "border-muted text-muted",
-    running: "border-amber-400/40 text-amber-300",
-    done:    "border-emerald-400/40 text-emerald-300",
-    error:   "border-rose-400/40 text-rose-300",
+    running: "border-warning/40 text-warning",
+    done:    "border-success/40 text-success",
+    error:   "border-danger/40 text-danger",
   };
   return (
-    <div className={`card p-3 bg-panel/40 ${pending ? "ring-1 ring-amber-400/40" : ""}`}>
+    <div className={`card p-3 bg-panel/40 ${pending ? "ring-1 ring-warning/40" : ""}`}>
       <button onClick={() => setOpen((v) => !v)} className="w-full flex items-center gap-3 text-left">
         <span className="text-xs font-mono w-6 text-muted">{idx + 1}.</span>
         <span className="flex-1 font-mono text-xs truncate">
           {step.command} <span className="text-muted">{step.args || ""}</span>
         </span>
         {pending && (
-          <span className="badge border-amber-400/40 text-amber-300 inline-flex items-center gap-1">
+          <span className="badge border-warning/40 text-warning inline-flex items-center gap-1">
             <Loader2 size={11} className="animate-spin"/> {t("Awaiting your approval")}
           </span>
         )}
@@ -533,7 +533,7 @@ function StepRow({
             </div>
           )}
           {error && (
-            <pre className="text-[11px] font-mono text-rose-300 bg-rose-400/10 border border-rose-400/30 rounded-md p-2 whitespace-pre-wrap break-all">
+            <pre className="text-[11px] font-mono text-danger bg-danger/10 border border-danger/30 rounded-md p-2 whitespace-pre-wrap break-all">
               {error}
             </pre>
           )}

@@ -102,8 +102,8 @@ export function ApprovalCard({
         (m, key) => (vals[key] ?? "") || m)
     : pending.rendered_args);
   return (
-    <div className="mt-3 rounded-md border border-amber-400/40 bg-amber-400/5 p-3 space-y-3">
-      <div className="text-[11px] uppercase tracking-wider text-amber-300/80 inline-flex items-center gap-1.5">
+    <div className="mt-3 rounded-md border border-warning/40 bg-warning/5 p-3 space-y-3">
+      <div className="text-[11px] uppercase tracking-wider text-warning/80 inline-flex items-center gap-1.5">
         <Sparkles size={11}/> {t("Confirm before running")}
       </div>
       {pending.reason && (
@@ -111,7 +111,7 @@ export function ApprovalCard({
       )}
       {pending.analysis && (
         <div className="rounded-md bg-panel2/60 border border-border p-2.5 space-y-1">
-          <div className="text-[10px] uppercase tracking-wider text-amber-300/80 inline-flex items-center gap-1.5">
+          <div className="text-[10px] uppercase tracking-wider text-warning/80 inline-flex items-center gap-1.5">
             <Sparkles size={10}/> {t("AI analysis")}
           </div>
           <div className="text-[12px] leading-relaxed whitespace-pre-wrap break-words">
@@ -122,7 +122,7 @@ export function ApprovalCard({
       {isMutating && (
         <div className="rounded-md bg-panel2/60 border border-border p-2.5 space-y-1.5">
           <div className="flex items-center justify-between">
-            <div className="text-[10px] uppercase tracking-wider text-amber-300/80 inline-flex items-center gap-1.5">
+            <div className="text-[10px] uppercase tracking-wider text-warning/80 inline-flex items-center gap-1.5">
               <Sparkles size={10}/> {t("AI risk advisor")}
               {checking && <Loader2 size={10} className="animate-spin"/>}
             </div>
@@ -144,13 +144,13 @@ export function ApprovalCard({
           {advice && (
             <div className="text-[12px] leading-relaxed space-y-1">
               {advice.risk && (
-                <div><span className="text-amber-300 font-medium">{t("Risk: ")}</span>{advice.risk}</div>
+                <div><span className="text-warning font-medium">{t("Risk: ")}</span>{advice.risk}</div>
               )}
               {advice.watch_out && (
-                <div><span className="text-amber-300 font-medium">{t("Watch out: ")}</span>{advice.watch_out}</div>
+                <div><span className="text-warning font-medium">{t("Watch out: ")}</span>{advice.watch_out}</div>
               )}
               {advice.rollback && (
-                <div><span className="text-amber-300 font-medium">{t("Rollback: ")}</span>{advice.rollback}</div>
+                <div><span className="text-warning font-medium">{t("Rollback: ")}</span>{advice.rollback}</div>
               )}
               {!advice.risk && !advice.watch_out && !advice.rollback && (
                 <p className="text-[11px] text-muted italic">{t("AI had no specific advice to offer.")}</p>
@@ -169,7 +169,7 @@ export function ApprovalCard({
           <div className="text-[10px] uppercase tracking-wider text-muted/70 inline-flex items-center gap-1.5">
             {t("Variables for this step")}
             {Object.keys(pending.proposed_vars || {}).length > 0 && (
-              <span className="text-amber-300/80 inline-flex items-center gap-1 normal-case tracking-normal">
+              <span className="text-warning/80 inline-flex items-center gap-1 normal-case tracking-normal">
                 <Sparkles size={10}/> {t("review AI proposal before approving")}
               </span>
             )}
@@ -181,9 +181,9 @@ export function ApprovalCard({
               <div key={k} className="grid grid-cols-12 gap-2 items-center">
                 <label className="col-span-3 text-xs">
                   <span className="font-mono">{k}</span>
-                  {required && <span className="text-rose-400 ml-1">*</span>}
+                  {required && <span className="text-danger ml-1">*</span>}
                   {aiProposed && (
-                    <span className="ml-1 text-[10px] text-amber-300" title={t("Suggested by AI")}>AI</span>
+                    <span className="ml-1 text-[10px] text-warning" title={t("Suggested by AI")}>AI</span>
                   )}
                 </label>
                 <input
@@ -204,7 +204,7 @@ export function ApprovalCard({
       </div>
       <div className="flex justify-end gap-2">
         <button onClick={cancel} disabled={busy}
-          className="btn border-rose-400/40 text-rose-300 hover:bg-rose-400/10 inline-flex items-center gap-1.5">
+          className="btn border-danger/40 text-danger hover:bg-danger/10 inline-flex items-center gap-1.5">
           <X size={12}/> {t("Cancel run")}
         </button>
         <button onClick={approve} disabled={busy || !canApprove}

@@ -8,6 +8,7 @@ import { Pagination, usePagination } from "@/components/pagination";
 import { RefreshButton } from "@/components/refresh-button";
 import { TableSkeleton } from "@/components/table-skeleton";
 import { useT } from "@/lib/i18n";
+import { confirm as confirmDlg } from "@/lib/confirm";
 
 const DOMAINS = ["flight","train","hotel","car_rental","attraction","logs","finance","backup","other"];
 
@@ -100,10 +101,18 @@ export default function ClustersPage() {
                       </button>
                       <button className="btn btn-danger"
                         onClick={async () => {
-                          if (confirm(t("Delete cluster {name}?").replace("{name}", c.name))) {
-                            await api.deleteCluster(c.id);
-                            await mutate();
-                          }
+                          // type-to-confirm: deleting a cluster wipes its metadata
+                          // and all associated tasks — high blast radius, force the
+                          // operator to type the cluster name.
+                          const ok = await confirmDlg.danger({
+                            title: t("Delete cluster {name}?").replace("{name}", c.name),
+                            body: t("This removes the cluster from the controller. SeaweedFS data is not touched, but tasks, alerts and history tied to this cluster will be detached."),
+                            typeToConfirm: c.name,
+                            confirmLabel: t("Delete"),
+                          });
+                          if (!ok) return;
+                          await api.deleteCluster(c.id);
+                          await mutate();
                         }}
                         title={t("Delete")}>
                         <Trash2 size={14}/>

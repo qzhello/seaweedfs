@@ -133,19 +133,19 @@ function StepNode({ id, data }: NodeProps) {
   const ICON: Record<StepRunStatus, React.ReactNode> = {
     idle:     <Circle size={12} className="text-muted"/>,
     pending:  <Circle size={12} className="text-muted"/>,
-    running:  <Loader2 size={12} className="animate-spin text-amber-300"/>,
-    awaiting: <Sparkles size={12} className="text-amber-300"/>,
-    done:     <CheckCircle2 size={12} className="text-emerald-400"/>,
-    error:    <AlertTriangle size={12} className="text-rose-400"/>,
+    running:  <Loader2 size={12} className="animate-spin text-warning"/>,
+    awaiting: <Sparkles size={12} className="text-warning"/>,
+    done:     <CheckCircle2 size={12} className="text-success"/>,
+    error:    <AlertTriangle size={12} className="text-danger"/>,
     skipped:  <SkipForward size={12} className="text-muted"/>,
   };
   const RING: Record<StepRunStatus, string> = {
     idle:     "border-border",
     pending:  "border-border",
-    running:  "border-amber-400/60 shadow-[0_0_0_3px_oklch(82%_0.17_82_/_0.15)]",
-    awaiting: "border-amber-400/60",
-    done:     "border-emerald-400/40",
-    error:    "border-rose-400/60",
+    running:  "border-warning/60 shadow-[0_0_0_3px_oklch(82%_0.17_82_/_0.15)]",
+    awaiting: "border-warning/60",
+    done:     "border-success/40",
+    error:    "border-danger/60",
     skipped:  "border-border opacity-60",
   };
   return (
@@ -170,7 +170,7 @@ function StepNode({ id, data }: NodeProps) {
           onClick={(e) => { e.stopPropagation(); onDelete(id); }}
           onMouseDown={(e) => e.stopPropagation()}
           className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-panel border border-border
-                     text-muted hover:text-rose-300 hover:border-rose-400/60
+                     text-muted hover:text-danger hover:border-danger/60
                      opacity-0 group-hover:opacity-100 transition-opacity
                      flex items-center justify-center shadow-soft"
           title="Delete step"
@@ -184,7 +184,7 @@ function StepNode({ id, data }: NodeProps) {
         {ICON[status]}
         <div className="font-mono text-[11px] text-muted shrink-0">{step.id}</div>
         {step.confirm_before && (
-          <span className="text-[9px] px-1 rounded bg-amber-400/15 text-amber-300">confirm</span>
+          <span className="text-[9px] px-1 rounded bg-warning/15 text-warning">confirm</span>
         )}
       </div>
       <div className="text-xs font-medium truncate" title={step.command}>
@@ -196,7 +196,7 @@ function StepNode({ id, data }: NodeProps) {
         </div>
       )}
       {status === "error" && error && (
-        <div className="text-[10px] text-rose-300 mt-1 line-clamp-2" title={error}>
+        <div className="text-[10px] text-danger mt-1 line-clamp-2" title={error}>
           {error}
         </div>
       )}

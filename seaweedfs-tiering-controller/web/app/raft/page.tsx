@@ -109,8 +109,8 @@ function MasterRaftSection({ t, data, clusterID }: {
           <Network size={12}/> {t("Master raft")}
         </div>
         <span className={`badge text-[10px] inline-flex items-center gap-1 ${
-          healthyOverall ? "border-emerald-400/40 text-emerald-300"
-          : "border-rose-400/40 text-rose-300"
+          healthyOverall ? "border-success/40 text-success"
+          : "border-danger/40 text-danger"
         }`}>
           {healthyOverall ? <CheckCircle2 size={10}/> : <AlertTriangle size={10}/>}
           {healthyOverall ? t("quorum healthy") : t("quorum issue")}
@@ -160,18 +160,18 @@ function MasterRaftSection({ t, data, clusterID }: {
 }
 
 function MasterRow({ m, t }: { m: ClusterMasterRow; t: (k: string) => string }) {
-  const healthTone = m.health === "ok" ? "border-emerald-400/40 text-emerald-300"
+  const healthTone = m.health === "ok" ? "border-success/40 text-success"
     : m.health === "warn" ? "border-warning/40 text-warning"
-    : "border-rose-400/40 text-rose-300";
+    : "border-danger/40 text-danger";
   return (
     <tr>
       <td className="font-mono text-sm">
         {m.address}
-        {m.is_leader && <span className="badge text-[10px] ml-1 border-emerald-400/40 text-emerald-300">leader</span>}
+        {m.is_leader && <span className="badge text-[10px] ml-1 border-success/40 text-success">leader</span>}
       </td>
       <td className="text-xs">{m.suffrage}</td>
       <td className="text-right font-mono text-xs">
-        {m.reachable ? `${m.latency_ms}ms` : <span className="text-rose-300">—</span>}
+        {m.reachable ? `${m.latency_ms}ms` : <span className="text-danger">—</span>}
       </td>
       <td className="font-mono text-[11px] text-muted truncate max-w-[180px]" title={m.reported_leader}>{m.reported_leader || "—"}</td>
       <td className="text-[11px] text-muted">
@@ -214,8 +214,8 @@ function ReplicationSection({ t, data, clusterID }: {
           <Layers size={12}/> {t("Volume replication")}
         </div>
         <span className={`badge text-[10px] inline-flex items-center gap-1 ${
-          allHealthy ? "border-emerald-400/40 text-emerald-300"
-          : data.sole_copies > 0 ? "border-rose-400/40 text-rose-300"
+          allHealthy ? "border-success/40 text-success"
+          : data.sole_copies > 0 ? "border-danger/40 text-danger"
           : "border-warning/40 text-warning"
         }`}>
           {allHealthy ? <CheckCircle2 size={10}/> : <AlertTriangle size={10}/>}
@@ -261,7 +261,7 @@ function ReplicationSection({ t, data, clusterID }: {
       )}
       {issues.length === 0 && ecShardsAtRisk.length === 0 && (
         <div className="p-6 text-center text-xs text-muted">
-          <CheckCircle2 size={16} className="inline mr-1 text-emerald-300"/>
+          <CheckCircle2 size={16} className="inline mr-1 text-success"/>
           {t("All volumes match their configured replication.")}
         </div>
       )}
@@ -298,9 +298,9 @@ function IssuesTable({ t, issues }: { t: (k: string) => string; issues: ReplicaI
             <td className="font-mono text-xs">{i.collection || "(default)"}</td>
             <td>
               <span className={`badge text-[10px] ${
-                i.severity === "critical" ? "border-rose-400/40 text-rose-300"
+                i.severity === "critical" ? "border-danger/40 text-danger"
                 : i.severity === "warning" ? "border-warning/40 text-warning"
-                : "border-sky-400/40 text-sky-300"
+                : "border-accent/40 text-accent"
               }`}>{i.severity}</span>
             </td>
             <td className="font-mono text-xs">{i.replica_placement}</td>
@@ -335,7 +335,7 @@ function ECTable({ t, shards }: { t: (k: string) => string; shards: ECShardHealt
             <td className="text-[11px] text-muted truncate max-w-[260px]" title={s.servers.join(", ")}>{s.servers.join(", ")}</td>
             <td>
               {s.missing_hint
-                ? <span className="badge text-[10px] border-rose-400/40 text-rose-300">{t("unrecoverable")}</span>
+                ? <span className="badge text-[10px] border-danger/40 text-danger">{t("unrecoverable")}</span>
                 : <span className="badge text-[10px] border-warning/40 text-warning">{t("parity gone")}</span>}
             </td>
           </tr>
@@ -355,8 +355,8 @@ function Tile({ label, value, sub, tone }: {
 }) {
   const toneClass = {
     muted: "text-text",
-    emerald: "text-emerald-300",
-    rose: "text-rose-300",
+    emerald: "text-success",
+    rose: "text-danger",
     amber: "text-warning",
   }[tone ?? "muted"];
   return (

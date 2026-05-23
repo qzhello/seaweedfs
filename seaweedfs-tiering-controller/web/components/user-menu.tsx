@@ -79,7 +79,7 @@ export function UserMenu() {
           </Link>
           <button
             onClick={signOut}
-            className="w-full text-left px-3 py-1.5 rounded text-xs inline-flex items-center gap-2 text-rose-300 hover:bg-rose-400/10"
+            className="w-full text-left px-3 py-1.5 rounded text-xs inline-flex items-center gap-2 text-danger hover:bg-danger/10"
           >
             <LogOut size={12}/> {t("Sign out")}
           </button>

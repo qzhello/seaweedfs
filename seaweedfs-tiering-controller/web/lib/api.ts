@@ -709,6 +709,24 @@ export function useAILearning(hours = 24) {
   return useSWR(`${BASE}/ai/learning?hours=${hours}`, fetcher);
 }
 
+// S3 policy proposal acceptance metrics — counterpart of useAILearning
+// for the NL → IAM generator. Renders as its own card on the AI
+// Learning panel.
+export interface AIS3LearningResp {
+  hours: number;
+  total: number;
+  approved: number;
+  edited: number;
+  discarded: number;
+  accept_rate: number;
+  precision_rate: number;
+  open_proposals: number;
+  by_risk: { risk: "low" | "medium" | "high"; total: number; approved: number; accept_rate: number }[];
+}
+export function useAIS3Learning(hours = 168) {
+  return useSWR<AIS3LearningResp>(`${BASE}/ai/s3-learning?hours=${hours}`, fetcher);
+}
+
 // ---------------- ops / weed shell ----------------
 
 export interface ShellArg {
@@ -857,6 +875,20 @@ export function useBuckets(clusterID?: string) {
     clusterID ? `${BASE}/clusters/${clusterID}/buckets` : null,
     fetcher,
   );
+}
+
+// ---- S3 multipart uploads (stale upload inspection) ----
+// Mirrors the JSON shape returned by GET /clusters/:id/s3/multipart-uploads.
+// Each row is one upload-in-progress that the operator (or AI tool) may
+// classify as abandoned / suspicious / in-flight and selectively abort.
+export interface MultipartUpload {
+  bucket: string;
+  key: string;            // best-effort; empty when filer doesn't expose it
+  upload_id: string;
+  initiated_at: string;   // RFC3339
+  age_hours: number;
+  size_so_far: number;    // bytes summed across uploaded parts
+  part_count: number;
 }
 
 // ---- Data lifecycle (cross-cluster governed buckets) ----
@@ -1400,6 +1432,43 @@ export const api = {
     jpost(`${BASE}/clusters/${clusterID}/s3/circuit-breaker`, b) as Promise<{ output: string }>,
   s3CleanUploads: (clusterID: string, time_ago: string) =>
     jpost(`${BASE}/clusters/${clusterID}/s3/clean-uploads`, { time_ago }) as Promise<{ output: string }>,
+  // Structured multipart upload introspection — read-only filer walk.
+  // Used by both the Clean Uploads UI (smart classifier) and the
+  // list_clean_uploads AI tool.
+  s3ListMultipartUploads: async (clusterID: string, opts?: { older_than_hours?: number; bucket?: string }) => {
+    const p = new URLSearchParams();
+    if (opts?.older_than_hours != null) p.set("older_than_hours", String(opts.older_than_hours));
+    if (opts?.bucket) p.set("bucket", opts.bucket);
+    const r = await fetch(`${BASE}/clusters/${clusterID}/s3/multipart-uploads?${p.toString()}`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    return r.json() as Promise<{ items: MultipartUpload[]; truncated: boolean }>;
+  },
+  s3AbortMultipartUpload: async (clusterID: string, bucket: string, uploadID: string) => {
+    const r = await fetch(
+      `${BASE}/clusters/${clusterID}/s3/multipart-uploads/${encodeURIComponent(bucket)}/${encodeURIComponent(uploadID)}`,
+      { method: "DELETE", headers: authHeaders() }
+    );
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    return r.json() as Promise<{ ok: boolean; bucket: string; upload_id: string }>;
+  },
+  s3NLPolicy: (clusterID: string, body: { prompt: string; scope_hint?: string }) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/nl-policy`, body) as Promise<{
+      ok: boolean;
+      proposal_id?: string;
+      proposal?: { actions: string[]; buckets: string[]; explanation: string; risk: "low" | "medium" | "high" };
+      warnings?: string[];
+      error?: string;
+      raw?: string;
+    }>,
+  // Record the operator's verdict on a proposal — drives the S3 panel
+  // on the AI Learning page. Sent right after Approve (with applied data)
+  // or Discard (with no applied data).
+  s3NLPolicyDecide: (proposalID: string, body: {
+    decision: "approved" | "discarded" | "edited";
+    applied_actions?: string[];
+    applied_buckets?: string[];
+    applied_user?: string;
+  }) => jpost(`${BASE}/ai/s3-proposals/${proposalID}/decide`, body) as Promise<{ ok: boolean }>,
   upsertCluster:(b: unknown) => jpost(`${BASE}/clusters`, b, "PUT"),
   deleteCluster:(id: string) => jpost(`${BASE}/clusters/${id}`, undefined, "DELETE"),
   runClusterShell:(id: string, b: { command: string; args?: string; reason?: string }) =>

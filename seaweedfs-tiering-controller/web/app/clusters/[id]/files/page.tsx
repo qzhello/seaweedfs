@@ -10,6 +10,7 @@ import {
   useClusterFilers,
   type FilerEntry,
 } from "@/lib/api";
+import { confirm as confirmDlg } from "@/lib/confirm";
 import { useCaps } from "@/lib/caps-context";
 import { useT } from "@/lib/i18n";
 import { bytes } from "@/lib/utils";
@@ -124,7 +125,7 @@ export default function ClusterFilesPage() {
 
   async function handleDeleteSelected() {
     if (!canWrite || !filer || selected.size === 0) return;
-    if (!window.confirm(t("Delete {n} item(s)? This cannot be undone.").replace("{n}", String(selected.size)))) return;
+    if (!(await confirmDlg.danger({ title: t("Delete {n} item(s)? This cannot be undone.").replace("{n}", String(selected.size)) }))) return;
     setErr("");
     try {
       for (const p of Array.from(selected)) {

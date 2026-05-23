@@ -14,6 +14,7 @@ import {
   type ShellCommand, type OpsTemplate, type OpsStep, type OpsVariable, type OpsCapture,
   type OpsTemplateAlerts, type AnalyzerScript,
 } from "@/lib/api";
+import { confirm as confirmDlg } from "@/lib/confirm";
 import { FlowCanvas, type FlowStepStatus, type StepRunStatus } from "@/components/ops/flow-canvas";
 import { useCluster } from "@/lib/cluster-context";
 import { useT } from "@/lib/i18n";
@@ -90,7 +91,7 @@ export default function OpsTemplatesPage() {
             tpl={tpl}
             onEdit={() => setEditing(tpl)}
             onDelete={async () => {
-              if (!confirm(t("Delete this template?"))) return;
+              if (!(await confirmDlg.danger({ title: t("Delete this template?") }))) return;
               await api.deleteOpsTemplate(tpl.id);
               refetchTpls();
             }}
@@ -152,7 +153,7 @@ function TemplateCard({
         <div className="flex items-center gap-1">
           <button onClick={onHistory} className="p-1.5 text-muted hover:text-text" title={t("Run history")}><History size={14}/></button>
           <button onClick={onEdit} className="p-1.5 text-muted hover:text-text" title={t("Edit")}><Edit3 size={14}/></button>
-          <button onClick={onDelete} className="p-1.5 text-muted hover:text-rose-300" title={t("Delete")}><Trash2 size={14}/></button>
+          <button onClick={onDelete} className="p-1.5 text-muted hover:text-danger" title={t("Delete")}><Trash2 size={14}/></button>
         </div>
       </div>
       {tpl.description && (
@@ -465,7 +466,7 @@ function TemplateEditor({
                   <input type="checkbox" checked={aiPrecheck}
                     onChange={(e) => setAIPrecheck(e.target.checked)}/>
                   <span className="inline-flex items-center gap-1.5">
-                    <Sparkles size={11} className="text-amber-300"/>
+                    <Sparkles size={11} className="text-warning"/>
                     {t("Auto-ask AI for risk/rollback advice before mutating steps")}
                   </span>
                 </label>
@@ -524,7 +525,7 @@ function TemplateEditor({
                           onChange={(e) => updateVar(i, { required: e.target.checked })}/>
                         {t("Required")}
                       </label>
-                      <button onClick={() => removeVar(i)} className="p-1 text-muted hover:text-rose-300">
+                      <button onClick={() => removeVar(i)} className="p-1 text-muted hover:text-danger">
                         <Trash2 size={12}/>
                       </button>
                     </div>
@@ -578,7 +579,7 @@ function TemplateEditor({
                             <option key={c.name} value={c.name}>{c.name}  ({c.category}, {c.risk})</option>
                           ))}
                         </select>
-                        <button onClick={() => removeStep(i)} className="p-1.5 text-muted hover:text-rose-300 shrink-0" title={t("Delete step")}>
+                        <button onClick={() => removeStep(i)} className="p-1.5 text-muted hover:text-danger shrink-0" title={t("Delete step")}>
                           <Trash2 size={14}/>
                         </button>
                       </div>
@@ -648,7 +649,7 @@ function TemplateEditor({
                       <details open={(s.infer_vars?.length ?? 0) > 0} className="border-t border-border/40 pt-2">
                         <summary className="text-[11px] text-muted cursor-pointer">
                           {t("AI infers variables from prior steps")}
-                          {(s.infer_vars?.length ?? 0) > 0 && <span className="text-amber-300"> ({s.infer_vars!.length})</span>}
+                          {(s.infer_vars?.length ?? 0) > 0 && <span className="text-warning"> ({s.infer_vars!.length})</span>}
                         </summary>
                         <div className="space-y-1.5 mt-2">
                           {(s.infer_vars ?? []).map((iv, ii) => (
@@ -683,7 +684,7 @@ function TemplateEditor({
                                     next.splice(ii, 1);
                                     updateStep(i, { infer_vars: next });
                                   }}
-                                  className="col-span-1 text-muted hover:text-rose-300 justify-self-end"
+                                  className="col-span-1 text-muted hover:text-danger justify-self-end"
                                 >
                                   <Trash2 size={11}/>
                                 </button>
@@ -742,7 +743,7 @@ function TemplateEditor({
                               <button onClick={() => {
                                 const next = (s.capture ?? []).filter((_, j) => j !== ci);
                                 updateStep(i, { capture: next });
-                              }} className="col-span-1 p-1 text-muted hover:text-rose-300 justify-self-end">
+                              }} className="col-span-1 p-1 text-muted hover:text-danger justify-self-end">
                                 <Trash2 size={12}/>
                               </button>
                             </div>
@@ -768,7 +769,7 @@ function TemplateEditor({
             of how far the right panel is scrolled. */}
         <div className="shrink-0 border-t border-border bg-panel/80 backdrop-blur px-4 py-3 flex items-center gap-3">
           {error && (
-            <div className="flex-1 text-xs text-rose-300 bg-rose-400/10 border border-rose-400/30 rounded-md px-3 py-1.5">
+            <div className="flex-1 text-xs text-danger bg-danger/10 border border-danger/30 rounded-md px-3 py-1.5">
               {error}
             </div>
           )}

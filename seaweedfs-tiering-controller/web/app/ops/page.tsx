@@ -33,9 +33,9 @@ const CATEGORIES: { key: string; label: string }[] = [
 ];
 
 const RISK_BADGE: Record<Risk, string> = {
-  read:        "badge border-emerald-400/40 text-emerald-300",
-  mutate:      "badge border-amber-400/40 text-amber-300",
-  destructive: "badge border-rose-400/40 text-rose-300",
+  read:        "badge border-success/40 text-success",
+  mutate:      "badge border-warning/40 text-warning",
+  destructive: "badge border-danger/40 text-danger",
 };
 
 const RISK_ICON: Record<Risk, JSX.Element> = {
@@ -314,13 +314,13 @@ function RunPanel({ cluster, cmd }: { cluster: string; cmd: ShellCommand }) {
       </div>
 
       {!cluster && (
-        <div className="text-xs text-amber-300 bg-amber-400/10 border border-amber-400/30 rounded-md px-3 py-2">
+        <div className="text-xs text-warning bg-warning/10 border border-warning/30 rounded-md px-3 py-2">
           {t("Pick a cluster first.")}
         </div>
       )}
 
       {error && (
-        <div className="text-xs font-mono text-rose-300 bg-rose-400/10 border border-rose-400/30 rounded-md px-3 py-2 whitespace-pre-wrap break-all">
+        <div className="text-xs font-mono text-danger bg-danger/10 border border-danger/30 rounded-md px-3 py-2 whitespace-pre-wrap break-all">
           {error}
         </div>
       )}
@@ -432,7 +432,7 @@ function ArgField({
 }) {
   const labelEl = (
     <label className="text-xs text-muted flex items-center gap-2">
-      <span>{spec.label}{spec.required && <span className="text-rose-400 ml-1">*</span>}</span>
+      <span>{spec.label}{spec.required && <span className="text-danger ml-1">*</span>}</span>
       {spec.flag && <code className="text-[10px] text-muted/60">{spec.flag}</code>}
     </label>
   );

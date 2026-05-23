@@ -6,6 +6,7 @@
 // cancel the job — that's the whole point of the persistent variant.
 
 import { useEffect, useRef, useState } from "react";
+import { CardSkeleton } from "@/components/table-skeleton";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -13,12 +14,13 @@ import {
   HardDrive, User, Calendar, Hash, RotateCcw,
 } from "lucide-react";
 import { api, useDrain, useClusters, getToken, type DrainJob, type DrainStatus } from "@/lib/api";
+import { confirm as confirmDlg } from "@/lib/confirm";
 import { useT } from "@/lib/i18n";
 import { Can } from "@/components/can";
 import { ErrorPanel } from "@/components/error-panel";
 import { toast } from "@/lib/toast";
 import { bytes as fmtBytes } from "@/lib/utils";
-import { StatusBadge } from "../_status";
+import { StatusBadge } from "../../maintenance/_panels/_drain-status";
 
 export default function DrainDetailPage() {
   const { t } = useT();
@@ -147,7 +149,7 @@ function Inner() {
 
   const cancel = async () => {
     if (!id || !drain) return;
-    if (!window.confirm(t("Cancel this drain? The shell will be interrupted and the node may end up partially drained."))) return;
+    if (!(await confirmDlg.danger({ title: t("Cancel this drain? The shell will be interrupted and the node may end up partially drained.") }))) return;
     setCancelling(true);
     try {
       await api.cancelDrain(id);
@@ -179,7 +181,7 @@ function Inner() {
   };
 
   if (error) return <div className="space-y-4"><Header t={t}/><ErrorPanel error={error}/></div>;
-  if (!drain) return <div className="space-y-4"><Header t={t}/><div className="card p-6 text-sm text-muted">{t("Loading…")}</div></div>;
+  if (!drain) return <div className="space-y-4"><Header t={t}/><CardSkeleton lines={5}/></div>;
 
   const clusterName = (clustersResp?.items ?? []).find((c: { id: string; name: string }) => c.id === drain.cluster_id)?.name
     ?? drain.cluster_id.slice(0, 8);
@@ -196,7 +198,7 @@ function Inner() {
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="font-mono text-base">{drain.node}</span>
-              {drain.force && <span className="badge text-[10px] border-amber-400/40 text-amber-300">force</span>}
+              {drain.force && <span className="badge text-[10px] border-warning/40 text-warning">force</span>}
               <StatusBadge status={drain.status} t={t}/>
             </div>
             <div className="text-xs text-muted">
@@ -247,8 +249,8 @@ function Inner() {
           <div className="h-2 bg-panel2 rounded overflow-hidden">
             <div
               className={`h-full transition-[width] duration-300 ${
-                drain.status === "done" ? "bg-emerald-500/70"
-                : (drain.status === "failed" || drain.status === "cancelled") ? "bg-rose-500/40"
+                drain.status === "done" ? "bg-success/70"
+                : (drain.status === "failed" || drain.status === "cancelled") ? "bg-danger/40"
                 : "bg-accent"
               }`}
               style={{ width: `${Math.max(2, Math.round(remaining * 100))}%` }}
@@ -257,13 +259,13 @@ function Inner() {
         </div>
 
         {drain.error && (
-          <div className="card p-2 border-rose-400/40 bg-rose-400/5 text-xs text-rose-300 font-mono whitespace-pre-wrap">
+          <div className="card p-2 border-danger/40 bg-danger/5 text-xs text-danger font-mono whitespace-pre-wrap">
             {drain.error}
           </div>
         )}
 
         {drain.status === "done" && (
-          <div className="card p-2 border-emerald-400/40 bg-emerald-400/5 text-xs text-emerald-300 inline-flex items-center gap-2">
+          <div className="card p-2 border-success/40 bg-success/5 text-xs text-success inline-flex items-center gap-2">
             <CheckCircle2 size={14}/>
             {t("Node is empty and safe to power off.")}
           </div>
@@ -271,7 +273,7 @@ function Inner() {
       </section>
 
       {streamErr && (
-        <div className="card p-2 text-xs text-rose-300 border-rose-400/40">
+        <div className="card p-2 text-xs text-danger border-danger/40">
           {t("Stream error")}: {streamErr}
         </div>
       )}
@@ -300,7 +302,7 @@ function Header({ t }: { t: (k: string) => string }) {
   return (
     <header className="flex items-center justify-between">
       <div className="flex items-center gap-2">
-        <Link href="/clusters/drains" className="text-muted hover:text-text inline-flex items-center gap-1 text-xs">
+        <Link href="/clusters/maintenance?tab=drain-history" className="text-muted hover:text-text inline-flex items-center gap-1 text-xs">
           <ArrowLeft size={12}/> {t("Drain history")}
         </Link>
       </div>

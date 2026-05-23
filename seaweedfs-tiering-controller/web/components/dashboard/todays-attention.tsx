@@ -90,7 +90,7 @@ export function TodaysAttention() {
         icon: <HeartPulse size={14}/>,
         title: t("Health gate is closed"),
         detail,
-        href: "/health",
+        href: "/reliability?tab=health",
       });
     }
     // safety.status returns { safety_allowed, safety_code, safety_reason, overall_allowed }.
@@ -109,7 +109,7 @@ export function TodaysAttention() {
         icon: <Shield size={14}/>,
         title: t("Emergency stop is engaged"),
         detail: safetyData.safety_reason || t("All executor activity is suspended."),
-        href: "/safety",
+        href: "/reliability?tab=safety",
       });
     } else if (safetyData && safetyData.safety_allowed === false) {
       out.push({
@@ -118,7 +118,7 @@ export function TodaysAttention() {
         icon: <Shield size={14}/>,
         title: t("Safety guard is blocking ops"),
         detail: safetyData.safety_reason || safetyData.safety_code || t("Operations temporarily disallowed."),
-        href: "/safety",
+        href: "/reliability?tab=safety",
       });
     }
     const recent = ((alerts as { items?: { severity?: string; created_at?: string }[] } | undefined)?.items ?? []);
@@ -131,7 +131,7 @@ export function TodaysAttention() {
         icon: <Activity size={14}/>,
         title: t("Critical alerts firing"),
         detail: `${recentCritical} ${t("critical")} · ${recentWarning} ${t("warning")}`,
-        href: "/alerts",
+        href: "/reliability?tab=alerts",
       });
     } else if (recentWarning > 0) {
       out.push({
@@ -140,7 +140,7 @@ export function TodaysAttention() {
         icon: <Activity size={14}/>,
         title: t("Warnings firing"),
         detail: `${recentWarning} ${t("warning")}`,
-        href: "/alerts",
+        href: "/reliability?tab=alerts",
       });
     }
     return out;

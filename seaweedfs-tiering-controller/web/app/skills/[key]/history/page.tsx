@@ -1,9 +1,11 @@
 "use client";
 import { useMemo, useState } from "react";
+import { CardSkeleton } from "@/components/table-skeleton";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { useSkillHistory } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 interface HistoryRow {
   version: number;
@@ -14,6 +16,7 @@ interface HistoryRow {
 }
 
 export default function SkillHistoryPage() {
+  const { t } = useT();
   const { key } = useParams<{ key: string }>();
   const router = useRouter();
   const decoded = decodeURIComponent(key);
@@ -27,17 +30,17 @@ export default function SkillHistoryPage() {
   const left = useMemo(() => items.find(r => r.version === leftV) ?? items[1], [items, leftV]);
   const right = useMemo(() => items.find(r => r.version === rightV) ?? items[0], [items, rightV]);
 
-  if (error) return <div className="card p-5 text-danger">Failed to load history.</div>;
-  if (!data)  return <div className="card p-5 text-muted">Loading…</div>;
+  if (error) return <div className="card p-5 text-danger">{t("Failed to load history.")}</div>;
+  if (!data) return <CardSkeleton lines={5}/>;
   if (!items.length) {
     return (
       <div className="space-y-5">
         <Breadcrumb items={[
-          { label: "Skills", href: "/skills" },
+          { label: t("Skills"), href: "/skills" },
           { label: decoded, href: `/skills/${encodeURIComponent(decoded)}` },
-          { label: "History" },
+          { label: t("History") },
         ]}/>
-        <div className="card p-5 text-muted">No history for {decoded} yet.</div>
+        <div className="card p-5 text-muted">{t("No history for {name} yet.").replace("{name}", decoded)}</div>
       </div>
     );
   }
@@ -45,33 +48,33 @@ export default function SkillHistoryPage() {
   return (
     <div className="space-y-5">
       <Breadcrumb items={[
-        { label: "Skills", href: "/skills" },
+        { label: t("Skills"), href: "/skills" },
         { label: decoded, href: `/skills/${encodeURIComponent(decoded)}` },
-        { label: "History" },
+        { label: t("History") },
       ]}/>
       <h1 className="text-base font-semibold tracking-tight">
-        Version history <span className="font-mono text-base text-accent">{decoded}</span>
+        {t("Version history")} <span className="font-mono text-base text-accent">{decoded}</span>
       </h1>
 
       <section className="card p-5">
-        <h2 className="text-lg font-medium mb-3">Version list</h2>
+        <h2 className="text-lg font-medium mb-3">{t("Version list")}</h2>
         <div className="space-y-1">
           {items.map(h => (
             <div key={h.version} className="flex items-center gap-3 text-sm py-1.5 border-b border-border last:border-0">
               <span className="font-mono text-accent w-12">v{h.version}</span>
               <span className="text-muted text-xs w-44 shrink-0">{new Date(h.changed_at).toLocaleString("zh-CN")}</span>
               <span className="text-muted text-xs w-24 shrink-0">{h.changed_by}</span>
-              <span className="flex-1 truncate">{h.change_note || <em className="text-muted">no note</em>}</span>
-              <button className="text-xs text-muted hover:text-text" onClick={() => setLeftV(h.version)}>set left</button>
-              <button className="text-xs text-muted hover:text-text" onClick={() => setRightV(h.version)}>set right</button>
+              <span className="flex-1 truncate">{h.change_note || <em className="text-muted">{t("no note")}</em>}</span>
+              <button className="text-xs text-muted hover:text-text" onClick={() => setLeftV(h.version)}>{t("set left")}</button>
+              <button className="text-xs text-muted hover:text-text" onClick={() => setRightV(h.version)}>{t("set right")}</button>
             </div>
           ))}
         </div>
       </section>
 
       <section className="grid grid-cols-2 gap-4">
-        <DiffPane title={`v${left?.version} (left)`} obj={left?.definition}/>
-        <DiffPane title={`v${right?.version} (right)`} obj={right?.definition} compareTo={left?.definition}/>
+        <DiffPane title={t("v{n} (left)").replace("{n}", String(left?.version))} obj={left?.definition}/>
+        <DiffPane title={t("v{n} (right)").replace("{n}", String(right?.version))} obj={right?.definition} compareTo={left?.definition}/>
       </section>
     </div>
   );

@@ -7,9 +7,9 @@ import type { OpsStep, OpsTemplate } from "@/lib/api";
 // Lifted out of page.tsx so split components stay in sync on one
 // source of truth.
 export const RISK_BADGE = {
-  read:        "badge border-emerald-400/40 text-emerald-300",
-  mutate:      "badge border-amber-400/40 text-amber-300",
-  destructive: "badge border-rose-400/40 text-rose-300",
+  read:        "badge border-success/40 text-success",
+  mutate:      "badge border-warning/40 text-warning",
+  destructive: "badge border-danger/40 text-danger",
 } as const;
 
 export const RISK_ICON = {

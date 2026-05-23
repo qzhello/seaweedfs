@@ -236,7 +236,7 @@ export function VolumeRowActions({ v, onPick }: {
                   key={a.key}
                   onClick={() => { setOpen(false); onPick(a.key, [v]); }}
                   className={`w-full text-left px-3 py-1.5 text-xs inline-flex items-center gap-2 hover:bg-panel2 ${
-                    danger ? "text-rose-300" : ""
+                    danger ? "text-danger" : ""
                   }`}
                 >
                   <Icon size={12}/> {t(a.label)}
@@ -276,7 +276,7 @@ export function VolumeBulkBar({
           <button
             key={a.key}
             onClick={() => onPick(a.key, selected)}
-            className={`btn inline-flex items-center gap-1 text-xs ${danger ? "text-rose-300" : ""}`}
+            className={`btn inline-flex items-center gap-1 text-xs ${danger ? "text-danger" : ""}`}
             title={t(a.label)}
           >
             <Icon size={12}/> {t(a.label)}
@@ -369,7 +369,7 @@ export function VolumeActionDialog({
       <div className="card p-5 w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base font-medium inline-flex items-center gap-2">
-            {danger ? <ShieldAlert size={16} className="text-rose-300"/> : <AlertTriangle size={16} className="text-amber-300"/>}
+            {danger ? <ShieldAlert size={16} className="text-danger"/> : <AlertTriangle size={16} className="text-warning"/>}
             {t(action.label)} <span className="text-xs text-muted">· {runnable.length} {t("volume(s)")}</span>
           </h2>
           {!running && (
@@ -378,7 +378,7 @@ export function VolumeActionDialog({
         </div>
 
         {danger && !done && (
-          <div className="mb-3 text-xs text-rose-300 bg-rose-400/10 border border-rose-400/30 rounded-md px-3 py-2">
+          <div className="mb-3 text-xs text-danger bg-danger/10 border border-danger/30 rounded-md px-3 py-2">
             {t("This action is destructive and cannot be undone.")}
           </div>
         )}
@@ -393,7 +393,7 @@ export function VolumeActionDialog({
             {action.fields.map((f) => (
               <div key={f.key} className="space-y-1">
                 <label className="text-xs text-muted">
-                  {t(f.label)}{f.required && <span className="text-rose-400 ml-1">*</span>}
+                  {t(f.label)}{f.required && <span className="text-danger ml-1">*</span>}
                 </label>
                 <input
                   value={input[f.key] ?? ""}
@@ -423,7 +423,7 @@ export function VolumeActionDialog({
                   <li key={`${r.cluster_id}-${r.ID}-${i}`} className="font-mono text-muted">
                     #{r.ID} <span className="text-muted/60">on</span> {r.Server}
                     {r.cluster_name && <span className="text-muted/60"> · {r.cluster_name}</span>}
-                    {action.skipIf && action.skipIf(r) && <span className="text-amber-300 ml-2">— {t("skip")}</span>}
+                    {action.skipIf && action.skipIf(r) && <span className="text-warning ml-2">— {t("skip")}</span>}
                   </li>
                 ))}
               </ul>
@@ -451,9 +451,9 @@ export function VolumeActionDialog({
           <div className="space-y-1 max-h-[60vh] overflow-auto">
             {rows.map((r, i) => {
               const s = statuses[i];
-              const dot = s.state === "done" ? "text-emerald-300"
-                : s.state === "error" ? "text-rose-300"
-                : s.state === "running" ? "text-amber-300" : "text-muted";
+              const dot = s.state === "done" ? "text-success"
+                : s.state === "error" ? "text-danger"
+                : s.state === "running" ? "text-warning" : "text-muted";
               return (
                 <div key={`${r.cluster_id}-${r.ID}-${i}`} className="flex items-start gap-2 text-xs font-mono py-1 border-b border-border/30 last:border-b-0">
                   <span className={`${dot} mt-0.5`}>
@@ -478,7 +478,7 @@ export function VolumeActionDialog({
               <button onClick={() => onClose(false)} className="btn" disabled={running}>{t("Cancel")}</button>
               <button
                 onClick={runAll} disabled={!canRun}
-                className={`btn inline-flex items-center gap-2 ${danger ? "bg-rose-500/80 text-white hover:bg-rose-500" : "bg-accent text-accent-fg"} disabled:opacity-40 disabled:cursor-not-allowed`}
+                className={`btn inline-flex items-center gap-2 ${danger ? "bg-danger/80 text-white hover:bg-danger" : "bg-accent text-accent-fg"} disabled:opacity-40 disabled:cursor-not-allowed`}
               >
                 {running ? <Loader2 size={14} className="animate-spin"/> : null}
                 {t("Run on {n} volume(s)").replace("{n}", String(runnable.length))}

@@ -78,7 +78,7 @@ export function AIDraftDialog({
           className="w-full bg-panel2 border border-border rounded-md px-3 py-2 text-sm"
         />
         {error && (
-          <div className="text-xs text-rose-300 bg-rose-400/10 border border-rose-400/30 rounded-md px-3 py-2 space-y-2">
+          <div className="text-xs text-danger bg-danger/10 border border-danger/30 rounded-md px-3 py-2 space-y-2">
             <div>{error}</div>
             {raw && (
               <details>

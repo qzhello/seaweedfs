@@ -110,12 +110,12 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-2">
           {safety?.safety_code === "emergency_stop" && (
-            <Link href="/safety" className="badge border-danger/40 text-danger animate-pulse">
+            <Link href="/reliability?tab=safety" className="badge border-danger/40 text-danger animate-pulse">
               <Lock size={12}/> {t("EMERGENCY STOP")}
             </Link>
           )}
           {gate && !gate.ok && (
-            <Link href="/health" className="badge border-danger/40 text-danger" title={gate.reason}>
+            <Link href="/reliability?tab=health" className="badge border-danger/40 text-danger" title={gate.reason}>
               <ShieldAlert size={12}/> {t("Gate CLOSED")}
             </Link>
           )}
@@ -267,7 +267,7 @@ export default function Dashboard() {
             {
               id: "pending",
               node: (
-                <Stat href="/tasks" icon={<Flame size={18} />} label={t("Pending")}
+                <Stat href="/activity?tab=tasks" icon={<Flame size={18} />} label={t("Pending")}
                       value={pending?.items?.length ?? 0}
                       sub={`${pending?.items?.filter((p:any)=>p.score>=0.75).length ?? 0} ${t("hot recs")}`}/>
               ),
@@ -301,7 +301,7 @@ export default function Dashboard() {
                       value={`${costsNow.currency} ${costsNow.monthly_saving.toFixed(0)}`}
                       sub={t("vs. all-hot baseline")} />
               ) : (
-                <Stat href="/executions" icon={<Snowflake size={18}/>} label={t("Saving est.")}
+                <Stat href="/activity?tab=executions" icon={<Snowflake size={18}/>} label={t("Saving est.")}
                       value={bytes(((s?.bytes_warm||0)+(s?.bytes_cold||0))*0.5)} sub={t("vs. 3-replica baseline")} />
               ),
             },
@@ -353,7 +353,7 @@ export default function Dashboard() {
                       <Zap size={10}/> {t("Top recommendations")}
                     </h2>
                     {pending?.items?.length ? (
-                      <a href="/tasks" className="text-[10px] text-muted hover:text-accent">{t("Details")}</a>
+                      <a href="/activity?tab=tasks" className="text-[10px] text-muted hover:text-accent">{t("Details")}</a>
                     ) : null}
                   </header>
                   {/* Fixed-height body so this panel lines up with the
@@ -364,7 +364,7 @@ export default function Dashboard() {
                     {pending?.items?.length ? (
                       <div className="space-y-0.5">
                         {pending.items.slice(0, 6).map((rec: any) => (
-                          <a key={rec.id} href="/tasks"
+                          <a key={rec.id} href="/activity?tab=tasks"
                             className="flex items-center gap-2 px-1.5 py-1 rounded text-[11px] hover:bg-panel2 transition-colors"
                             title={rec.explanation}>
                             <span className="font-mono text-text shrink-0">v{rec.volume_id}</span>
@@ -789,14 +789,14 @@ function NodeDistBars({
           const maxPct  = max > 0 ? (e.max  / max) * 100 : 0;
           const utilTxt = `${(e.util * 100).toFixed(0)}%`;
           const fillClass = e.util >= 0.85
-            ? "bg-rose-400/80"
+            ? "bg-danger/80"
             : e.util >= 0.70
-              ? "bg-amber-400/80"
+              ? "bg-warning/80"
               : "bg-accent/80";
           const utilColor = e.util >= 0.85
-            ? "text-rose-300"
+            ? "text-danger"
             : e.util >= 0.70
-              ? "text-amber-300"
+              ? "text-warning"
               : "text-text";
           return (
             <li
@@ -852,7 +852,7 @@ function NodeDistBars({
                 <div className="h-full bg-accent/80" style={{ width: `${wPct}%` }}/>
               )}
               {rPct > 0 && (
-                <div className="h-full bg-amber-400/80" style={{ width: `${rPct}%` }}/>
+                <div className="h-full bg-warning/80" style={{ width: `${rPct}%` }}/>
               )}
             </div>
             <span className="tabular-nums font-mono text-right text-text">{valueLabel}</span>

@@ -17,6 +17,7 @@ import {
   FolderPlus, Trash2, Download, Loader2, X, AlertTriangle, Snowflake,
 } from "lucide-react";
 import { api, useClusterFiles, type FilerEntry } from "@/lib/api";
+import { confirm as confirmDlg } from "@/lib/confirm";
 import { useCluster } from "@/lib/cluster-context";
 import { useT } from "@/lib/i18n";
 import { Can } from "@/components/can";
@@ -338,19 +339,19 @@ const UploadButton = forwardRef<HTMLInputElement, UploadButtonProps>(function Up
               <div className="flex items-center justify-between text-[11px]">
                 <span className="truncate">{row.name}</span>
                 <span className="text-muted font-mono">
-                  {row.err ? <span className="text-rose-300">{t("error")}</span>
+                  {row.err ? <span className="text-danger">{t("error")}</span>
                     : row.done >= row.total
-                      ? <span className="text-emerald-300">100%</span>
+                      ? <span className="text-success">100%</span>
                       : `${Math.round((row.done / Math.max(1, row.total)) * 100)}%`}
                 </span>
               </div>
               <div className="h-1 bg-panel2 rounded overflow-hidden">
                 <div
-                  className={`h-full ${row.err ? "bg-rose-400/60" : "bg-accent"}`}
+                  className={`h-full ${row.err ? "bg-danger/60" : "bg-accent"}`}
                   style={{ width: `${Math.round((row.done / Math.max(1, row.total)) * 100)}%` }}
                 />
               </div>
-              {row.err && <div className="text-[10px] text-rose-300 truncate">{row.err}</div>}
+              {row.err && <div className="text-[10px] text-danger truncate">{row.err}</div>}
             </div>
           ))}
         </div>
@@ -408,7 +409,7 @@ function EntryRow({ entry, clusterID, filer, onNavigate, onChanged, t }: EntryRo
     const msg = directory
       ? t("Delete folder \"{name}\" and ALL its contents?").replace("{name}", name)
       : t("Delete \"{name}\"?").replace("{name}", name);
-    if (!window.confirm(msg)) return;
+    if (!(await confirmDlg.danger({ title: msg }))) return;
     setDeleting(true);
     try {
       await api.filesDelete(clusterID, filer || "", entry.FullPath, directory);
@@ -437,7 +438,7 @@ function EntryRow({ entry, clusterID, filer, onNavigate, onChanged, t }: EntryRo
           disabled={!directory}
         >
           {directory
-            ? <Folder size={14} className="text-amber-300 shrink-0"/>
+            ? <Folder size={14} className="text-warning shrink-0"/>
             : <FileIcon size={14} className="text-muted shrink-0"/>}
           <span className={`text-sm ${directory ? "font-medium" : ""} truncate max-w-[420px]`}>{name}</span>
         </button>

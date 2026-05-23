@@ -51,7 +51,7 @@ export function AlertsSection({
             <div className="text-[11px] uppercase tracking-wide text-muted/70 mb-1">Channels</div>
             {channels.length === 0 ? (
               <p className="text-[11px] text-muted">
-                No channels configured. Visit <Link href="/alerts" className="text-accent hover:underline">Alerts</Link> to add a WeCom / DingTalk / Feishu / webhook destination first.
+                No channels configured. Visit <Link href="/reliability?tab=alerts" className="text-accent hover:underline">Alerts</Link> to add a WeCom / DingTalk / Feishu / webhook destination first.
               </p>
             ) : (
               <div className="flex flex-wrap gap-1.5">

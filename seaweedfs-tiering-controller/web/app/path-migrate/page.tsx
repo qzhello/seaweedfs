@@ -186,7 +186,7 @@ function Inner() {
         <Can cap="cost.write">
           <section className="card p-4 space-y-3">
             <div className="text-xs font-semibold inline-flex items-center gap-1.5">
-              <Sparkles size={12} className="text-amber-300"/> {t("Ask AI to plan the migration")}
+              <Sparkles size={12} className="text-warning"/> {t("Ask AI to plan the migration")}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <Field label={t("Preferred target backend (AI may override with rationale)")}>
@@ -263,7 +263,7 @@ function ImpactPanel({ t, preview }: { t: (k: string) => string; preview: PathPr
           <ScanLine size={12}/> {t("Impact")}
         </div>
         {preview.truncated && (
-          <span className="badge text-[10px] border-amber-400/40 text-amber-300 inline-flex items-center gap-1">
+          <span className="badge text-[10px] border-warning/40 text-warning inline-flex items-center gap-1">
             <AlertTriangle size={10}/> {t("walk truncated")}
           </span>
         )}
@@ -345,7 +345,7 @@ function ProposalsPanel({ t, summary, proposals, clusterID, pathHint }: {
   return (
     <section className="card overflow-hidden border-accent/40 bg-accent/[0.03]">
       <header className="px-3 py-2 border-b border-border inline-flex items-center gap-2 text-xs font-semibold">
-        <Sparkles size={12} className="text-amber-300"/> {t("AI migration proposals for {path}").replace("{path}", pathHint)}
+        <Sparkles size={12} className="text-warning"/> {t("AI migration proposals for {path}").replace("{path}", pathHint)}
       </header>
       {summary && (
         <div className="px-3 py-2 text-xs text-muted border-b border-border italic">{summary}</div>
@@ -366,14 +366,14 @@ function ProposalsPanel({ t, summary, proposals, clusterID, pathHint }: {
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-base font-semibold text-emerald-300 tabular-nums">
+                  <div className="text-base font-semibold text-success tabular-nums">
                     {p.currency} {p.monthly_saving.toFixed(2)}/mo
                   </div>
                   <div className="text-[10px] inline-flex gap-1.5 mt-0.5">
                     <span className={`badge ${
-                      p.risk === "high" ? "border-rose-400/40 text-rose-300"
-                      : p.risk === "medium" ? "border-amber-400/40 text-amber-300"
-                      : "border-emerald-400/40 text-emerald-300"
+                      p.risk === "high" ? "border-danger/40 text-danger"
+                      : p.risk === "medium" ? "border-warning/40 text-warning"
+                      : "border-success/40 text-success"
                     }`}>{t("risk")}: {t(p.risk)}</span>
                     <span className="badge border-muted/40 text-muted">{t("conf")}: {t(p.confidence)}</span>
                   </div>

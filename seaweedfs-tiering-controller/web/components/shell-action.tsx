@@ -97,7 +97,7 @@ export function ShellActionMenu<Row>({
                 <button
                   key={a.key}
                   onClick={() => { setOpen(false); onPick(a); }}
-                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-panel2 ${danger ? "text-rose-300" : ""}`}
+                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-panel2 ${danger ? "text-danger" : ""}`}
                 >
                   {t(a.label)}
                 </button>
@@ -262,8 +262,8 @@ export function ShellActionDialog<Row>({
       <div className="card p-5 w-full max-w-xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-base font-medium inline-flex items-center gap-2">
-            {danger ? <ShieldAlert size={16} className="text-rose-300"/>
-                    : action.risk === "mutate" ? <AlertTriangle size={16} className="text-amber-300"/> : null}
+            {danger ? <ShieldAlert size={16} className="text-danger"/>
+                    : action.risk === "mutate" ? <AlertTriangle size={16} className="text-warning"/> : null}
             {t(action.label)} <span className="text-xs text-muted font-mono">· {action.command}</span>
           </h2>
           {!running && <button onClick={() => onClose(done)} className="p-1 text-muted hover:text-text"><X size={16}/></button>}
@@ -271,11 +271,11 @@ export function ShellActionDialog<Row>({
 
         {danger && !done && (
           action.apply && !applied ? (
-            <div className="mb-3 text-xs text-amber-300 bg-amber-400/10 border border-amber-400/30 rounded-md px-3 py-2">
+            <div className="mb-3 text-xs text-warning bg-warning/10 border border-warning/30 rounded-md px-3 py-2">
               {t("Dry-run mode — nothing is changed. Tick \"Apply\" below to actually run this destructive command.")}
             </div>
           ) : (
-            <div className="mb-3 text-xs text-rose-300 bg-rose-400/10 border border-rose-400/30 rounded-md px-3 py-2">
+            <div className="mb-3 text-xs text-danger bg-danger/10 border border-danger/30 rounded-md px-3 py-2">
               {t("This action is destructive and cannot be undone.")}
             </div>
           )
@@ -286,7 +286,7 @@ export function ShellActionDialog<Row>({
             {(action.fields || []).map((f) => (
               <div key={f.key} className="space-y-1">
                 <label className="text-xs text-muted">
-                  {t(f.label)}{f.required && <span className="text-rose-400 ml-1">*</span>}
+                  {t(f.label)}{f.required && <span className="text-danger ml-1">*</span>}
                 </label>
                 <input
                   value={input[f.key] ?? ""}
@@ -311,17 +311,17 @@ export function ShellActionDialog<Row>({
 
             {action.apply && (
               <label className={`flex items-start gap-2 rounded-md border px-3 py-2 cursor-pointer transition-colors ${
-                applied ? "border-rose-400/40 bg-rose-400/10" : "border-border bg-panel2/40 hover:border-border"
+                applied ? "border-danger/40 bg-danger/10" : "border-border bg-panel2/40 hover:border-border"
               }`}>
                 <input
                   type="checkbox"
-                  className="mt-0.5 accent-rose-500"
+                  className="mt-0.5 accent-danger"
                   checked={applied}
                   disabled={running}
                   onChange={(e) => { setInput((s) => ({ ...s, [APPLY_INPUT_KEY]: e.target.checked ? "1" : "" })); setProbe(null); }}
                 />
                 <span className="flex-1">
-                  <span className={`text-sm font-medium inline-flex items-center gap-1.5 ${applied ? "text-rose-300" : ""}`}>
+                  <span className={`text-sm font-medium inline-flex items-center gap-1.5 ${applied ? "text-danger" : ""}`}>
                     {applied && <AlertTriangle size={12}/>}
                     {t(action.apply.label ?? "Apply (actually run — default is a safe dry-run)")}
                   </span>
@@ -337,8 +337,8 @@ export function ShellActionDialog<Row>({
         {needsAck && !done && (
           <div className={`mt-3 text-xs rounded-md px-3 py-2 border ${
             probe!.status === "held"
-              ? "text-amber-300 bg-amber-400/10 border-amber-400/30"
-              : "text-rose-300 bg-rose-400/10 border-rose-400/30"
+              ? "text-warning bg-warning/10 border-warning/30"
+              : "text-danger bg-danger/10 border-danger/30"
           }`}>
             <div className="font-medium inline-flex items-center gap-1.5">
               {probe!.status === "held"
@@ -364,14 +364,14 @@ export function ShellActionDialog<Row>({
         )}
 
         {error && (
-          <pre className="mt-3 text-[11px] font-mono text-rose-300 bg-rose-400/10 border border-rose-400/30 rounded-md p-2 whitespace-pre-wrap break-all">
+          <pre className="mt-3 text-[11px] font-mono text-danger bg-danger/10 border border-danger/30 rounded-md p-2 whitespace-pre-wrap break-all">
             {error}
           </pre>
         )}
         {output && (
           <div className="mt-3 space-y-1">
             <div className="text-[11px] uppercase tracking-wider text-muted/70 inline-flex items-center gap-1">
-              <CheckCircle2 size={12} className="text-emerald-300"/> {t("Output")}
+              <CheckCircle2 size={12} className="text-success"/> {t("Output")}
             </div>
             <pre className="text-[11px] font-mono bg-black/40 border border-border rounded-md p-2 max-h-48 overflow-auto whitespace-pre-wrap break-all">
               {output}
@@ -386,11 +386,11 @@ export function ShellActionDialog<Row>({
               <button onClick={run} disabled={!canRun || probing}
                 className={`btn inline-flex items-center gap-2 ${
                   needsAck
-                    ? "bg-rose-500/80 text-white hover:bg-rose-500"
+                    ? "bg-danger/80 text-white hover:bg-danger"
                     : action.apply && !applied
                       ? "bg-accent text-accent-fg"
                       : danger
-                        ? "bg-rose-500/80 text-white hover:bg-rose-500"
+                        ? "bg-danger/80 text-white hover:bg-danger"
                         : "bg-accent text-accent-fg"
                 } disabled:opacity-40 disabled:cursor-not-allowed`}
               >

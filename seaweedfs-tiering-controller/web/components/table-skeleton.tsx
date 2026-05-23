@@ -42,3 +42,21 @@ export function SkeletonBar({ w = "100%", h = "0.9rem" }: { w?: string; h?: stri
     />
   );
 }
+
+// Card-shaped skeleton for detail pages and panels where a TableSkeleton
+// would be wrong (no columns to mimic). Renders a title bar plus N lines
+// of varying width so the layout reads as "content loading" not "empty".
+export function CardSkeleton({ lines = 4, title = true }: { lines?: number; title?: boolean }) {
+  // Vary line widths so the block looks like prose, not stripes.
+  const widths = ["92%", "78%", "85%", "62%", "88%", "70%"];
+  return (
+    <div className="card p-5 space-y-3" aria-busy="true" aria-live="polite">
+      {title && <SkeletonBar w="40%" h="1.1rem"/>}
+      <div className="space-y-2 pt-1">
+        {Array.from({ length: lines }).map((_, i) => (
+          <SkeletonBar key={i} w={widths[i % widths.length]}/>
+        ))}
+      </div>
+    </div>
+  );
+}

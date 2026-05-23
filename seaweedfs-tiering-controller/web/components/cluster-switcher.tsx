@@ -93,8 +93,8 @@ function ClusterChoice({
 }: { row: ClusterRow; active: boolean; onPick: () => void; }) {
   const { data, isLoading } = useClusterHealth(row.id);
   const dot = !data ? "bg-muted" :
-              isLoading ? "bg-amber-400" :
-              data.reachable ? "bg-emerald-400" : "bg-rose-400";
+              isLoading ? "bg-warning" :
+              data.reachable ? "bg-success" : "bg-danger";
   return (
     <button
       onClick={onPick}

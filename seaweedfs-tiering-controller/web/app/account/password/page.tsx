@@ -60,7 +60,7 @@ export default function PasswordPage() {
           <KeyRound size={16}/> {t("Change password")}
         </h1>
         {forced ? (
-          <p className="text-xs text-amber-300 mt-1 inline-flex items-center gap-1">
+          <p className="text-xs text-warning mt-1 inline-flex items-center gap-1">
             <AlertTriangle size={12}/> {t("You must set a new password before continuing.")}
           </p>
         ) : (
@@ -80,7 +80,7 @@ export default function PasswordPage() {
         <Field label={t("Confirm new password")}>
           <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} className="input w-full"/>
         </Field>
-        {err && <div className="text-xs text-rose-300 inline-flex items-center gap-1"><AlertTriangle size={12}/> {err}</div>}
+        {err && <div className="text-xs text-danger inline-flex items-center gap-1"><AlertTriangle size={12}/> {err}</div>}
         <div className="flex justify-end gap-2 pt-1">
           {!forced && <button className="btn" onClick={() => router.back()} disabled={busy}>{t("Cancel")}</button>}
           <button className="btn bg-accent/15 text-accent border-accent/40 inline-flex items-center gap-1.5"

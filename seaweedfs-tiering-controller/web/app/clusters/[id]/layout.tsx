@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CardSkeleton } from "@/components/table-skeleton";
 import { useParams, usePathname } from "next/navigation";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { useClusterTopology } from "@/lib/api";
@@ -57,7 +58,7 @@ export default function ClusterDetailLayout({ children }: { children: React.Reac
     if (isShellRoute && !canUseShell) {
       return <div className="card p-6 text-sm text-muted">{t("You do not have permission to use this shell console.")}</div>;
     }
-    return <div className="text-muted">{t("Loading...")}</div>;
+    return <CardSkeleton lines={3} title={false}/>;
   }
 
   const cluster = data?.cluster || null;

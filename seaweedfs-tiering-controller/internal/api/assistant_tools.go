@@ -256,6 +256,83 @@ func assistantToolRegistry() []assistantTool {
 			Execute: toolPathPreview,
 		},
 		{
+			Risk: ToolRead,
+			Spec: ai.ToolSpec{
+				Name:        "list_buckets",
+				Description: "List S3 buckets on a cluster. Returns name, owner, quota (MB), enforce_flag, object_count when known. Use this to spot buckets without quota or to find candidates for cleanup.",
+				Schema: json.RawMessage(`{
+                    "type":"object",
+                    "properties":{
+                        "cluster_id":{"type":"string","description":"Cluster name (as shown in the UI) or UUID. Required."}
+                    },
+                    "required":["cluster_id"]
+                }`),
+			},
+			Execute: toolListBuckets,
+		},
+		{
+			Risk: ToolRead,
+			Spec: ai.ToolSpec{
+				Name:        "get_bucket",
+				Description: "Details of one S3 bucket: owner, quota config, object count, total size, last_modified, and any associated lifecycle/governance rules.",
+				Schema: json.RawMessage(`{
+                    "type":"object",
+                    "properties":{
+                        "cluster_id":{"type":"string","description":"Cluster name (as shown in the UI) or UUID. Required."},
+                        "name":{"type":"string","description":"Exact S3 bucket name (case-sensitive). Required."}
+                    },
+                    "required":["cluster_id","name"]
+                }`),
+			},
+			Execute: toolGetBucket,
+		},
+		{
+			Risk: ToolRead,
+			Spec: ai.ToolSpec{
+				Name:        "list_s3_identities",
+				Description: "List S3 IAM identities on a cluster: user, access_key (masked), allowed actions. Use to audit who can write/read which buckets.",
+				Schema: json.RawMessage(`{
+                    "type":"object",
+                    "properties":{
+                        "cluster_id":{"type":"string","description":"Cluster name (as shown in the UI) or UUID. Required."}
+                    },
+                    "required":["cluster_id"]
+                }`),
+			},
+			Execute: toolListS3Identities,
+		},
+		{
+			Risk: ToolRead,
+			Spec: ai.ToolSpec{
+				Name:        "get_circuit_breaker",
+				Description: "Current S3 circuit-breaker configuration and recent trigger counts (which limit type fired, when). Use when operators ask why uploads are being rejected.",
+				Schema: json.RawMessage(`{
+                    "type":"object",
+                    "properties":{
+                        "cluster_id":{"type":"string","description":"Cluster name (as shown in the UI) or UUID. Required."}
+                    },
+                    "required":["cluster_id"]
+                }`),
+			},
+			Execute: toolGetCircuitBreaker,
+		},
+		{
+			Risk: ToolRead,
+			Spec: ai.ToolSpec{
+				Name:        "list_clean_uploads",
+				Description: "List incomplete multipart uploads older than a threshold. Returns bucket, key, upload_id, initiated_at, size_so_far. Use to spot orphaned uploads occupying storage.",
+				Schema: json.RawMessage(`{
+                    "type":"object",
+                    "properties":{
+                        "cluster_id":{"type":"string","description":"Cluster name (as shown in the UI) or UUID. Required."},
+                        "older_than_hours":{"type":"integer","description":"Only show uploads older than this many hours. Default 24."}
+                    },
+                    "required":["cluster_id"]
+                }`),
+			},
+			Execute: toolListCleanUploads,
+		},
+		{
 			Risk: ToolWrite,
 			Spec: ai.ToolSpec{
 				Name: "toggle_skill",

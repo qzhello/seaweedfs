@@ -1,15 +1,17 @@
 "use client";
 import { bytes } from "@/lib/utils";
 import { useCaps } from "@/lib/caps-context";
+import { useT } from "@/lib/i18n";
 import { useClusterDetail } from "./_context";
 
 export default function ClusterDetail() {
   const { has, loading } = useCaps();
   const { topology: topo, topologyError } = useClusterDetail();
+  const { t } = useT();
 
   if (loading) return null;
   if (!has("cluster.read")) {
-    return <div className="card p-6 text-sm text-muted">You do not have permission to view this cluster.</div>;
+    return <div className="card p-6 text-sm text-muted">{t("You do not have permission to view this cluster.")}</div>;
   }
 
   if (!topo) {
@@ -19,23 +21,24 @@ export default function ClusterDetail() {
   return (
     <div className="space-y-6">
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Stat label="Data centers" value={topo.totals?.data_centers ?? 0}/>
-        <Stat label="Nodes"         value={topo.totals?.nodes ?? 0}/>
-        <Stat label="Volumes"       value={topo.totals?.volumes ?? 0}/>
-        <Stat label="Used / Capacity" value={`${bytes(topo.totals?.used)} / ${bytes(topo.totals?.capacity)}`}
-              sub={`${pct(topo.totals?.used, topo.totals?.capacity)} used`}/>
+        <Stat label={t("Data centers")} value={topo.totals?.data_centers ?? 0}/>
+        <Stat label={t("Nodes")}         value={topo.totals?.nodes ?? 0}/>
+        <Stat label={t("Volumes")}       value={topo.totals?.volumes ?? 0}/>
+        <Stat label={t("Used / Capacity")} value={`${bytes(topo.totals?.used)} / ${bytes(topo.totals?.capacity)}`}
+              sub={`${pct(topo.totals?.used, topo.totals?.capacity)} ${t("used")}`}/>
       </section>
     </div>
   );
 }
 
 function TopologyUnavailable({ error }: { error: string | null }) {
+  const { t } = useT();
   return (
     <div className="card p-5 border-danger/40 bg-danger/10 text-danger">
-      <div className="font-medium mb-1">Cannot reach SeaweedFS master</div>
-      <div className="text-xs font-mono break-all">{error || "topology unavailable"}</div>
+      <div className="font-medium mb-1">{t("Cannot reach SeaweedFS master")}</div>
+      <div className="text-xs font-mono break-all">{error || t("topology unavailable")}</div>
       <p className="text-xs text-muted mt-2">
-        Cluster overview needs live topology from the master. Try again when the master is reachable.
+        {t("Cluster overview needs live topology from the master. Try again when the master is reachable.")}
       </p>
     </div>
   );

@@ -1,5 +1,6 @@
 "use client";
 import { useBackends, api } from "@/lib/api";
+import { confirm as confirmDlg } from "@/lib/confirm";
 import { EmptyState } from "@/components/empty-state";
 import { useEffect, useState } from "react";
 import { Cloud, Plus, Trash2, Plug, CheckCircle2, XCircle, Lock, AlertTriangle, X } from "lucide-react";
@@ -121,10 +122,13 @@ export default function BackendsPage() {
                       }}><Plug size={12}/> {t("Test")}</button>
                       <button className="btn" onClick={() => setEditing({ ...b, secret_access_key: "" })}>{t("Edit")}</button>
                       <button className="btn btn-danger" onClick={async () => {
-                        if (confirm(t("Delete backend {name}?").replace("{name}", b.name))) {
-                          await api.deleteBackend(b.id);
-                          mutate();
-                        }
+                        if (!(await confirmDlg.danger({
+                          title: t("Delete backend {name}?").replace("{name}", b.name),
+                          body: t("Tasks referencing this backend will no longer be runnable."),
+                          confirmLabel: t("Delete"),
+                        }))) return;
+                        await api.deleteBackend(b.id);
+                        mutate();
                       }}><Trash2 size={12}/></button>
                     </td>
                   </tr>

@@ -5,6 +5,7 @@ import { UserMenu } from "@/components/user-menu";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { FloatingAssistant } from "@/components/assistant/floating-assistant";
 import { ToastHost } from "@/components/toast-host";
+import { ConfirmHost } from "@/components/confirm-host";
 import { KeyboardShortcutsHost } from "@/components/keyboard-shortcuts-host";
 import { ClusterProvider } from "@/lib/cluster-context";
 import { CapsProvider, useCaps } from "@/lib/caps-context";
@@ -78,6 +79,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         </div>
         <FloatingAssistant />
         <ToastHost />
+        <ConfirmHost />
         <KeyboardShortcutsHost />
        </ClusterProvider>
       </CapsProvider>

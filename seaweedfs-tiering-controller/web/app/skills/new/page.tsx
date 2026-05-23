@@ -9,6 +9,7 @@ import {
   SkillWizard, type WizardDraft, type SkillMeta, type SkillDefinition, type RiskLevel,
 } from "@/components/skill-wizard";
 import { api, useSkills } from "@/lib/api";
+import { useT } from "@/lib/i18n";
 
 // Three authoring modes share a single in-memory draft so the operator can
 // flip between them without losing work:
@@ -37,6 +38,7 @@ const BLANK_DEF: SkillDefinition = {
 };
 
 export default function NewSkillPage() {
+  const { t } = useT();
   const router = useRouter();
   const params = useSearchParams();
   const forkKey = params.get("fork") || "";
@@ -116,16 +118,16 @@ export default function NewSkillPage() {
     setMode("wizard");
   };
 
-  const headline = source ? `Fork ${source.key}` : "New Skill";
+  const headline = source ? t("Fork {key}").replace("{key}", source.key) : t("New Skill");
   const subhead = source
-    ? "Forking a system skill into a custom one. Tweak the steps, then save under a new key."
-    : "Build a Skill the controller can run as a versioned, schema-validated procedure.";
+    ? t("Forking a system skill into a custom one. Tweak the steps, then save under a new key.")
+    : t("Build a Skill the controller can run as a versioned, schema-validated procedure.");
 
   return (
     <div className="space-y-5">
       <Breadcrumb items={[
-        { label: "Skills", href: "/skills" },
-        { label: source ? "Fork" : "New" },
+        { label: t("Skills"), href: "/skills" },
+        { label: source ? t("Fork") : t("New") },
       ]}/>
 
       <header className="flex items-end justify-between gap-4 flex-wrap">
@@ -141,7 +143,7 @@ export default function NewSkillPage() {
 
       {forkKey && !source && (
         <div className="card p-4 border-warning/40 bg-warning/10 text-warning text-sm">
-          Source skill <span className="font-mono">{forkKey}</span> not found. Starting from a blank template.
+          {t("Source skill")} <span className="font-mono">{forkKey}</span> {t("not found. Starting from a blank template.")}
         </div>
       )}
 
@@ -166,10 +168,11 @@ export default function NewSkillPage() {
 }
 
 function ModeTabs({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {
+  const { t } = useT();
   const tabs: { key: Mode; label: string; icon: typeof Wand2 }[] = [
-    { key: "wizard", label: "Wizard",     icon: Wand2 },
-    { key: "json",   label: "JSON",       icon: FileCode2 },
-    { key: "paste",  label: "Paste",      icon: ClipboardPaste },
+    { key: "wizard", label: t("Wizard"),     icon: Wand2 },
+    { key: "json",   label: t("JSON"),       icon: FileCode2 },
+    { key: "paste",  label: t("Paste"),      icon: ClipboardPaste },
   ];
   return (
     <div className="inline-flex rounded-md border border-border overflow-hidden">

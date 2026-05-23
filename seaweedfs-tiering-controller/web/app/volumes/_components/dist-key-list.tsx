@@ -73,7 +73,7 @@ export function DistKeyList({
                 )}
                 {b.readonly > 0 && (
                   <div
-                    className="h-full bg-amber-400/80"
+                    className="h-full bg-warning/80"
                     style={{ width: `${rPct}%` }}
                     title={`read-only: ${b.readonly}`}
                   />
@@ -99,7 +99,7 @@ export function DistKeyList({
                   title={isCopied ? "Copied" : "Copy"}
                   aria-label="Copy"
                 >
-                  {isCopied ? <Check size={11} className="text-emerald-300"/> : <Copy size={11}/>}
+                  {isCopied ? <Check size={11} className="text-success"/> : <Copy size={11}/>}
                 </button>
               </div>
             </li>
