@@ -2629,6 +2629,42 @@ const ZH: Dict = {
   "Threshold":                    "阈值",
   "\"Last rotated\" is the most recent identity edit recorded in the audit log; a secret-only rotation done via CLI is invisible here.":
                                   "\"上次轮换\"取自审计日志中最近一次身份编辑;仅通过 CLI 完成的密钥轮换不会被记录。",
+
+  // --- Bucket cost AI plan ---
+  "Bucket plan (AI)":             "Bucket 计划 (AI)",
+  "Plan bucket lifecycle (AI)":   "规划 Bucket 生命周期 (AI)",
+  "Read-only until you click Apply on a proposal.":
+                                  "在你对某条建议点击\"应用\"之前,只读。",
+  "Operator hint (optional)":     "操作员提示(可选)",
+  "e.g. focus on archive buckets, ignore logs-*":
+                                  "例如:重点关注归档 bucket,忽略 logs-*",
+  "Generate plan":                "生成计划",
+  "Planning…":                    "规划中…",
+  "AI call failed.":              "AI 调用失败。",
+  "No bucket telemetry yet.":     "暂无 bucket 遥测数据。",
+  // "Warnings" key already defined earlier (line ~1418)
+  "{n} proposal(s) · est. saving {amount} {ccy}/month":
+                                  "{n} 条建议 · 预估节省 {amount} {ccy}/月",
+  "Cleanup uploads":              "清理 multipart 上传",
+  "Review for deletion":          "标记可删除",
+  "Investigate tiering":          "调查冷热分层",
+  "Apply quota":                  "应用配额",
+  "Run cleanup":                  "运行清理",
+  "Mark reviewed":                "标记为已审阅",
+  // "Discard" key already defined earlier (line ~2568)
+  "Confidence":                   "置信度",
+  "month":                        "月",
+  "Quota":                        "配额",
+  "Set quota on {bucket}?":       "为 {bucket} 设置配额?",
+  "Set quota to {n} MB. This may reject future writes once the bucket fills.":
+                                  "将配额设为 {n} MB。bucket 写满后后续写入会被拒绝。",
+  "Recorded":                     "已记录",
+  "Bucket plan acceptance (7d)":  "Bucket 计划采纳率(近 7 天)",
+  "Approved or edited proposals out of total":
+                                  "已批准或编辑的建议数 / 总数",
+  "Accept rate":                  "采纳率",
+  "Open":                         "未决",
+  "Saving recorded":              "已记录节省",
 };
 
 const DICTS: Record<Lang, Dict> = {

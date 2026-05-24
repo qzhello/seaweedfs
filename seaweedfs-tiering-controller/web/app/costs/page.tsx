@@ -6,11 +6,12 @@
 // click apart and ?tab= drives which slice is visible.
 
 import { Suspense } from "react";
-import { DollarSign, Tags } from "lucide-react";
+import { DollarSign, Tags, Sparkles } from "lucide-react";
 import { TabsLayout } from "@/components/tabs-layout";
 import { useT } from "@/lib/i18n";
 import { CostsOverviewPanel } from "./_panels/overview";
 import { PricingPanel } from "./_panels/pricing";
+import { BucketCostPlanPanel } from "./_panels/bucket-plan";
 
 function CostsInner() {
   const { t } = useT();
@@ -27,6 +28,10 @@ function CostsInner() {
         {
           key: "pricing", label: "Pricing", icon: Tags,
           panel: <PricingPanel/>,
+        },
+        {
+          key: "bucket-plan", label: "Bucket plan (AI)", icon: Sparkles,
+          panel: <BucketCostPlanPanel/>,
         },
       ]}
     />

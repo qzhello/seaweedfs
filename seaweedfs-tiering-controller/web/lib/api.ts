@@ -569,6 +569,56 @@ export interface AuditSummaryResp {
   raw?: string;
 }
 
+// Bucket-level cost AI plan. Per-bucket lifecycle proposals + counterfactual
+// learning. Persisted server-side so the operator's approve/discard
+// updates the AI Learning panel.
+export interface BucketCostProposal {
+  proposal_id?: string;
+  bucket: string;
+  action: "set_quota" | "cleanup_uploads" | "review_for_deletion" | "investigate_tiering";
+  value: Record<string, unknown>;
+  risk: "low" | "medium" | "high";
+  confidence?: string;
+  explanation: string;
+  est_monthly_saving: number;
+}
+export interface BucketCostPlanResp {
+  ok: boolean;
+  empty?: boolean;
+  message?: string;
+  error?: string;
+  summary?: string;
+  proposals?: BucketCostProposal[];
+  total_saving?: number;
+  currency?: string;
+  warnings?: string[];
+  provider_name?: string;
+  raw?: string;
+}
+export async function bucketCostPlan(clusterID: string, body: { extra_context?: string; max_proposals?: number } = {}) {
+  return jpost(`${BASE}/clusters/${clusterID}/buckets/cost-plan`, body) as Promise<BucketCostPlanResp>;
+}
+export async function bucketCostPlanDecide(proposalID: string, body: {
+  decision: "approved" | "discarded" | "edited";
+  applied_value?: Record<string, unknown>;
+}) {
+  return jpost(`${BASE}/ai/bucket-cost-proposals/${proposalID}/decide`, body) as Promise<{ ok: boolean }>;
+}
+export interface BucketCostLearningResp {
+  hours: number;
+  total: number;
+  approved: number;
+  edited: number;
+  discarded: number;
+  accept_rate: number;
+  precision_rate: number;
+  open_proposals: number;
+  realised_saving: number;
+  currency: string;
+  by_risk: { risk: string; total: number; approved: number; accept_rate: number }[];
+  by_action: { action: string; total: number; approved: number; accept_rate: number }[];
+}
+
 // Identity key-rotation reminder. Read-only — combines `s3.configure -list`
 // with our audit log to estimate "how long since this access key was
 // last rotated". `unknown` means the identity has access keys but no
@@ -797,6 +847,10 @@ export interface AIS3LimitLearningResp {
 }
 export function useAIS3LimitLearning(hours = 168) {
   return useSWR<AIS3LimitLearningResp>(`${BASE}/ai/s3-limit-learning?hours=${hours}`, fetcher);
+}
+
+export function useBucketCostLearning(hours = 168) {
+  return useSWR<BucketCostLearningResp>(`${BASE}/ai/bucket-cost-learning?hours=${hours}`, fetcher);
 }
 
 // ---------------- ops / weed shell ----------------

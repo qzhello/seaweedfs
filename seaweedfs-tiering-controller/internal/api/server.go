@@ -364,6 +364,14 @@ func Router(d Deps) *gin.Engine {
 		v1.POST("/ai/s3-limit-proposals/:id/decide",
 			auth.RequireCap(d.Caps, "s3.circuit-breaker"), s3LimitProposalDecide(d))
 		v1.GET("/ai/s3-limit-learning", s3LimitLearningSummary(d))
+		// Bucket-level cost AI plan — per-bucket lifecycle suggestions.
+		// Cost-write gate to match /costs/ai-plan; both are advisory
+		// until the operator explicitly applies.
+		v1.POST("/clusters/:id/buckets/cost-plan",
+			auth.RequireCap(d.Caps, "cost.write"), bucketCostPlan(d))
+		v1.POST("/ai/bucket-cost-proposals/:id/decide",
+			auth.RequireCap(d.Caps, "cost.write"), bucketCostPlanDecide(d))
+		v1.GET("/ai/bucket-cost-learning", bucketCostLearningSummary(d))
 
 		// --- AI floating assistant (024) ---
 		v1.GET("/ai/assistant/chats",
