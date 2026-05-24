@@ -2665,6 +2665,33 @@ const ZH: Dict = {
   "Accept rate":                  "采纳率",
   "Open":                         "未决",
   "Saving recorded":              "已记录节省",
+
+  // --- Alert AI triage ---
+  "AI alert triage":              "告警 AI 分诊",
+  "Read-only summary — no auto-silence.":
+                                  "只读摘要——不会自动静默。",
+  "Window (hours)":               "时间窗(小时)",
+  "Severity floor":               "最低严重程度",
+  "Operator focus (optional)":    "操作员关注点(可选)",
+  "e.g. focus on filer-3, group identity alerts":
+                                  "例如:重点看 filer-3、把身份相关告警归一组",
+  "Triage with AI":               "用 AI 分诊",
+  "Triaging…":                    "分诊中…",
+  "Storms only":                  "仅风暴",
+  "Criticals":                    "严重项",
+  "Suppressions":                 "被抑制项",
+  "Storm candidates":             "风暴候选",
+  "Investigate first":            "优先排查",
+  "Older events truncated":       "更早的事件已截断",
+  "No alert events in this window. Quiet is good.":
+                                  "此窗口内没有告警事件。安静是好事。",
+  "Show server-side facets":      "查看服务端聚合",
+  "Window":                       "时间窗",
+  "Events":                       "事件",
+  "Kind":                         "类型",
+  // "Source" key already defined earlier (line ~1496)
+  // "Severity" key already defined earlier (line ~1975)
+  "Generic":                      "通用",
 };
 
 const DICTS: Record<Lang, Dict> = {

@@ -569,6 +569,50 @@ export interface AuditSummaryResp {
   raw?: string;
 }
 
+// Alert triage. Read-only narrative over recent alert events:
+// fingerprints, storms (silence candidates), priorities (investigate
+// first). Like auditSummary, no counterfactual — it's a comprehension
+// aid, not a decision pipeline.
+export interface AlertTriageFingerprint {
+  event_kind: string;
+  source: string;
+  count: number;
+  first_fired: string;
+  last_fired: string;
+  severities: string[];
+  suppressed: number;
+}
+export interface AlertTriageResp {
+  ok: boolean;
+  empty?: boolean;
+  hours: number;
+  row_count: number;
+  severity_min?: string;
+  truncated?: boolean;
+  provider_name?: string;
+  summary?: {
+    headline: string;
+    narrative: string;
+    storms: { event_kind: string; source: string; count: number; reason: string }[];
+    priorities: { event_kind: string; source: string; severity: string; reason: string }[];
+  };
+  facets?: {
+    by_severity: { key: string; count: number }[];
+    by_kind:     { key: string; count: number }[];
+    by_source:   { key: string; count: number }[];
+    fingerprints: AlertTriageFingerprint[];
+  };
+  error?: string;
+  raw?: string;
+}
+export async function alertTriage(body: {
+  hours?: number;
+  severity_min?: "info" | "warning" | "critical";
+  question?: string;
+}): Promise<AlertTriageResp> {
+  return jpost(`${BASE}/alerts/triage`, body) as Promise<AlertTriageResp>;
+}
+
 // Bucket-level cost AI plan. Per-bucket lifecycle proposals + counterfactual
 // learning. Persisted server-side so the operator's approve/discard
 // updates the AI Learning panel.

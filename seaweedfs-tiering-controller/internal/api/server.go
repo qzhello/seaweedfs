@@ -372,6 +372,9 @@ func Router(d Deps) *gin.Engine {
 		v1.POST("/ai/bucket-cost-proposals/:id/decide",
 			auth.RequireCap(d.Caps, "cost.write"), bucketCostPlanDecide(d))
 		v1.GET("/ai/bucket-cost-learning", bucketCostLearningSummary(d))
+		// Alert triage — read-only AI summariser over the last N hours
+		// of alert_events. No proposal, no auto-silence.
+		v1.POST("/alerts/triage", alertTriage(d))
 
 		// --- AI floating assistant (024) ---
 		v1.GET("/ai/assistant/chats",

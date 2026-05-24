@@ -49,7 +49,12 @@ export function AlertsPanel() {
         </div>
       </div>
 
-      {tab === "events" && <EventsTab items={events?.items || []} loading={eventsLoading && !events}/>}
+      {tab === "events" && (
+        <>
+          <AITriageCard hasEvents={(events?.items?.length || 0) > 0}/>
+          <EventsTab items={events?.items || []} loading={eventsLoading && !events}/>
+        </>
+      )}
       {tab === "channels" && (
         <ChannelsTab items={channels?.items || []}
           onEdit={(c: any) => setEditingChan(c)}
@@ -215,6 +220,183 @@ function TemplateModal({
           <button className="btn btn-primary" disabled={saving} onClick={save}>{saving ? t("Saving…") : t("Save")}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---- AI triage card ----
+//
+// Operator clicks "Triage with AI", picks a window + severity floor + an
+// optional steering question, gets back a narrative + storm / priority
+// recommendations. Read-only — silencing or investigating happens via
+// the existing rule editor / runbook flow, not from this card.
+
+function AITriageCard({ hasEvents }: { hasEvents: boolean }) {
+  const { t } = useT();
+  const [open, setOpen]         = useState(false);
+  const [hours, setHours]       = useState(24);
+  const [sev, setSev]           = useState<"info" | "warning" | "critical">("warning");
+  const [question, setQuestion] = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [data, setData]         = useState<import("@/lib/api").AlertTriageResp | null>(null);
+
+  if (!hasEvents) return null;
+
+  const run = async () => {
+    setLoading(true);
+    try {
+      const { alertTriage } = await import("@/lib/api");
+      const r = await alertTriage({ hours, severity_min: sev, question: question.trim() || undefined });
+      setData(r);
+    } catch (e) {
+      setData({ ok: false, hours, row_count: 0, error: e instanceof Error ? e.message : String(e) } as import("@/lib/api").AlertTriageResp);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const presets = [
+    { label: t("Generic"),       q: "" },
+    { label: t("Storms only"),   q: "focus on storm fingerprints; what should I silence first?" },
+    { label: t("Criticals"),     q: "what critical events are unique and need investigation now?" },
+    { label: t("Suppressions"),  q: "any fingerprints with high suppression count that might be hiding real issues?" },
+  ];
+
+  return (
+    <section className="card mb-4">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="flex w-full items-center justify-between gap-2 p-3 text-left"
+      >
+        <span className="inline-flex items-center gap-2 text-sm font-medium">
+          <ShieldAlert size={14} className="text-warning"/>
+          {t("AI alert triage")}
+          <span className="text-[11px] font-normal text-muted">{t("Read-only summary — no auto-silence.")}</span>
+        </span>
+        <span className="text-xs text-muted">{open ? "−" : "+"}</span>
+      </button>
+      {open && (
+        <div className="space-y-3 border-t border-divider p-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="text-xs">
+              <span className="block text-muted">{t("Window (hours)")}</span>
+              <input type="number" min={1} max={720} className="input w-24"
+                     value={hours} onChange={e => setHours(Math.max(1, Math.min(720, Number(e.target.value) || 24)))} disabled={loading}/>
+            </label>
+            <label className="text-xs">
+              <span className="block text-muted">{t("Severity floor")}</span>
+              <select className="input" value={sev}
+                      onChange={e => setSev(e.target.value as typeof sev)} disabled={loading}>
+                {SEVS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+            <label className="text-xs flex-1 min-w-[240px]">
+              <span className="block text-muted">{t("Operator focus (optional)")}</span>
+              <input className="input w-full" placeholder={t("e.g. focus on filer-3, group identity alerts")}
+                     value={question} onChange={e => setQuestion(e.target.value)} disabled={loading}/>
+            </label>
+            <button className="btn inline-flex items-center gap-1.5" onClick={run} disabled={loading}>
+              {loading ? "…" : <ShieldAlert size={12}/>} {loading ? t("Triaging…") : t("Triage with AI")}
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {presets.map(p => (
+              <button key={p.label} className="badge text-[11px]"
+                      onClick={() => { setQuestion(p.q); }} disabled={loading}>{p.label}</button>
+            ))}
+          </div>
+
+          {data && <TriageResult data={data}/>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function TriageResult({ data }: { data: import("@/lib/api").AlertTriageResp }) {
+  const { t } = useT();
+  if (data.empty) {
+    return <p className="text-xs text-muted">{t("No alert events in this window. Quiet is good.")}</p>;
+  }
+  if (!data.ok) {
+    return <p className="rounded border border-danger/30 bg-danger/10 p-2 text-xs text-danger">{data.error || t("AI call failed.")}</p>;
+  }
+  const s = data.summary;
+  if (!s) return null;
+  return (
+    <div className="space-y-3 text-xs">
+      <div>
+        <div className="text-sm font-medium">{s.headline}</div>
+        <p className="mt-1 text-muted whitespace-pre-wrap">{s.narrative}</p>
+        <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted">
+          <span>{t("Window")}: {data.hours}h</span>
+          <span>·</span>
+          <span>{t("Events")}: {data.row_count}</span>
+          {data.truncated && <><span>·</span><span className="text-warning inline-flex items-center gap-1"><AlertTriangle size={10}/> {t("Older events truncated")}</span></>}
+          {data.provider_name && <><span>·</span><span>{data.provider_name}</span></>}
+        </div>
+      </div>
+
+      {s.storms.length > 0 && (
+        <section>
+          <div className="mb-1 font-medium text-warning">{t("Storm candidates")}</div>
+          <ul className="space-y-1">
+            {s.storms.map((x, i) => (
+              <li key={i} className="rounded bg-panel2 p-2">
+                <div className="flex items-center justify-between font-mono text-[11px]">
+                  <span>{x.event_kind} · {x.source}</span>
+                  <span className="text-warning">×{x.count}</span>
+                </div>
+                <p className="mt-1 text-muted">{x.reason}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {s.priorities.length > 0 && (
+        <section>
+          <div className="mb-1 font-medium text-danger">{t("Investigate first")}</div>
+          <ul className="space-y-1">
+            {s.priorities.map((x, i) => (
+              <li key={i} className="rounded bg-panel2 p-2">
+                <div className="flex items-center justify-between font-mono text-[11px]">
+                  <span>{x.event_kind} · {x.source}</span>
+                  <SevBadge s={x.severity}/>
+                </div>
+                <p className="mt-1 text-muted">{x.reason}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {data.facets && (
+        <details className="text-[11px]">
+          <summary className="cursor-pointer text-muted">{t("Show server-side facets")}</summary>
+          <div className="mt-2 grid gap-3 sm:grid-cols-3">
+            <TriageFacet label={t("Severity")} rows={data.facets.by_severity}/>
+            <TriageFacet label={t("Kind")}     rows={data.facets.by_kind}/>
+            <TriageFacet label={t("Source")}   rows={data.facets.by_source}/>
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function TriageFacet({ label, rows }: { label: string; rows: { key: string; count: number }[] }) {
+  return (
+    <div>
+      <div className="mb-1 text-[10px] uppercase tracking-wider text-muted">{label}</div>
+      <ul className="space-y-0.5">
+        {rows.map(r => (
+          <li key={r.key} className="flex items-center justify-between font-mono">
+            <span className="truncate">{r.key || "—"}</span>
+            <span className="text-muted">{r.count}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
