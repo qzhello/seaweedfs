@@ -587,6 +587,9 @@ func Router(d Deps) *gin.Engine {
 
 		v1.GET("/audit", listAudit(d))
 		v1.GET("/audit/facets", auditFacets(d))
+		// AI summary — narrative over the same audit slice. Read-only,
+		// no proposal, no persistence; just synthesis.
+		v1.POST("/audit/summary", auditSummarize(d))
 	}
 	return r
 }

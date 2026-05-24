@@ -544,6 +544,39 @@ export function useAudit(filter?: { actor?: string; action?: string; kind?: stri
   return useSWR(`${BASE}/audit${s ? `?${s}` : ""}`, fetcher);
 }
 export function useAuditFacets() { return useSWR(`${BASE}/audit/facets`, fetcher); }
+
+// Audit AI summary — POST endpoint, not SWR. The operator triggers it
+// explicitly (button click) so we expose a function rather than a hook.
+export interface AuditSummaryResp {
+  ok: boolean;
+  empty?: boolean;
+  hours: number;
+  row_count: number;
+  truncated?: boolean;
+  provider_name?: string;
+  summary?: {
+    headline: string;
+    narrative: string;
+    highlights: string[];
+    risks: string[];
+  };
+  facets?: {
+    by_action: { key: string; count: number }[];
+    by_actor:  { key: string; count: number }[];
+    by_kind:   { key: string; count: number }[];
+  };
+  error?: string;
+  raw?: string;
+}
+export async function auditSummary(body: {
+  hours?: number;
+  actor?: string;
+  action?: string;
+  target_kind?: string;
+  question?: string;
+}): Promise<AuditSummaryResp> {
+  return jpost(`${BASE}/audit/summary`, body) as Promise<AuditSummaryResp>;
+}
 export function useTask(id?: string) {
   return useSWR(id ? `${BASE}/tasks/${id}` : null, fetcher);
 }

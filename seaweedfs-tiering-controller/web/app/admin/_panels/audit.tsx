@@ -1,10 +1,14 @@
 "use client";
 import { useState, useMemo } from "react";
 import { useT } from "@/lib/i18n";
-import { useAudit, useAuditFacets } from "@/lib/api";
+import { useAudit, useAuditFacets, auditSummary } from "@/lib/api";
+import type { AuditSummaryResp } from "@/lib/api";
 import { EmptyState } from "@/components/empty-state";
 import { TableSkeleton } from "@/components/table-skeleton";
-import { ScrollText, X, Search, Clock } from "lucide-react";
+import {
+  ScrollText, X, Search, Clock, Sparkles, ChevronDown, ChevronRight,
+  AlertTriangle, Loader2, FileText,
+} from "lucide-react";
 import { relTime } from "@/lib/utils";
 import { Pagination, usePagination } from "@/components/pagination";
 import { RefreshButton } from "@/components/refresh-button";
@@ -96,6 +100,17 @@ export function AuditPanel() {
           <RefreshButton loading={isValidating} onClick={() => mutate()}/>
         </div>
       </div>
+
+      {/* AI summary — collapsible card. Sends the current filters
+          plus a free-text "focus" question to /audit/summary so the
+          AI's prose is grounded in the same slice the operator is
+          looking at. */}
+      <AISummarySection
+        actor={actor}
+        action={action}
+        kind={kind}
+        range={range}
+      />
 
       {/* Filter bar — single row, wraps on mobile */}
       <section className="card px-4 py-3">
@@ -218,6 +233,209 @@ export function AuditPanel() {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+// ---- AI summary ------------------------------------------------------
+//
+// Collapsible card that asks the AI to summarise the audit slice the
+// operator is currently looking at. We send the SAME actor/action/kind
+// filters the user picked, so what the AI sees == what the table shows
+// (within the 500-row cap on the backend). The "focus" textarea is the
+// only freeform input — empty = generic summary.
+
+const RANGE_HOURS: Record<RangeKey, number> = {
+  "1h": 1, "24h": 24, "7d": 168, "30d": 720, "all": 720, // "all" capped at 30d for AI prompt budget
+};
+
+function AISummarySection({ actor, action, kind, range }: {
+  actor: string; action: string; kind: string; range: RangeKey;
+}) {
+  const { t } = useT();
+  const [expanded, setExpanded] = useState(false);
+  const [question, setQuestion] = useState("");
+  const [loading, setLoading]   = useState(false);
+  const [resp, setResp]         = useState<AuditSummaryResp | null>(null);
+  const [error, setError]       = useState<string | null>(null);
+
+  const generate = async () => {
+    setLoading(true);
+    setError(null);
+    setResp(null);
+    try {
+      const r = await auditSummary({
+        hours:       RANGE_HOURS[range] ?? 168,
+        actor:       actor || undefined,
+        action:      action || undefined,
+        target_kind: kind || undefined,
+        question:    question.trim() || undefined,
+      });
+      setResp(r);
+      if (!r.ok) setError(r.error ?? "AI did not return a summary.");
+    } catch (e: unknown) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Preset prompts — quick starters operators reach for. Empty strings
+  // are intentional: clicking "Generic" just clears the focus input.
+  const presets = [
+    { label: t("Generic summary"), value: "" },
+    { label: t("Focus on S3 changes"),       value: "Focus on S3 (bucket/identity/quota/circuit-breaker) changes." },
+    { label: t("Focus on deletions"),        value: "Highlight every delete, drop, and removal action." },
+    { label: t("Who did what?"),             value: "Group the narrative by actor — who did how many things and what kind." },
+  ];
+
+  return (
+    <section className="card overflow-hidden">
+      <button
+        className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-surface/40 transition-colors"
+        onClick={() => setExpanded(s => !s)}
+        aria-expanded={expanded}
+      >
+        <span className="inline-flex items-center gap-2 text-sm font-medium">
+          <Sparkles size={15} className="text-accent"/>
+          {t("AI summary")}
+          {resp?.summary && (
+            <span className="text-[11px] text-muted ml-1">
+              · {t("{n} events").replace("{n}", String(resp.row_count))}
+            </span>
+          )}
+        </span>
+        {expanded ? <ChevronDown size={15} className="text-muted"/> : <ChevronRight size={15} className="text-muted"/>}
+      </button>
+
+      {expanded && (
+        <div className="border-t border-border px-4 py-3 space-y-3">
+          <p className="text-[11px] text-muted leading-relaxed">
+            {t("Summarises the same audit slice you have filtered. The narrative is AI-generated; the event counts come straight from the database.")}
+          </p>
+
+          {/* Preset chips */}
+          <div className="flex flex-wrap gap-1.5">
+            {presets.map(p => (
+              <button
+                key={p.label}
+                onClick={() => setQuestion(p.value)}
+                className={`px-2 py-1 rounded text-[11px] border ${
+                  question === p.value
+                    ? "bg-accent/15 text-accent border-accent/40"
+                    : "text-muted border-border hover:text-text hover:bg-panel2"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] text-muted">{t("Focus (optional)")}</label>
+            <textarea
+              value={question}
+              onChange={e => setQuestion(e.target.value)}
+              rows={2}
+              placeholder={t("e.g. 'who changed quotas this week' — empty for a generic summary")}
+              className="input w-full resize-none text-xs"
+            />
+          </div>
+
+          <div>
+            <button
+              className="btn inline-flex items-center gap-1.5 bg-accent/15 text-accent border-accent/40"
+              onClick={generate}
+              disabled={loading}
+            >
+              {loading
+                ? <><Loader2 size={13} className="animate-spin"/> {t("Summarising…")}</>
+                : <><Sparkles size={13}/> {t("Summarise")}</>}
+            </button>
+          </div>
+
+          {error && (
+            <div className="rounded border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger inline-flex items-start gap-2">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0"/> {error}
+            </div>
+          )}
+
+          {/* Empty window — no AI call was made */}
+          {resp?.empty && (
+            <div className="text-xs text-muted inline-flex items-center gap-1.5">
+              <FileText size={12}/> {t("No audit events in this window — nothing to summarise.")}
+            </div>
+          )}
+
+          {/* Successful summary */}
+          {resp?.ok && resp?.summary && (
+            <div className="rounded-md border border-accent/30 bg-accent/[0.04] p-3 space-y-3">
+              <h3 className="text-sm font-medium">{resp.summary.headline}</h3>
+              <p className="text-[12px] text-text leading-relaxed">{resp.summary.narrative}</p>
+
+              {resp.summary.highlights?.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-wider text-muted">{t("Highlights")}</div>
+                  <ul className="text-[11px] space-y-0.5 list-disc list-inside">
+                    {resp.summary.highlights.map((h, i) => <li key={i}>{h}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {resp.summary.risks?.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-[10px] uppercase tracking-wider text-danger inline-flex items-center gap-1">
+                    <AlertTriangle size={10}/> {t("Risks to double-check")}
+                  </div>
+                  <ul className="text-[11px] space-y-0.5 list-disc list-inside text-danger">
+                    {resp.summary.risks.map((r, i) => <li key={i}>{r}</li>)}
+                  </ul>
+                </div>
+              )}
+
+              {/* Facet chips — counted server-side, NOT from the AI. */}
+              {resp.facets && (
+                <div className="grid grid-cols-3 gap-3 text-[11px] pt-2 border-t border-border/40">
+                  <FacetList title={t("By action")} rows={resp.facets.by_action}/>
+                  <FacetList title={t("By actor")}  rows={resp.facets.by_actor}/>
+                  <FacetList title={t("By kind")}   rows={resp.facets.by_kind}/>
+                </div>
+              )}
+
+              <div className="text-[10px] text-muted/80 pt-1">
+                {resp.truncated && (
+                  <span className="text-warning inline-flex items-center gap-1 mr-2">
+                    <AlertTriangle size={10}/> {t("AI saw only the most recent 500 rows.")}
+                  </span>
+                )}
+                {resp.provider_name && <>{t("Provider")}: <code className="font-mono">{resp.provider_name}</code></>}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// FacetList renders one column of "X · n" rows — the counted breakdown
+// that complements the AI's prose narrative.
+function FacetList({ title, rows }: { title: string; rows: { key: string; count: number }[] }) {
+  return (
+    <div className="space-y-1">
+      <div className="text-[10px] uppercase tracking-wider text-muted">{title}</div>
+      {rows.length === 0 ? (
+        <div className="text-muted/60">—</div>
+      ) : (
+        <ul className="space-y-0.5">
+          {rows.map(r => (
+            <li key={r.key} className="flex items-center justify-between gap-2">
+              <span className="truncate font-mono text-text">{r.key}</span>
+              <span className="text-muted tabular-nums">{r.count}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

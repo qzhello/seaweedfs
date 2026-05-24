@@ -2471,6 +2471,29 @@ const ZH: Dict = {
   "AI policy assistant":          "AI 策略助手",
   // ---- Circuit-breaker AI limit advisor (Tier 2.4) ----
   "AI limit advisor":             "AI 限流顾问",
+  // ---- Audit AI summary (Tier 3.6) ----
+  "AI summary":                   "AI 摘要",
+  "Summarises the same audit slice you have filtered. The narrative is AI-generated; the event counts come straight from the database.":
+                                  "对你当前筛选的审计数据生成摘要。叙述由 AI 生成,事件计数直接来自数据库。",
+  "Generic summary":              "通用摘要",
+  "Focus on S3 changes":          "聚焦 S3 变更",
+  "Focus on deletions":           "聚焦删除操作",
+  "Who did what?":                "谁做了什么?",
+  "Focus (optional)":             "聚焦(可选)",
+  "e.g. 'who changed quotas this week' — empty for a generic summary":
+                                  "例如:本周谁改了配额 —— 留空则生成通用摘要",
+  "Summarising…":                 "正在生成摘要…",
+  "Summarise":                    "生成摘要",
+  "No audit events in this window — nothing to summarise.":
+                                  "此时间窗内没有审计事件,无可摘要。",
+  "Highlights":                   "要点",
+  "Risks to double-check":        "需复核的风险",
+  "By action":                    "按动作",
+  "By actor":                     "按操作者",
+  "By kind":                      "按对象类型",
+  // "Provider" key already defined earlier (line ~813)
+  "AI saw only the most recent 500 rows.": "AI 仅看到最近 500 行。",
+  "{n} events":                   "{n} 条事件",
   "Get AI suggestion":            "获取 AI 建议",
   "The advisor reads current circuit-breaker state and trigger history, then proposes one threshold change. Review and apply explicitly — nothing auto-applies.":
                                   "顾问会读取当前熔断器状态和触发历史,给出一个阈值调整建议。需人工确认后才会生效,不会自动应用。",
