@@ -169,6 +169,11 @@ func Router(d Deps) *gin.Engine {
 			auth.RequireCap(d.Caps, "cost.read"), getShowback(d))
 		v1.POST("/costs/ai-plan",
 			auth.RequireCap(d.Caps, "cost.write"), aiPlanMigrations(d))
+		// Fleet cost overview — cross-cluster aggregation + linear
+		// forecast. Pure arithmetic for the numbers; optional AI prose
+		// when ?explain=true.
+		v1.GET("/costs/fleet",
+			auth.RequireCap(d.Caps, "cost.read"), fleetCostOverview(d))
 
 		// Gateway telemetry — what the S3/Filer gateways will write
 		// per request. Read-only surfaces for now; ingestion path is

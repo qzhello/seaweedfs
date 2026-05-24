@@ -15,20 +15,20 @@ import (
 )
 
 type BackendPricing struct {
-	ID                       uuid.UUID `json:"id"`
-	Name                     string    `json:"name"`
-	DisplayName              string    `json:"display_name"`
-	Kind                     string    `json:"kind"` // hot|warm|cold|archive
-	Currency                 string    `json:"currency"`
-	StoragePricePerTBMonth   float64   `json:"storage_price_per_tb_month"`
-	EgressPricePerTB         float64   `json:"egress_price_per_tb"`
-	RequestPricePerMillion   float64   `json:"request_price_per_million"`
-	MinBillableBytes         int64     `json:"min_billable_bytes"`
-	ReplicationFactor        float64   `json:"replication_factor"`
-	IsHotReference           bool      `json:"is_hot_reference"`
-	Notes                    string    `json:"notes"`
-	CreatedAt                time.Time `json:"created_at"`
-	UpdatedAt                time.Time `json:"updated_at"`
+	ID                     uuid.UUID `json:"id"`
+	Name                   string    `json:"name"`
+	DisplayName            string    `json:"display_name"`
+	Kind                   string    `json:"kind"` // hot|warm|cold|archive
+	Currency               string    `json:"currency"`
+	StoragePricePerTBMonth float64   `json:"storage_price_per_tb_month"`
+	EgressPricePerTB       float64   `json:"egress_price_per_tb"`
+	RequestPricePerMillion float64   `json:"request_price_per_million"`
+	MinBillableBytes       int64     `json:"min_billable_bytes"`
+	ReplicationFactor      float64   `json:"replication_factor"`
+	IsHotReference         bool      `json:"is_hot_reference"`
+	Notes                  string    `json:"notes"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 func (p *PG) ListBackendPricing(ctx context.Context) ([]BackendPricing, error) {
@@ -183,6 +183,37 @@ func (p *PG) UpsertCostSnapshots(ctx context.Context, snaps []CostSnapshot) erro
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+// ListAllCostSnapshots is the fleet variant of ListCostSnapshots:
+// every cluster's rows for the window, in one query, so the fleet
+// dashboard doesn't fan out N round-trips against pg. Caller groups
+// by cluster_id + year_month client-side.
+func (p *PG) ListAllCostSnapshots(ctx context.Context, months int) ([]CostSnapshot, error) {
+	if months <= 0 || months > 36 {
+		months = 12
+	}
+	rows, err := p.Pool.Query(ctx, `
+        SELECT cluster_id, backend_name, year_month,
+               physical_bytes, logical_bytes, cost_estimate, counterfactual_cost, currency, captured_at
+          FROM cost_snapshots
+         WHERE year_month >= date_trunc('month', now()) - ($1::int || ' months')::interval
+         ORDER BY cluster_id, year_month ASC, backend_name`,
+		months)
+	if err != nil {
+		return nil, fmt.Errorf("list all snapshots: %w", err)
+	}
+	defer rows.Close()
+	out := []CostSnapshot{}
+	for rows.Next() {
+		var s CostSnapshot
+		if err := rows.Scan(&s.ClusterID, &s.BackendName, &s.YearMonth,
+			&s.PhysicalBytes, &s.LogicalBytes, &s.CostEstimate, &s.CounterfactualCost, &s.Currency, &s.CapturedAt); err != nil {
+			return nil, fmt.Errorf("scan snapshot: %w", err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
 }
 
 // ListCostSnapshots returns rows for the last `months` calendar months

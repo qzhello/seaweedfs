@@ -569,6 +569,39 @@ export interface AuditSummaryResp {
   raw?: string;
 }
 
+// Fleet-wide cost overview. Aggregates monthly snapshots across all
+// clusters + a 3-month linear forecast. ai_explainer is best-effort
+// prose; it never modifies the numeric fields.
+export interface FleetMonthPoint {
+  year_month: string;
+  cost_estimate: number;
+  counterfactual_cost: number;
+  physical_bytes: number;
+  forecast?: boolean;
+}
+export interface FleetClusterRow {
+  cluster_id: string;
+  name: string;
+  cost_estimate: number;
+  physical_bytes: number;
+  mom_delta: number;
+  has_mom_base: boolean;
+}
+export interface FleetCostResp {
+  months: number;
+  currency: string;
+  series: FleetMonthPoint[];
+  clusters: FleetClusterRow[];
+  forecast_trend: "rising" | "falling" | "flat" | "insufficient_data";
+  slope: number;
+  ai_explainer?: string;
+  ai_provider?: string;
+}
+export function useFleetCost(months = 12, explain = false) {
+  const url = `${BASE}/costs/fleet?months=${months}${explain ? "&explain=true" : ""}`;
+  return useSWR<FleetCostResp>(url, fetcher);
+}
+
 // Alert triage. Read-only narrative over recent alert events:
 // fingerprints, storms (silence candidates), priorities (investigate
 // first). Like auditSummary, no counterfactual — it's a comprehension

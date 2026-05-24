@@ -2692,6 +2692,35 @@ const ZH: Dict = {
   // "Source" key already defined earlier (line ~1496)
   // "Severity" key already defined earlier (line ~1975)
   "Generic":                      "通用",
+
+  // --- Fleet cost overview ---
+  "Fleet":                        "全集群",
+  "Fleet cost overview":          "全集群成本概览",
+  "Aggregated monthly snapshots across all clusters, with a 3-month linear forecast.":
+                                  "跨所有集群按月聚合的成本快照,附 3 个月线性预测。",
+  "History window":               "历史窗口",
+  "AI explainer":                 "AI 解读",
+  "AI commentary":                "AI 评注",
+  "Commentary is informational; the forecast numbers above are computed from regression, not AI.":
+                                  "评注仅供参考;上方的预测数字来自线性回归,不是 AI。",
+  "No cost snapshots yet. Run \"Snapshot now\" on a per-cluster Overview tab to seed the timeline.":
+                                  "尚无成本快照。在某个集群的 Overview 标签上点击 \"立即快照\" 启动时间线。",
+  "Refreshing…":                  "刷新中…",
+  "Rising":                       "上升",
+  "Falling":                      "下降",
+  "Flat":                         "持平",
+  "Insufficient data":            "数据不足",
+  "Unknown":                      "未知",
+  "Fleet monthly cost":           "全集群月度成本",
+  "Forecast":                     "预测",
+  // "Observed" key already defined earlier (line ~1976)
+  "Counterfactual (all-hot)":     "对比线(全部热存储)",
+  "Clusters this month (ranked)": "本月集群排名",
+  "Cost":                         "成本",
+  "Physical bytes":               "物理字节",
+  "MoM Δ":                        "环比 Δ",
+  "forecast":                     "预测",
+  // "actual" / "counterfactual" already defined earlier (lines ~1858-1859)
 };
 
 const DICTS: Record<Lang, Dict> = {
