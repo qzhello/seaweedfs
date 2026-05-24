@@ -122,7 +122,7 @@ type assistantTool struct {
 // invocation captures a fresh d.PG / d.Sw closure with the request
 // context attached — keeps tools simple and stateless.
 func assistantToolRegistry() []assistantTool {
-	return []assistantTool{
+	tools := []assistantTool{
 		{
 			Risk: ToolRead,
 			Spec: ai.ToolSpec{
@@ -379,6 +379,11 @@ func assistantToolRegistry() []assistantTool {
 			Execute: toolProposeSkill,
 		},
 	}
+	// Append write tools from the dedicated registry. Kept in a
+	// separate slice so the write surface is auditable in one place
+	// (see assistant_write_tools.go).
+	tools = append(tools, assistantWriteTools()...)
+	return tools
 }
 
 // --- Tool implementations ---------------------------------------------------
