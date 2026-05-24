@@ -2615,6 +2615,20 @@ const ZH: Dict = {
   "Deleted {n} bucket(s)":        "已删除 {n} 个 bucket",
   "Failed to delete any bucket":  "全部 bucket 删除失败",
   "Deleted {ok} bucket(s), {fail} failed": "已删除 {ok} 个,失败 {fail} 个",
+
+  // --- Identity key rotation reminder ---
+  "Key rotation reminder":        "密钥轮换提醒",
+  "access key(s) not rotated in {n}+ days": "个 access key 已超过 {n} 天未轮换",
+  "with unknown age":             "轮换时间未知",
+  "Stale ({n})":                  "陈旧({n} 个)",
+  "Unknown rotation age ({n})":   "轮换时间未知({n} 个)",
+  "These identities exist in s3.configure but have never been edited through the controller. Their access keys may have been rotated via the CLI; the audit log doesn't know.":
+                                  "这些身份存在于 s3.configure 中,但从未通过控制台编辑过。其 access key 可能已通过 CLI 轮换,审计日志无从得知。",
+  "{n} day(s) ago":               "{n} 天前",
+  "key(s)":                       "个 key",
+  "Threshold":                    "阈值",
+  "\"Last rotated\" is the most recent identity edit recorded in the audit log; a secret-only rotation done via CLI is invisible here.":
+                                  "\"上次轮换\"取自审计日志中最近一次身份编辑;仅通过 CLI 完成的密钥轮换不会被记录。",
 };
 
 const DICTS: Record<Lang, Dict> = {

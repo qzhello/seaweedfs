@@ -274,6 +274,8 @@ func Router(d Deps) *gin.Engine {
 			auth.RequireCap(d.Caps, "s3.configure"), s3UpsertIdentity(d))
 		v1.DELETE("/clusters/:id/s3/identities/:user",
 			auth.RequireCap(d.Caps, "s3.configure"), s3DeleteIdentity(d))
+		v1.GET("/clusters/:id/s3/identities/rotation",
+			auth.RequireCap(d.Caps, "s3.configure"), s3IdentityRotation(d))
 		v1.POST("/clusters/:id/s3/bucket/delete",
 			auth.RequireCap(d.Caps, "s3.bucket.delete"), s3BucketDelete(d))
 		v1.POST("/clusters/:id/s3/bucket/owner",

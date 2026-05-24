@@ -262,6 +262,112 @@ function AIPolicyAssistant({ onApprove }: { onApprove: (p: PolicyProposal, propo
   );
 }
 
+// ---- Key rotation reminder ----
+//
+// Surfaces identities whose access keys haven't been touched (via the
+// controller) in N days. The summary chip is the headline; expanding
+// shows the per-identity list with age, so the operator can decide
+// where to rotate. Deliberately silent when there's nothing to flag —
+// we don't want to add another permanent box to the page.
+
+const ROTATION_THRESHOLD_DAYS = 180;
+
+function KeyRotationReminder() {
+  const { t } = useT();
+  const { clusterID } = useCluster();
+  const [expanded, setExpanded] = useState(false);
+  const swrKey = clusterID ? `s3-identity-rotation:${clusterID}` : null;
+  const { data } = useSWR(
+    swrKey,
+    () => api.s3IdentityRotation(clusterID, ROTATION_THRESHOLD_DAYS),
+    { revalidateOnFocus: false }
+  );
+
+  if (!data) return null;
+  // Nothing actionable → render nothing. The signal is the absence of
+  // a card, not a "you're good!" green box.
+  if (data.stale_count === 0 && data.unknown_count === 0) return null;
+
+  const stale   = data.identities.filter(i => i.status === "stale");
+  const unknown = data.identities.filter(i => i.status === "unknown");
+
+  return (
+    <section className="card p-3 border-warning/30 bg-warning/5">
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        className="flex w-full items-center justify-between text-left"
+      >
+        <span className="inline-flex items-center gap-2 text-sm">
+          <AlertTriangle size={14} className="text-warning"/>
+          <span className="font-medium">{t("Key rotation reminder")}</span>
+          <span className="text-muted">
+            {data.stale_count > 0 && (
+              <>
+                <span className="font-mono text-warning">{data.stale_count}</span>{" "}
+                {t("access key(s) not rotated in {n}+ days").replace("{n}", String(data.threshold_days))}
+              </>
+            )}
+            {data.stale_count > 0 && data.unknown_count > 0 && " · "}
+            {data.unknown_count > 0 && (
+              <>
+                <span className="font-mono">{data.unknown_count}</span>{" "}
+                {t("with unknown age")}
+              </>
+            )}
+          </span>
+        </span>
+        {expanded ? <ChevronDown size={14}/> : <ChevronRight size={14}/>}
+      </button>
+      {expanded && (
+        <div className="mt-3 space-y-3 text-xs">
+          {stale.length > 0 && (
+            <div>
+              <div className="mb-1 font-medium text-warning">
+                {t("Stale ({n})").replace("{n}", String(stale.length))}
+              </div>
+              <ul className="space-y-1">
+                {stale.map(i => (
+                  <li key={i.name} className="flex items-center justify-between rounded bg-panel2 px-2 py-1">
+                    <span className="font-mono">{i.name}</span>
+                    <span className="text-muted">
+                      {t("{n} day(s) ago").replace("{n}", String(i.age_days ?? "?"))}
+                      {" · "}
+                      {i.access_key_count} {t("key(s)")}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {unknown.length > 0 && (
+            <div>
+              <div className="mb-1 font-medium text-muted">
+                {t("Unknown rotation age ({n})").replace("{n}", String(unknown.length))}
+              </div>
+              <p className="mb-1 text-[11px] text-muted">
+                {t("These identities exist in s3.configure but have never been edited through the controller. Their access keys may have been rotated via the CLI; the audit log doesn't know.")}
+              </p>
+              <ul className="space-y-1">
+                {unknown.map(i => (
+                  <li key={i.name} className="flex items-center justify-between rounded bg-panel2 px-2 py-1">
+                    <span className="font-mono">{i.name}</span>
+                    <span className="text-muted">{i.access_key_count} {t("key(s)")}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p className="text-[11px] text-muted">
+            {t("Threshold")}: <span className="font-mono">{data.threshold_days}</span> {t("days")}.{" "}
+            {t("\"Last rotated\" is the most recent identity edit recorded in the audit log; a secret-only rotation done via CLI is invisible here.")}
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ---- Main panel ----
 
 function Inner() {
@@ -318,6 +424,9 @@ function Inner() {
 
   return (
     <div className="space-y-5">
+      {/* Key rotation reminder — small, dismissible-by-design (only renders when there's something to say) */}
+      <KeyRotationReminder />
+
       {/* AI policy assistant — collapsible, at the top */}
       <AIPolicyAssistant onApprove={openFromProposal} />
 

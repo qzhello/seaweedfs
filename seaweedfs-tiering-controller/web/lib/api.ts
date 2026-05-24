@@ -568,6 +568,28 @@ export interface AuditSummaryResp {
   error?: string;
   raw?: string;
 }
+
+// Identity key-rotation reminder. Read-only — combines `s3.configure -list`
+// with our audit log to estimate "how long since this access key was
+// last rotated". `unknown` means the identity has access keys but no
+// upsert ever passed through the controller; treat with a softer tone
+// than `stale` since the secret could have been rotated via the CLI.
+export interface IdentityRotationRow {
+  name: string;
+  access_key_count: number;
+  last_rotated_at?: string;
+  age_days?: number;
+  status: "ok" | "stale" | "unknown";
+}
+export interface IdentityRotationResp {
+  threshold_days: number;
+  total: number;
+  stale_count: number;
+  unknown_count: number;
+  without_keys: number;
+  identities: IdentityRotationRow[];
+}
+
 export async function auditSummary(body: {
   hours?: number;
   actor?: string;
@@ -1470,6 +1492,11 @@ export const api = {
     jpost(`${BASE}/clusters/${clusterID}/s3/identities`, b, "PUT") as Promise<{ output: string }>,
   s3DeleteIdentity: (clusterID: string, user: string) =>
     jpost(`${BASE}/clusters/${clusterID}/s3/identities/${encodeURIComponent(user)}`, undefined, "DELETE") as Promise<{ output: string }>,
+  s3IdentityRotation: async (clusterID: string, thresholdDays = 180) => {
+    const r = await fetch(`${BASE}/clusters/${clusterID}/s3/identities/rotation?threshold=${thresholdDays}`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    return r.json() as Promise<IdentityRotationResp>;
+  },
   s3BucketDelete: (clusterID: string, name: string) =>
     jpost(`${BASE}/clusters/${clusterID}/s3/bucket/delete`, { name }) as Promise<{ output: string }>,
   s3BucketOwner: (clusterID: string, b: { bucket: string; owner: string }) =>

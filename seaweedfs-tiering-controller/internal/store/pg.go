@@ -310,10 +310,10 @@ func (p *PG) ResetTaskForManualRetry(ctx context.Context, id uuid.UUID, actor st
 // for a task. Used by the inspector UI when rendering the failure
 // banner.
 type TaskFailureSnapshot struct {
-	Reason       *string    `json:"failure_reason,omitempty"`
-	Message      *string    `json:"failure_message,omitempty"`
-	RetryCount   int        `json:"retry_count"`
-	NextRetryAt  *time.Time `json:"next_retry_at,omitempty"`
+	Reason      *string    `json:"failure_reason,omitempty"`
+	Message     *string    `json:"failure_message,omitempty"`
+	RetryCount  int        `json:"retry_count"`
+	NextRetryAt *time.Time `json:"next_retry_at,omitempty"`
 }
 
 func (p *PG) TaskFailureSnapshot(ctx context.Context, id uuid.UUID) (*TaskFailureSnapshot, error) {
@@ -329,17 +329,17 @@ func (p *PG) TaskFailureSnapshot(ctx context.Context, id uuid.UUID) (*TaskFailur
 // ---------------------------- Executions ----------------------------
 
 type Execution struct {
-	ID            uuid.UUID       `json:"id"`
-	TaskID        uuid.UUID       `json:"task_id"`
-	TraceID       string          `json:"trace_id"`
-	StartedAt     time.Time       `json:"started_at"`
-	FinishedAt    *time.Time      `json:"finished_at,omitempty"`
-	Status        string          `json:"status"`
-	RollbackKind  *string         `json:"rollback_kind,omitempty"`
-	RollbackArgs  json.RawMessage `json:"rollback_args"`
-	Log           string          `json:"log"`
-	Error         *string         `json:"error,omitempty"`
-	AIPostmortem  json.RawMessage `json:"ai_postmortem,omitempty"`
+	ID           uuid.UUID       `json:"id"`
+	TaskID       uuid.UUID       `json:"task_id"`
+	TraceID      string          `json:"trace_id"`
+	StartedAt    time.Time       `json:"started_at"`
+	FinishedAt   *time.Time      `json:"finished_at,omitempty"`
+	Status       string          `json:"status"`
+	RollbackKind *string         `json:"rollback_kind,omitempty"`
+	RollbackArgs json.RawMessage `json:"rollback_args"`
+	Log          string          `json:"log"`
+	Error        *string         `json:"error,omitempty"`
+	AIPostmortem json.RawMessage `json:"ai_postmortem,omitempty"`
 }
 
 func (p *PG) InsertExecution(ctx context.Context, e Execution) (uuid.UUID, error) {
@@ -534,6 +534,41 @@ func (p *PG) ListAudit(ctx context.Context, f AuditFilter) ([]AuditEntry, error)
 			return nil, fmt.Errorf("audit scan: %w", err)
 		}
 		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// LastS3IdentityUpserts returns, for each S3 identity touched via the
+// controller on this cluster, the most recent `s3.identity.upsert`
+// timestamp. The user name is extracted from the audit payload's
+// `user` field; rows without that field are skipped.
+//
+// Used by the key-rotation reminder to estimate "how long since this
+// access key was last rotated". Identities that have never been
+// upserted through the controller don't appear in the map — the
+// caller decides whether to treat that as "unknown" or "stale".
+func (p *PG) LastS3IdentityUpserts(ctx context.Context, clusterID string) (map[string]time.Time, error) {
+	rows, err := p.Pool.Query(ctx, `
+		SELECT payload->>'user' AS user, MAX(at) AS last_at
+		FROM audit_log
+		WHERE action = 's3.identity.upsert'
+		  AND target_id = $1
+		  AND payload ? 'user'
+		GROUP BY payload->>'user'`, clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("last s3 identity upserts: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]time.Time{}
+	for rows.Next() {
+		var user string
+		var at time.Time
+		if err := rows.Scan(&user, &at); err != nil {
+			return nil, fmt.Errorf("last s3 identity upserts scan: %w", err)
+		}
+		if user != "" {
+			out[user] = at
+		}
 	}
 	return out, rows.Err()
 }
