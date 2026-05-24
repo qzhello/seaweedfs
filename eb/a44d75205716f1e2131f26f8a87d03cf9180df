@@ -1,0 +1,11 @@
+seaweedfs-tiering-controller/internal/api/assistant_write_tools.go
+  ai_agent 1-219
+seaweedfs-tiering-controller/internal/api/assistant_tools.go
+  ai_agent 125,382-386
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "eba44d75205716f1e2131f26f8a87d03cf9180df",
+  "prompts": {}
+}
