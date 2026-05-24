@@ -1,10 +1,10 @@
 "use client";
 import { useState } from "react";
 import { EmptyState } from "@/components/empty-state";
-import { useAILearning, useAIS3Learning } from "@/lib/api";
-import type { AIS3LearningResp } from "@/lib/api";
+import { useAILearning, useAIS3Learning, useAIS3LimitLearning } from "@/lib/api";
+import type { AIS3LearningResp, AIS3LimitLearningResp } from "@/lib/api";
 import {
-  Brain, CheckCircle2, XCircle, AlertTriangle, ShieldCheck, ShieldAlert, UserCheck, Bot, Key,
+  Brain, CheckCircle2, XCircle, AlertTriangle, ShieldCheck, ShieldAlert, UserCheck, Bot, Key, Gauge,
 } from "lucide-react";
 import { useT } from "@/lib/i18n";
 
@@ -129,6 +129,12 @@ export function AILearningPanel() {
           generator. Sourced from a separate table (ai_s3_proposals) so
           it stays decoupled from the task-bound verdict pipeline. */}
       <S3ProposalsCard hours={hours} />
+
+      {/* Circuit-breaker limit proposals — second S3 AI advisor surface.
+          Same lifecycle, different payload (type/value instead of
+          actions/buckets). Rendered as its own card so operators can
+          tell the two streams apart. */}
+      <S3LimitProposalsCard hours={hours} />
 
       {/* Recent outcomes feed */}
       <section className="card p-5">
@@ -310,3 +316,78 @@ function S3ProposalsCard({ hours }: { hours: number }) {
   );
 }
 
+// S3LimitProposalsCard — twin of S3ProposalsCard for circuit-breaker
+// limit recommendations. Shape mirrors AIS3LearningResp so this could
+// be merged into one generic component, but keeping them separate
+// makes future per-kind tweaks (e.g. limit-specific drill-downs) easy.
+function S3LimitProposalsCard({ hours }: { hours: number }) {
+  const { t } = useT();
+  const { data } = useAIS3LimitLearning(hours);
+  const s = data as AIS3LimitLearningResp | undefined;
+  const has = (s?.total ?? 0) > 0 || (s?.open_proposals ?? 0) > 0;
+
+  return (
+    <section className="card p-5">
+      <header className="flex items-center justify-between mb-3 gap-3">
+        <h2 className="text-lg font-medium inline-flex items-center gap-2">
+          <Gauge size={16} className="text-accent" />
+          {t("Circuit-breaker proposals")}
+        </h2>
+        <span className="text-xs text-muted">{t("From the AI limit advisor")}</span>
+      </header>
+
+      {!has ? (
+        <div className="text-sm text-muted">
+          {t("No circuit-breaker proposals in this window. Open S3 → Circuit Breaker and click \"Get AI suggestion\" to start collecting data.")}
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-5 gap-3 mb-4">
+            <BigStat label={t("Total settled")} value={(s!.total).toLocaleString()} />
+            <BigStat label={t("Approved")}      value={(s!.approved).toLocaleString()} tone="text-success" />
+            <BigStat label={t("Edited")}        value={(s!.edited).toLocaleString()}   tone="text-warning" />
+            <BigStat label={t("Discarded")}     value={(s!.discarded).toLocaleString()} tone="text-danger" />
+            <BigStat label={t("Acceptance")}
+              value={`${(s!.accept_rate * 100).toFixed(1)}%`}
+              tone={s!.accept_rate >= 0.85 ? "text-success" : s!.accept_rate >= 0.6 ? "text-warning" : "text-danger"}
+            />
+          </div>
+
+          {(s!.by_risk?.length ?? 0) > 0 && (
+            <table className="grid text-xs">
+              <thead>
+                <tr>
+                  <th>{t("Risk")}</th>
+                  <th className="text-right">{t("Total")}</th>
+                  <th className="text-right">{t("Approved+Edited")}</th>
+                  <th className="text-right">{t("Acceptance")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {s!.by_risk.map(r => (
+                  <tr key={r.risk}>
+                    <td>
+                      <span className={`badge ${r.risk === "high" ? "text-danger" : r.risk === "medium" ? "text-warning" : "text-success"}`}>
+                        {t(r.risk.charAt(0).toUpperCase() + r.risk.slice(1) + " risk")}
+                      </span>
+                    </td>
+                    <td className="text-right tabular-nums">{r.total}</td>
+                    <td className="text-right tabular-nums">{r.approved}</td>
+                    <td className="text-right tabular-nums">{(r.accept_rate * 100).toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {(s!.open_proposals ?? 0) > 0 && (
+            <div className="mt-3 text-xs text-muted inline-flex items-center gap-1.5">
+              <AlertTriangle size={12} className="text-warning" />
+              {t("{n} proposal(s) still pending an operator decision.").replace("{n}", String(s!.open_proposals))}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}

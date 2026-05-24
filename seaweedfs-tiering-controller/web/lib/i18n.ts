@@ -2469,6 +2469,20 @@ const ZH: Dict = {
                                   "S3 网关管理:Bucket、身份、熔断器、过期 upload 清理。",
   // ---- AI policy assistant (Tier 1.2) ----
   "AI policy assistant":          "AI 策略助手",
+  // ---- Circuit-breaker AI limit advisor (Tier 2.4) ----
+  "AI limit advisor":             "AI 限流顾问",
+  "Get AI suggestion":            "获取 AI 建议",
+  "The advisor reads current circuit-breaker state and trigger history, then proposes one threshold change. Review and apply explicitly — nothing auto-applies.":
+                                  "顾问会读取当前熔断器状态和触发历史,给出一个阈值调整建议。需人工确认后才会生效,不会自动应用。",
+  "Proposed limit":               "建议阈值",
+  // "Apply" key already defined earlier (line ~395) as "执行"
+  "Limit applied":                "阈值已应用",
+  "Apply failed":                 "应用失败",
+  "Value must be a positive number": "值必须为正数",
+  "Circuit-breaker proposals":    "熔断器建议",
+  "From the AI limit advisor":    "来自 AI 限流顾问",
+  "No circuit-breaker proposals in this window. Open S3 → Circuit Breaker and click \"Get AI suggestion\" to start collecting data.":
+                                  "本时间窗内暂无熔断器建议。打开 S3 → 熔断器,点击 \"获取 AI 建议\" 即可开始积累数据。",
   // ---- S3 proposals card on AI Learning panel ----
   "S3 policy proposals":          "S3 策略提案",
   "From the NL → IAM assistant":  "来自 NL → IAM 助手",

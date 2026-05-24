@@ -355,6 +355,13 @@ func Router(d Deps) *gin.Engine {
 		v1.POST("/ai/s3-proposals/:id/decide",
 			auth.RequireCap(d.Caps, "s3.configure"), s3NLPolicyDecide(d))
 		v1.GET("/ai/s3-learning", s3LearningSummary(d))
+		// Circuit-breaker limit AI advisor — emit, decide, learning summary.
+		// Same lifecycle as the NL → IAM flow but for s3.circuitBreaker.
+		v1.POST("/clusters/:id/s3/recommend-limits",
+			auth.RequireCap(d.Caps, "s3.circuit-breaker"), s3RecommendLimits(d))
+		v1.POST("/ai/s3-limit-proposals/:id/decide",
+			auth.RequireCap(d.Caps, "s3.circuit-breaker"), s3LimitProposalDecide(d))
+		v1.GET("/ai/s3-limit-learning", s3LimitLearningSummary(d))
 
 		// --- AI floating assistant (024) ---
 		v1.GET("/ai/assistant/chats",

@@ -727,6 +727,23 @@ export function useAIS3Learning(hours = 168) {
   return useSWR<AIS3LearningResp>(`${BASE}/ai/s3-learning?hours=${hours}`, fetcher);
 }
 
+// Circuit-breaker limit proposal acceptance — second AI Learning card.
+// Shape mirrors AIS3LearningResp on purpose so the UI uses one component.
+export interface AIS3LimitLearningResp {
+  hours: number;
+  total: number;
+  approved: number;
+  edited: number;
+  discarded: number;
+  accept_rate: number;
+  precision_rate: number;
+  open_proposals: number;
+  by_risk: { risk: "low" | "medium" | "high"; total: number; approved: number; accept_rate: number }[];
+}
+export function useAIS3LimitLearning(hours = 168) {
+  return useSWR<AIS3LimitLearningResp>(`${BASE}/ai/s3-limit-learning?hours=${hours}`, fetcher);
+}
+
 // ---------------- ops / weed shell ----------------
 
 export interface ShellArg {
@@ -1469,6 +1486,27 @@ export const api = {
     applied_buckets?: string[];
     applied_user?: string;
   }) => jpost(`${BASE}/ai/s3-proposals/${proposalID}/decide`, body) as Promise<{ ok: boolean }>,
+
+  // Circuit-breaker AI recommender. POST (no body) → AI inspects the
+  // current `s3.circuitBreaker -list` output and returns a single
+  // (type, value) proposal with a risk badge and reasoning. The
+  // operator applies via the existing s3CircuitBreaker handler and
+  // records the decision via s3LimitProposalDecide.
+  s3RecommendLimits: (clusterID: string) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/recommend-limits`, {}) as Promise<{
+      ok: boolean;
+      proposal_id?: string;
+      proposal?: { type: "Count" | "MB"; value: number; risk: "low" | "medium" | "high"; explanation: string };
+      warnings?: string[];
+      snapshot?: { circuit_breaker_raw?: string; cluster_shape?: Record<string, unknown> };
+      error?: string;
+      raw?: string;
+    }>,
+  s3LimitProposalDecide: (proposalID: string, body: {
+    decision: "approved" | "discarded" | "edited";
+    applied_type?: "Count" | "MB";
+    applied_value?: number;
+  }) => jpost(`${BASE}/ai/s3-limit-proposals/${proposalID}/decide`, body) as Promise<{ ok: boolean }>,
   upsertCluster:(b: unknown) => jpost(`${BASE}/clusters`, b, "PUT"),
   deleteCluster:(id: string) => jpost(`${BASE}/clusters/${id}`, undefined, "DELETE"),
   runClusterShell:(id: string, b: { command: string; args?: string; reason?: string }) =>
