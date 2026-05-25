@@ -165,6 +165,13 @@ pick_go() {
   if [ -n "${TIER_GO:-}" ] && [ -x "$TIER_GO" ]; then
     echo "$TIER_GO"; return
   fi
+  # ~/sdk/go is a Go auto-toolchain stub (e.g. 1.24.7). It dispatches to
+  # the version go.mod requires when GOTOOLCHAIN=auto. We set that below
+  # to override any GOTOOLCHAIN=local from the user's shell rc.
+  # Avoid pointing at the cached module toolchain
+  # (~/go/pkg/mod/golang.org/toolchain@*) directly — its binary and
+  # pkg/ tool versions can drift apart and yield
+  # `version "1.25.0" does not match go tool version "1.25.8"`.
   if [ -x "$HOME/sdk/go/bin/go" ]; then
     echo "$HOME/sdk/go/bin/go"; return
   fi
@@ -179,6 +186,10 @@ if [ "$DO_BACKEND" = 1 ]; then
     warn "no Go toolchain found — install one or set TIER_GO=/path/to/go"
     exit 1
   fi
+  # Force GOTOOLCHAIN=auto: the user's .zshrc may export GOTOOLCHAIN=local,
+  # which would block the 1.24.x stub from switching up to 1.25.0 and
+  # surface as "go.mod requires go >= 1.25.0 (running go 1.24.7)".
+  export GOTOOLCHAIN=auto
   say "building backend… ($("$GO_BIN" version 2>&1 | awk '{print $3}'))"
   "$GO_BIN" build -o bin/controller ./cmd/controller
   [ "$DO_COLLECTOR" = 1 ] && "$GO_BIN" build -o bin/collector ./cmd/collector
