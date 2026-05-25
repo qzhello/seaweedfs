@@ -47,6 +47,15 @@ func NewOpenAI(c config.AIVendor, timeout time.Duration) (*OpenAI, error) {
 
 func (o *OpenAI) Name() string { return "openai:" + o.model }
 
+// openAIUsage is the shape OpenAI uses on every chat.completions
+// response; copy-pasted across the three provider files because the
+// outer response type differs slightly per call but the usage block
+// is stable.
+type openAIUsage struct {
+	PromptTokens     int64 `json:"prompt_tokens"`
+	CompletionTokens int64 `json:"completion_tokens"`
+}
+
 func (o *OpenAI) Explain(ctx context.Context, in ExplainInput) (string, error) {
 	prompt := fmt.Sprintf(`You are a storage tiering analyst. A volume scoring engine produced this result:
 volume_id=%d collection=%q readonly=%t action=%s score=%.3f
@@ -70,21 +79,31 @@ In <=2 sentences, explain to an SRE why this action is recommended and call out 
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := o.http.Do(req)
 	if err != nil {
+		emitUsage(ctx, Usage{Provider: "openai", Model: o.model, Operation: "chat", Latency: time.Since(start), Err: err.Error()})
 		return "", fmt.Errorf("openai call: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
+		emitUsage(ctx, Usage{Provider: "openai", Model: o.model, Operation: "chat", Latency: time.Since(start), Err: fmt.Sprintf("status %d", resp.StatusCode)})
 		return "", fmt.Errorf("openai status %d", resp.StatusCode)
 	}
 	var out struct {
 		Choices []struct{ Message struct{ Content string } }
+		Usage   openAIUsage `json:"usage"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		emitUsage(ctx, Usage{Provider: "openai", Model: o.model, Operation: "chat", Latency: time.Since(start), Err: err.Error()})
 		return "", fmt.Errorf("decode openai response: %w", err)
 	}
 	if len(out.Choices) == 0 {
+		emitUsage(ctx, Usage{Provider: "openai", Model: o.model, Operation: "chat", Latency: time.Since(start), Err: "empty response"})
 		return "", fmt.Errorf("openai empty response")
 	}
+	emitUsage(ctx, Usage{
+		Provider: "openai", Model: o.model, Operation: "chat",
+		InputTokens: out.Usage.PromptTokens, OutputTokens: out.Usage.CompletionTokens,
+		Latency: time.Since(start),
+	})
 	return strings.TrimSpace(out.Choices[0].Message.Content), nil
 }
 
@@ -96,6 +115,7 @@ func (o *OpenAI) Predict(_ context.Context, f map[string]float64) (float64, erro
 // Chat drives a multi-turn conversation with an explicit system prompt.
 // Used by the floating operator-assistant feature.
 func (o *OpenAI) Chat(ctx context.Context, system string, messages []ChatMessage) (string, error) {
+	start := time.Now()
 	msgs := make([]map[string]string, 0, len(messages)+1)
 	if system != "" {
 		msgs = append(msgs, map[string]string{"role": "system", "content": system})

@@ -107,6 +107,7 @@ func (o *OpenAICompat) Predict(_ context.Context, f map[string]float64) (float64
 // Chat drives a multi-turn conversation with an explicit system prompt.
 // Used by the floating operator-assistant feature.
 func (o *OpenAICompat) Chat(ctx context.Context, system string, messages []ChatMessage) (string, error) {
+	start := time.Now()
 	msgs := make([]map[string]string, 0, len(messages)+1)
 	if system != "" {
 		msgs = append(msgs, map[string]string{"role": "system", "content": system})
@@ -132,23 +133,33 @@ func (o *OpenAICompat) Chat(ctx context.Context, system string, messages []ChatM
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := o.http.Do(req)
 	if err != nil {
+		emitUsage(ctx, Usage{Provider: o.label, Model: o.model, Operation: "chat", Latency: time.Since(start), Err: err.Error()})
 		return "", fmt.Errorf("%s call: %w", o.label, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		buf := make([]byte, 256)
 		n, _ := resp.Body.Read(buf)
+		emitUsage(ctx, Usage{Provider: o.label, Model: o.model, Operation: "chat", Latency: time.Since(start), Err: fmt.Sprintf("status %d", resp.StatusCode)})
 		return "", fmt.Errorf("%s status %d: %s", o.label, resp.StatusCode, strings.TrimSpace(string(buf[:n])))
 	}
 	var out struct {
 		Choices []struct{ Message struct{ Content string } }
+		Usage   openAIUsage `json:"usage"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		emitUsage(ctx, Usage{Provider: o.label, Model: o.model, Operation: "chat", Latency: time.Since(start), Err: err.Error()})
 		return "", fmt.Errorf("decode %s: %w", o.label, err)
 	}
 	if len(out.Choices) == 0 {
+		emitUsage(ctx, Usage{Provider: o.label, Model: o.model, Operation: "chat", Latency: time.Since(start), Err: "empty response"})
 		return "", fmt.Errorf("%s empty response", o.label)
 	}
+	emitUsage(ctx, Usage{
+		Provider: o.label, Model: o.model, Operation: "chat",
+		InputTokens: out.Usage.PromptTokens, OutputTokens: out.Usage.CompletionTokens,
+		Latency: time.Since(start),
+	})
 	return strings.TrimSpace(out.Choices[0].Message.Content), nil
 }
 
@@ -156,6 +167,7 @@ func (o *OpenAICompat) Chat(ctx context.Context, system string, messages []ChatM
 // Used by the multi-round AI review orchestrator to drive structured prompts
 // without forcing them through Explain's fixed template.
 func (o *OpenAICompat) JSONChat(ctx context.Context, prompt string) (string, error) {
+	start := time.Now()
 	body, _ := json.Marshal(map[string]any{
 		"model":       o.model,
 		"temperature": 0.1, // low — we want deterministic structured output
@@ -172,23 +184,33 @@ func (o *OpenAICompat) JSONChat(ctx context.Context, prompt string) (string, err
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := o.http.Do(req)
 	if err != nil {
+		emitUsage(ctx, Usage{Provider: o.label, Model: o.model, Operation: "jsonchat", Latency: time.Since(start), Err: err.Error()})
 		return "", fmt.Errorf("%s call: %w", o.label, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		buf := make([]byte, 256)
 		n, _ := resp.Body.Read(buf)
+		emitUsage(ctx, Usage{Provider: o.label, Model: o.model, Operation: "jsonchat", Latency: time.Since(start), Err: fmt.Sprintf("status %d", resp.StatusCode)})
 		return "", fmt.Errorf("%s status %d: %s", o.label, resp.StatusCode, strings.TrimSpace(string(buf[:n])))
 	}
 	var out struct {
 		Choices []struct{ Message struct{ Content string } }
+		Usage   openAIUsage `json:"usage"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		emitUsage(ctx, Usage{Provider: o.label, Model: o.model, Operation: "jsonchat", Latency: time.Since(start), Err: err.Error()})
 		return "", fmt.Errorf("decode %s: %w", o.label, err)
 	}
 	if len(out.Choices) == 0 {
+		emitUsage(ctx, Usage{Provider: o.label, Model: o.model, Operation: "jsonchat", Latency: time.Since(start), Err: "empty response"})
 		return "", fmt.Errorf("%s empty response", o.label)
 	}
+	emitUsage(ctx, Usage{
+		Provider: o.label, Model: o.model, Operation: "jsonchat",
+		InputTokens: out.Usage.PromptTokens, OutputTokens: out.Usage.CompletionTokens,
+		Latency: time.Since(start),
+	})
 	return strings.TrimSpace(out.Choices[0].Message.Content), nil
 }
 

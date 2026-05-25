@@ -2819,6 +2819,30 @@ const ZH: Dict = {
   "AI activity only":             "仅 AI 活动",
   "Show only AI-initiated actions":
                                   "只显示 AI 触发的操作",
+
+  // --- AI Usage panel ---
+  "AI Usage":                     "AI 用量",
+  "AI token usage":               "AI Token 用量",
+  "Per-call accounting captured from provider responses. Zero tokens means the vendor did not report.":
+                                  "按调用捕获的 Token 用量。Token 为 0 表示厂商未返回用量数据。",
+  "Failed to load AI usage":      "加载 AI 用量失败",
+  "No AI activity yet":           "暂无 AI 活动",
+  "Token rows are recorded automatically on every Chat / JSONChat call. Use the floating assistant or any AI-backed action to populate this view.":
+                                  "每次 Chat / JSONChat 调用都会自动记录 Token 行。使用悬浮助手或任何 AI 功能即可填充此视图。",
+  "Calls":                        "调用",
+  "models":                       "个模型",
+  "Error rate":                   "错误率",
+  "Input tokens":                 "输入 Token",
+  "Output tokens":                "输出 Token",
+  "Daily tokens (input + output)":"每日 Token 量（输入 + 输出）",
+  "Input":                        "输入",
+  "Output":                       "输出",
+  "output":                       "输出",
+  "By provider × model":          "按厂商 × 模型",
+  "Errors":                       "错误数",
+  "Avg latency":                  "平均时延",
+  "Top users":                    "活跃用户",
+  // "User" / "Provider" / "Model" / "input" / "Loading…" already defined earlier
 };
 
 const DICTS: Record<Lang, Dict> = {

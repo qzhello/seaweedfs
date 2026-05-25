@@ -12,7 +12,7 @@
 // model. The high-frequency operator surface stays at /activity.
 
 import { Suspense } from "react";
-import { Settings, SlidersHorizontal, Key, ScrollText, Sparkles, Brain } from "lucide-react";
+import { Settings, SlidersHorizontal, Key, ScrollText, Sparkles, Brain, Coins } from "lucide-react";
 import { TabsLayout } from "@/components/tabs-layout";
 import { useT } from "@/lib/i18n";
 import { SettingsPanel } from "./_panels/settings";
@@ -20,6 +20,7 @@ import { PermissionsPanel } from "./_panels/permissions";
 import { AuditPanel } from "./_panels/audit";
 import { AIConfigPanel } from "./_panels/ai-config";
 import { AILearningPanel } from "./_panels/ai-learning";
+import { AIUsagePanel } from "./_panels/ai-usage";
 
 function AdminInner() {
   const { t } = useT();
@@ -34,6 +35,7 @@ function AdminInner() {
         { key: "audit",       label: "Audit",       icon: ScrollText,        panel: <AuditPanel/> },
         { key: "ai-config",   label: "AI Config",   icon: Sparkles,          panel: <AIConfigPanel/> },
         { key: "ai-learning", label: "AI Learning", icon: Brain,             panel: <AILearningPanel/> },
+        { key: "ai-usage",    label: "AI Usage",    icon: Coins,             panel: <AIUsagePanel/> },
       ]}
     />
   );

@@ -83,6 +83,10 @@ Explain the recommendation and the biggest risk in <=2 sentences. Plain technica
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return "", fmt.Errorf("decode anthropic response: %w", err)
 	}
+	// Note: Explain is a one-shot rule explainer that runs occasionally;
+	// usage capture is intentionally skipped here to keep the rule
+	// provider's hot path metric-free. Chat and JSONChat — the actual
+	// LLM-burning paths — are both instrumented.
 	for _, c := range out.Content {
 		if c.Type == "text" {
 			return strings.TrimSpace(c.Text), nil
@@ -97,7 +101,14 @@ func (a *Anthropic) Predict(_ context.Context, f map[string]float64) (float64, e
 
 // Chat drives a multi-turn assistant conversation with a custom system prompt.
 // Used by the floating operator-assistant feature.
+// anthropicUsage mirrors Anthropic's per-response usage block.
+type anthropicUsage struct {
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+}
+
 func (a *Anthropic) Chat(ctx context.Context, system string, messages []ChatMessage) (string, error) {
+	start := time.Now()
 	msgs := make([]map[string]any, 0, len(messages))
 	for _, m := range messages {
 		role := m.Role
@@ -127,10 +138,12 @@ func (a *Anthropic) Chat(ctx context.Context, system string, messages []ChatMess
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := a.http.Do(req)
 	if err != nil {
+		emitUsage(ctx, Usage{Provider: "anthropic", Model: a.model, Operation: "chat", Latency: time.Since(start), Err: err.Error()})
 		return "", fmt.Errorf("anthropic call: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
+		emitUsage(ctx, Usage{Provider: "anthropic", Model: a.model, Operation: "chat", Latency: time.Since(start), Err: fmt.Sprintf("status %d", resp.StatusCode)})
 		return "", fmt.Errorf("anthropic status %d", resp.StatusCode)
 	}
 	var out struct {
@@ -138,10 +151,17 @@ func (a *Anthropic) Chat(ctx context.Context, system string, messages []ChatMess
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
+		Usage anthropicUsage `json:"usage"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		emitUsage(ctx, Usage{Provider: "anthropic", Model: a.model, Operation: "chat", Latency: time.Since(start), Err: err.Error()})
 		return "", fmt.Errorf("decode anthropic response: %w", err)
 	}
+	emitUsage(ctx, Usage{
+		Provider: "anthropic", Model: a.model, Operation: "chat",
+		InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens,
+		Latency: time.Since(start),
+	})
 	for _, c := range out.Content {
 		if c.Type == "text" {
 			return strings.TrimSpace(c.Text), nil
@@ -153,6 +173,7 @@ func (a *Anthropic) Chat(ctx context.Context, system string, messages []ChatMess
 // JSONChat issues a raw prompt and returns the assistant text. Used by the
 // aireview orchestrator to drive structured-JSON prompts.
 func (a *Anthropic) JSONChat(ctx context.Context, prompt string) (string, error) {
+	start := time.Now()
 	body, _ := json.Marshal(map[string]any{
 		"model":       a.model,
 		"max_tokens":  1024,
@@ -176,10 +197,12 @@ func (a *Anthropic) JSONChat(ctx context.Context, prompt string) (string, error)
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := a.http.Do(req)
 	if err != nil {
+		emitUsage(ctx, Usage{Provider: "anthropic", Model: a.model, Operation: "jsonchat", Latency: time.Since(start), Err: err.Error()})
 		return "", fmt.Errorf("anthropic call: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
+		emitUsage(ctx, Usage{Provider: "anthropic", Model: a.model, Operation: "jsonchat", Latency: time.Since(start), Err: fmt.Sprintf("status %d", resp.StatusCode)})
 		return "", fmt.Errorf("anthropic status %d", resp.StatusCode)
 	}
 	var out struct {
@@ -187,10 +210,17 @@ func (a *Anthropic) JSONChat(ctx context.Context, prompt string) (string, error)
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
+		Usage anthropicUsage `json:"usage"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		emitUsage(ctx, Usage{Provider: "anthropic", Model: a.model, Operation: "jsonchat", Latency: time.Since(start), Err: err.Error()})
 		return "", fmt.Errorf("decode anthropic response: %w", err)
 	}
+	emitUsage(ctx, Usage{
+		Provider: "anthropic", Model: a.model, Operation: "jsonchat",
+		InputTokens: out.Usage.InputTokens, OutputTokens: out.Usage.OutputTokens,
+		Latency: time.Since(start),
+	})
 	for _, c := range out.Content {
 		if c.Type == "text" {
 			return strings.TrimSpace(c.Text), nil

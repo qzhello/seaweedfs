@@ -130,6 +130,10 @@ func Router(d Deps) *gin.Engine {
 	v1 := r.Group("/api/v1",
 		auth.Middleware(d.Resolver, d.DevAuth),
 		RateLimit(20, 40), // 20 rps sustained, 40 burst per principal
+		// Attaches an ai.UsageRecorder to the request context so every
+		// downstream Chat/JSONChat call gets per-token-row persistence
+		// without per-handler boilerplate.
+		aiUsageRecorderMiddleware(d),
 	)
 	admin := v1.Group("", auth.RequireRole(auth.RoleAdmin), RateLimit(5, 10))
 	{
@@ -419,6 +423,8 @@ func Router(d Deps) *gin.Engine {
 		admin.DELETE("/ai/providers/:id", deleteAIProvider(d))
 		admin.POST("/ai/providers/:id/test", testAIProvider(d))
 		v1.POST("/ai/test", testAI(d))
+		// Admin-only token usage rollups — feeds the AI usage panel.
+		admin.GET("/ai/usage", getAIUsage(d))
 
 		admin.POST("/scheduler/score-now", scoreNow(d))
 

@@ -965,6 +965,47 @@ export function useAILearning(hours = 24) {
   return useSWR(`${BASE}/ai/learning?hours=${hours}`, fetcher);
 }
 
+// AI token usage rollups — feeds the admin AI usage panel. Returns
+// three pre-aggregated slices so the panel doesn't need to compute
+// anything client-side: a per-day time series for the chart, a
+// per-(provider,model) totals table, and a top-N user list.
+export interface AIUsageDailyRow {
+  day: string;
+  provider: string;
+  model: string;
+  operation: string;
+  calls: number;
+  errors: number;
+  input_tokens: number;
+  output_tokens: number;
+  avg_latency_ms: number;
+}
+export interface AIUsageModelTotal {
+  provider: string;
+  model: string;
+  calls: number;
+  errors: number;
+  input_tokens: number;
+  output_tokens: number;
+  avg_latency_ms: number;
+}
+export interface AIUsageTopUser {
+  user_id: string;
+  username: string;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+export interface AIUsageResp {
+  days: number;
+  by_day: AIUsageDailyRow[];
+  by_model: AIUsageModelTotal[];
+  top_users: AIUsageTopUser[];
+}
+export function useAIUsage(days = 7) {
+  return useSWR<AIUsageResp>(`${BASE}/ai/usage?days=${days}`, fetcher);
+}
+
 // S3 policy proposal acceptance metrics — counterpart of useAILearning
 // for the NL → IAM generator. Renders as its own card on the AI
 // Learning panel.

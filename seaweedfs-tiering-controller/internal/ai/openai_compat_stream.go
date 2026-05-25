@@ -43,11 +43,11 @@ func (o *OpenAICompat) ChatStream(
 	// results, so we can't use the simple map[string]string we use in
 	// the non-streaming Chat path.
 	type oaiMsg struct {
-		Role       string         `json:"role"`
-		Content    any            `json:"content,omitempty"` // string or null
-		ToolCalls  []oaiToolCall  `json:"tool_calls,omitempty"`
-		ToolCallID string         `json:"tool_call_id,omitempty"`
-		Name       string         `json:"name,omitempty"`
+		Role       string        `json:"role"`
+		Content    any           `json:"content,omitempty"` // string or null
+		ToolCalls  []oaiToolCall `json:"tool_calls,omitempty"`
+		ToolCallID string        `json:"tool_call_id,omitempty"`
+		Name       string        `json:"name,omitempty"`
 	}
 	msgs := make([]oaiMsg, 0, len(messages)+len(priorToolResults)+1)
 	if system != "" {
@@ -95,6 +95,10 @@ func (o *OpenAICompat) ChatStream(
 		"max_tokens":  2048,
 		"stream":      true,
 		"messages":    msgs,
+		// Ask the server to include a final usage block in the SSE
+		// stream. Without this the streaming path has no way to
+		// surface token counts to the usage recorder.
+		"stream_options": map[string]any{"include_usage": true},
 	}
 	if len(tools) > 0 {
 		bodyMap["tools"] = toOpenAITools(tools)
@@ -127,10 +131,12 @@ func (o *OpenAICompat) ChatStream(
 	}
 
 	out := make(chan StreamEvent, 16)
+	streamStart := time.Now()
+	provider, model := o.label, o.model
 	go func() {
 		defer close(out)
 		defer resp.Body.Close()
-		readStream(resp.Body, out)
+		readStream(ctx, resp.Body, out, provider, model, streamStart)
 	}()
 	return out, nil
 }
@@ -138,7 +144,23 @@ func (o *OpenAICompat) ChatStream(
 // readStream walks SSE events, accumulates per-index tool calls, and
 // emits typed events on the output channel. The channel close signals
 // stream end; callers must treat a missing "done" event as an error.
-func readStream(r io.Reader, out chan<- StreamEvent) {
+//
+// usageCtx / provider / model / start are passed through so the final
+// chunk's usage block (when stream_options.include_usage was set) can
+// be forwarded to the recorder attached to the original request ctx.
+func readStream(usageCtx context.Context, r io.Reader, out chan<- StreamEvent, provider, model string, start time.Time) {
+	var sawUsage bool
+	defer func() {
+		// Always emit something — even a usage row with zero token
+		// counts is useful as an attempt counter. The recorder can
+		// distinguish "unknown" from "zero" by checking tokens > 0.
+		if !sawUsage {
+			emitUsage(usageCtx, Usage{
+				Provider: provider, Model: model, Operation: "chat_stream",
+				Latency: time.Since(start),
+			})
+		}
+	}()
 	scanner := bufio.NewScanner(r)
 	// 1 MiB line buffer — some providers ship base64-encoded tool args
 	// in a single SSE frame and the default 64 KiB scanner blows up.
@@ -169,16 +191,29 @@ func readStream(r io.Reader, out chan<- StreamEvent) {
 			Choices []struct {
 				Index int `json:"index"`
 				Delta struct {
-					Content   string         `json:"content"`
-					ToolCalls []oaiToolCall  `json:"tool_calls"`
+					Content   string        `json:"content"`
+					ToolCalls []oaiToolCall `json:"tool_calls"`
 				} `json:"delta"`
 				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
+			// OpenAI emits the usage block on the very last SSE frame
+			// when stream_options.include_usage=true. Choices is empty
+			// on that frame.
+			Usage *openAIUsage `json:"usage,omitempty"`
 		}
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
 			// Skip malformed frames; vendors occasionally emit
 			// keepalives or comments.
 			continue
+		}
+		if chunk.Usage != nil {
+			emitUsage(usageCtx, Usage{
+				Provider: provider, Model: model, Operation: "chat_stream",
+				InputTokens:  chunk.Usage.PromptTokens,
+				OutputTokens: chunk.Usage.CompletionTokens,
+				Latency:      time.Since(start),
+			})
+			sawUsage = true
 		}
 		for _, ch := range chunk.Choices {
 			if ch.Delta.Content != "" {
