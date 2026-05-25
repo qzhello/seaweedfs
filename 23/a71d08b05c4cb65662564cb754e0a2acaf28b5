@@ -1,0 +1,21 @@
+seaweedfs-tiering-controller/internal/api/ai_usage.go
+  ai_agent 96-155,157-164,168-288
+seaweedfs-tiering-controller/internal/store/ai_usage.go
+  ai_agent 11,160-229
+seaweedfs-tiering-controller/migrations/pg/044_ai_model_pricing.sql
+  ai_agent 1-48
+seaweedfs-tiering-controller/web/app/admin/_panels/ai-usage.tsx
+  ai_agent 18-21,24-25,33-34,73-95,99-106,115-123,125-126,136-138,142-144,148-150,152,163-169,265,282,302-307,321,327-329,339,349,359-548,556-566
+seaweedfs-tiering-controller/internal/api/server.go
+  ai_agent 428-432
+seaweedfs-tiering-controller/web/lib/api.ts
+  ai_agent 982,992-993,1001,1005,1009-1011,1017-1040
+seaweedfs-tiering-controller/web/lib/i18n.ts
+  ai_agent 2846-2868
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "23a71d08b05c4cb65662564cb754e0a2acaf28b5",
+  "prompts": {}
+}
