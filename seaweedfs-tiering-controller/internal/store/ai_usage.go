@@ -8,6 +8,7 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -154,6 +155,78 @@ type AIUsageTopUser struct {
 	Calls        int64     `json:"calls"`
 	InputTokens  int64     `json:"input_tokens"`
 	OutputTokens int64     `json:"output_tokens"`
+}
+
+// AIModelPricing is the operator-managed price row that the API
+// layer joins against usage rollups to compute estimated cost.
+type AIModelPricing struct {
+	ID                  uuid.UUID `json:"id"`
+	Provider            string    `json:"provider"`
+	Model               string    `json:"model"`
+	InputPricePer1MTok  float64   `json:"input_price_per_1m_tokens"`
+	OutputPricePer1MTok float64   `json:"output_price_per_1m_tokens"`
+	Currency            string    `json:"currency"`
+	Notes               string    `json:"notes"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+// ListAIModelPricing returns every row. The table is tiny (one row
+// per priced model) so a full scan is the simplest read.
+func (p *PG) ListAIModelPricing(ctx context.Context) ([]AIModelPricing, error) {
+	rows, err := p.Pool.Query(ctx, `
+		SELECT id, provider, model,
+		       input_price_per_1m_tokens, output_price_per_1m_tokens,
+		       currency, notes, updated_at
+		FROM ai_model_pricing
+		ORDER BY provider, model`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []AIModelPricing{}
+	for rows.Next() {
+		var r AIModelPricing
+		if err := rows.Scan(&r.ID, &r.Provider, &r.Model,
+			&r.InputPricePer1MTok, &r.OutputPricePer1MTok,
+			&r.Currency, &r.Notes, &r.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+// UpsertAIModelPricing inserts or updates a row by (provider, model).
+// Notes is free-form operator metadata; zero prices are valid and
+// mean "treat as unpriced" on the dashboard.
+func (p *PG) UpsertAIModelPricing(ctx context.Context, r AIModelPricing) error {
+	if r.Provider == "" || r.Model == "" {
+		return fmt.Errorf("provider and model are required")
+	}
+	if r.Currency == "" {
+		r.Currency = "USD"
+	}
+	_, err := p.Pool.Exec(ctx, `
+		INSERT INTO ai_model_pricing
+		    (provider, model, input_price_per_1m_tokens, output_price_per_1m_tokens, currency, notes, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6, now())
+		ON CONFLICT (provider, model) DO UPDATE SET
+		    input_price_per_1m_tokens  = EXCLUDED.input_price_per_1m_tokens,
+		    output_price_per_1m_tokens = EXCLUDED.output_price_per_1m_tokens,
+		    currency                   = EXCLUDED.currency,
+		    notes                      = EXCLUDED.notes,
+		    updated_at                 = now()`,
+		r.Provider, r.Model, r.InputPricePer1MTok, r.OutputPricePer1MTok, r.Currency, r.Notes)
+	return err
+}
+
+// DeleteAIModelPricing removes one row by (provider, model). A missing
+// row is not an error — pricing is best-effort.
+func (p *PG) DeleteAIModelPricing(ctx context.Context, provider, model string) error {
+	_, err := p.Pool.Exec(ctx,
+		`DELETE FROM ai_model_pricing WHERE provider = $1 AND model = $2`,
+		provider, model)
+	return err
 }
 
 func (p *PG) AIUsageTopUsers(ctx context.Context, days, limit int) ([]AIUsageTopUser, error) {

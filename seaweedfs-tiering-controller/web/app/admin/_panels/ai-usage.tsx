@@ -15,11 +15,14 @@
 // rather than a wall of zeros.
 
 import { useMemo, useState } from "react";
-import { Activity, AlertTriangle, Cpu, Users, Clock, Coins, Brain } from "lucide-react";
+import {
+  Activity, AlertTriangle, Cpu, Users, Clock, Coins, Brain,
+  DollarSign, Trash2, Plus, X,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
-import { useAIUsage } from "@/lib/api";
-import type { AIUsageDailyRow, AIUsageModelTotal, AIUsageTopUser } from "@/lib/api";
+import { useAIUsage, useAIPricing, upsertAIPricing, deleteAIPricing } from "@/lib/api";
+import type { AIUsageDailyRow, AIUsageModelTotal, AIUsageTopUser, AIModelPricing } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
 type WindowDays = 7 | 30 | 90;
@@ -27,7 +30,8 @@ type WindowDays = 7 | 30 | 90;
 export function AIUsagePanel() {
   const { t } = useT();
   const [days, setDays] = useState<WindowDays>(7);
-  const { data, error, isLoading } = useAIUsage(days);
+  const [showEditor, setShowEditor] = useState(false);
+  const { data, error, isLoading, mutate } = useAIUsage(days);
 
   const totals = useMemo(() => {
     if (!data) return null;
@@ -66,21 +70,39 @@ export function AIUsagePanel() {
             {t("Per-call accounting captured from provider responses. Zero tokens means the vendor did not report.")}
           </p>
         </div>
-        <div className="inline-flex rounded-md border border-border overflow-hidden text-xs">
-          {([7, 30, 90] as WindowDays[]).map((d, i) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setDays(d)}
-              className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border" : ""} ${
-                days === d ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2"
-              }`}
-            >
-              {d}d
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <div className="inline-flex rounded-md border border-border overflow-hidden text-xs">
+            {([7, 30, 90] as WindowDays[]).map((d, i) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => setDays(d)}
+                className={`px-2.5 py-1 transition-colors ${i > 0 ? "border-l border-border" : ""} ${
+                  days === d ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2"
+                }`}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowEditor(v => !v)}
+            className="btn inline-flex items-center gap-1 text-xs"
+            title={t("Edit per-model token prices")}
+          >
+            <DollarSign size={11}/> {t("Pricing")}
+          </button>
         </div>
       </header>
+
+      {showEditor && (
+        <PricingEditor
+          currency={data?.currency ?? "USD"}
+          onClose={() => setShowEditor(false)}
+          onChange={() => mutate()}
+        />
+      )}
 
       {!hasAnyData ? (
         <EmptyState
@@ -90,10 +112,18 @@ export function AIUsagePanel() {
         />
       ) : (
         <>
-          {totals && <SummaryTiles totals={totals} models={data.by_model.length} />}
+          {totals && (
+            <SummaryTiles
+              totals={totals}
+              models={data.by_model.length}
+              cost={data.total_cost}
+              currency={data.currency}
+              unpriced={data.unpriced_models}
+            />
+          )}
           <DailyChart rows={data.by_day} />
-          <ModelTable rows={data.by_model} />
-          {data.top_users.length > 0 && <TopUsersTable rows={data.top_users} />}
+          <ModelTable rows={data.by_model} currency={data.currency} />
+          {data.top_users.length > 0 && <TopUsersTable rows={data.top_users} currency={data.currency} />}
         </>
       )}
     </div>
@@ -103,14 +133,23 @@ export function AIUsagePanel() {
 function SummaryTiles({
   totals,
   models,
+  cost,
+  currency,
+  unpriced,
 }: {
   totals: { calls: number; errors: number; input: number; output: number };
   models: number;
+  cost: number;
+  currency: string;
+  unpriced: number;
 }) {
   const { t } = useT();
   const errRate = totals.calls > 0 ? (totals.errors / totals.calls) * 100 : 0;
+  const costHint = unpriced > 0
+    ? `${unpriced} ${t("unpriced models")}`
+    : t("all models priced");
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
       <Tile icon={Activity} label={t("Calls")} value={totals.calls.toLocaleString()} hint={`${models} ${t("models")}`} />
       <Tile
         icon={AlertTriangle}
@@ -121,6 +160,13 @@ function SummaryTiles({
       />
       <Tile icon={Coins} label={t("Input tokens")} value={fmtCompact(totals.input)} />
       <Tile icon={Coins} label={t("Output tokens")} value={fmtCompact(totals.output)} />
+      <Tile
+        icon={DollarSign}
+        label={t("Estimated cost")}
+        value={fmtCurrency(cost, currency)}
+        hint={costHint}
+        tone={unpriced > 0 ? "warning" : undefined}
+      />
     </div>
   );
 }
@@ -216,7 +262,7 @@ function DailyChart({ rows }: { rows: AIUsageDailyRow[] }) {
   );
 }
 
-function ModelTable({ rows }: { rows: AIUsageModelTotal[] }) {
+function ModelTable({ rows, currency }: { rows: AIUsageModelTotal[]; currency: string }) {
   const { t } = useT();
   return (
     <section className="card overflow-hidden">
@@ -233,6 +279,7 @@ function ModelTable({ rows }: { rows: AIUsageModelTotal[] }) {
               <th className="num">{t("Errors")}</th>
               <th className="num">{t("Input")}</th>
               <th className="num">{t("Output")}</th>
+              <th className="num">{t("Cost")}</th>
               <th className="num">{t("Avg latency")}</th>
             </tr>
           </thead>
@@ -252,6 +299,12 @@ function ModelTable({ rows }: { rows: AIUsageModelTotal[] }) {
                   </td>
                   <td className="num tabular-nums">{fmtCompact(r.input_tokens)}</td>
                   <td className="num tabular-nums">{fmtCompact(r.output_tokens)}</td>
+                  <td
+                    className={`num tabular-nums ${r.priced ? "" : "text-muted"}`}
+                    title={r.priced ? undefined : t("No pricing row for this model — add one to see cost.")}
+                  >
+                    {r.priced ? fmtCurrency(r.estimated_cost, currency) : "—"}
+                  </td>
                   <td className="num tabular-nums text-muted inline-flex items-center gap-1 justify-end">
                     <Clock size={10}/>{r.avg_latency_ms}ms
                   </td>
@@ -265,12 +318,15 @@ function ModelTable({ rows }: { rows: AIUsageModelTotal[] }) {
   );
 }
 
-function TopUsersTable({ rows }: { rows: AIUsageTopUser[] }) {
+function TopUsersTable({ rows, currency }: { rows: AIUsageTopUser[]; currency: string }) {
   const { t } = useT();
   return (
     <section className="card overflow-hidden">
       <header className="border-b border-border px-3 py-2 text-xs font-semibold inline-flex items-center gap-2">
         <Users size={13}/> {t("Top users")}
+        <span className="font-normal text-muted text-[11px]">
+          — {t("cost approximated via fleet-average per-token rate")}
+        </span>
       </header>
       <div className="overflow-x-auto">
         <table className="grid w-full text-xs">
@@ -280,6 +336,7 @@ function TopUsersTable({ rows }: { rows: AIUsageTopUser[] }) {
               <th className="num">{t("Calls")}</th>
               <th className="num">{t("Input")}</th>
               <th className="num">{t("Output")}</th>
+              <th className="num">{t("Est. cost")}</th>
             </tr>
           </thead>
           <tbody>
@@ -289,8 +346,199 @@ function TopUsersTable({ rows }: { rows: AIUsageTopUser[] }) {
                 <td className="num tabular-nums">{r.calls.toLocaleString()}</td>
                 <td className="num tabular-nums">{fmtCompact(r.input_tokens)}</td>
                 <td className="num tabular-nums">{fmtCompact(r.output_tokens)}</td>
+                <td className="num tabular-nums">{fmtCurrency(r.estimated_cost, currency)}</td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// PricingEditor is a small inline manager for ai_model_pricing.
+// Surfacing it inside the AI Usage panel keeps "see cost / change
+// cost" in one mental hop without spawning yet another nav entry.
+function PricingEditor({
+  currency,
+  onClose,
+  onChange,
+}: {
+  currency: string;
+  onClose: () => void;
+  onChange: () => void;
+}) {
+  const { t } = useT();
+  const { data, mutate, isLoading } = useAIPricing();
+  const [draft, setDraft] = useState<Omit<AIModelPricing, "id" | "updated_at">>({
+    provider: "",
+    model: "",
+    input_price_per_1m_tokens: 0,
+    output_price_per_1m_tokens: 0,
+    currency,
+    notes: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = async () => {
+    setErr(null);
+    if (!draft.provider.trim() || !draft.model.trim()) {
+      setErr(t("Provider and model are required"));
+      return;
+    }
+    if (draft.input_price_per_1m_tokens < 0 || draft.output_price_per_1m_tokens < 0) {
+      setErr(t("Prices must be >= 0"));
+      return;
+    }
+    setSaving(true);
+    try {
+      await upsertAIPricing(draft);
+      await mutate();
+      onChange();
+      setDraft({
+        provider: "",
+        model: "",
+        input_price_per_1m_tokens: 0,
+        output_price_per_1m_tokens: 0,
+        currency,
+        notes: "",
+      });
+    } catch (e) {
+      setErr(String((e as Error).message ?? e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (p: AIModelPricing) => {
+    if (!confirm(`${t("Delete pricing for")} ${p.provider}/${p.model}?`)) return;
+    try {
+      await deleteAIPricing(p.provider, p.model);
+      await mutate();
+      onChange();
+    } catch (e) {
+      setErr(String((e as Error).message ?? e));
+    }
+  };
+
+  return (
+    <section className="card overflow-hidden">
+      <header className="border-b border-border px-3 py-2 text-xs font-semibold inline-flex items-center gap-2 justify-between">
+        <span className="inline-flex items-center gap-2">
+          <DollarSign size={13}/> {t("Model pricing")}
+          <span className="font-normal text-muted">— {t("per 1M tokens")}</span>
+        </span>
+        <button onClick={onClose} className="text-muted hover:text-text" aria-label={t("Close")}>
+          <X size={13}/>
+        </button>
+      </header>
+
+      {err && (
+        <div className="px-3 py-2 text-xs text-danger bg-danger/10 border-b border-danger/30">{err}</div>
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="grid w-full text-xs">
+          <thead>
+            <tr>
+              <th className="text-left">{t("Provider")}</th>
+              <th className="text-left">{t("Model")}</th>
+              <th className="num">{t("Input")}</th>
+              <th className="num">{t("Output")}</th>
+              <th className="text-left">{t("Currency")}</th>
+              <th className="text-left">{t("Notes")}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {(data?.rows ?? []).map(r => (
+              <tr key={r.id}>
+                <td className="font-mono text-[11px]">{r.provider}</td>
+                <td className="font-mono text-[11px]">{r.model}</td>
+                <td className="num tabular-nums">{r.input_price_per_1m_tokens.toFixed(2)}</td>
+                <td className="num tabular-nums">{r.output_price_per_1m_tokens.toFixed(2)}</td>
+                <td className="text-[11px]">{r.currency}</td>
+                <td className="text-[11px] text-muted">{r.notes || "—"}</td>
+                <td className="text-right">
+                  <button
+                    type="button"
+                    onClick={() => remove(r)}
+                    className="text-muted hover:text-danger"
+                    title={t("Delete")}
+                  >
+                    <Trash2 size={11}/>
+                  </button>
+                </td>
+              </tr>
+            ))}
+            <tr className="bg-panel2/40">
+              <td>
+                <input
+                  className="input w-24 text-[11px]"
+                  placeholder="openai"
+                  value={draft.provider}
+                  onChange={e => setDraft({ ...draft, provider: e.target.value })}
+                />
+              </td>
+              <td>
+                <input
+                  className="input w-40 text-[11px]"
+                  placeholder="gpt-4o-mini"
+                  value={draft.model}
+                  onChange={e => setDraft({ ...draft, model: e.target.value })}
+                />
+              </td>
+              <td>
+                <input
+                  className="input w-20 text-[11px] text-right"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={draft.input_price_per_1m_tokens}
+                  onChange={e =>
+                    setDraft({ ...draft, input_price_per_1m_tokens: Number(e.target.value) })
+                  }
+                />
+              </td>
+              <td>
+                <input
+                  className="input w-20 text-[11px] text-right"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={draft.output_price_per_1m_tokens}
+                  onChange={e =>
+                    setDraft({ ...draft, output_price_per_1m_tokens: Number(e.target.value) })
+                  }
+                />
+              </td>
+              <td>
+                <input
+                  className="input w-16 text-[11px]"
+                  value={draft.currency}
+                  onChange={e => setDraft({ ...draft, currency: e.target.value })}
+                />
+              </td>
+              <td>
+                <input
+                  className="input w-32 text-[11px]"
+                  value={draft.notes}
+                  onChange={e => setDraft({ ...draft, notes: e.target.value })}
+                />
+              </td>
+              <td className="text-right">
+                <button
+                  type="button"
+                  onClick={save}
+                  disabled={saving || isLoading}
+                  className="btn text-accent border-accent/40 hover:bg-accent/10 inline-flex items-center gap-1"
+                  title={t("Add or update this pricing row")}
+                >
+                  <Plus size={11}/> {t("Save")}
+                </button>
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -305,3 +553,14 @@ function fmtCompact(n: number): string {
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
   return n.toLocaleString();
 }
+
+// fmtCurrency formats spend with the operator's chosen currency
+// label. We don't rely on Intl.NumberFormat's currency mode because
+// the editor accepts free-form currency codes ("CNY", "JPY", or
+// even non-ISO labels like "credit") — we just prefix the code.
+function fmtCurrency(n: number, currency: string): string {
+  if (n < 0.005 && n > -0.005) return `${currency} 0.00`;
+  if (Math.abs(n) >= 1_000) return `${currency} ${n.toFixed(0)}`;
+  return `${currency} ${n.toFixed(2)}`;
+}
+

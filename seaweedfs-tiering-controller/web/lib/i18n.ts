@@ -2843,6 +2843,29 @@ const ZH: Dict = {
   "Avg latency":                  "平均时延",
   "Top users":                    "活跃用户",
   // "User" / "Provider" / "Model" / "input" / "Loading…" already defined earlier
+
+  // --- AI model pricing (in-panel editor) ---
+  "Estimated cost":               "估算费用",
+  "unpriced models":              "个未配置定价的模型",
+  "all models priced":            "全部模型已配置定价",
+  // (dup of line 2719) "Cost":                         "费用",
+  "Est. cost":                    "估算费用",
+  "No pricing row for this model — add one to see cost.":
+                                  "未为该模型配置定价 — 添加后即可显示费用。",
+  "cost approximated via fleet-average per-token rate":
+                                  "费用按整体平均 Token 单价估算",
+  "Pricing":                      "定价",
+  "Edit per-model token prices":  "编辑每个模型的 Token 定价",
+  "Model pricing":                "模型定价",
+  "per 1M tokens":                "每 100 万 Token",
+  "Provider and model are required":
+                                  "服务商和模型为必填",
+  "Prices must be >= 0":          "价格必须 ≥ 0",
+  "Delete pricing for":           "删除以下定价",
+  // (dup of line 1885) "Currency":                     "币种",
+  // (dup of line 926)  "Notes":                        "备注",
+  "Add or update this pricing row":
+                                  "新增或更新该定价行",
 };
 
 const DICTS: Record<Lang, Dict> = {

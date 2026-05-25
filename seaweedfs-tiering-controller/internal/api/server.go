@@ -425,6 +425,11 @@ func Router(d Deps) *gin.Engine {
 		v1.POST("/ai/test", testAI(d))
 		// Admin-only token usage rollups — feeds the AI usage panel.
 		admin.GET("/ai/usage", getAIUsage(d))
+		// Model pricing: read open to any logged-in operator so the
+		// usage panel can decorate; mutations restricted to admin.
+		v1.GET("/ai/pricing", listAIModelPricing(d))
+		admin.PUT("/ai/pricing", upsertAIModelPricing(d))
+		admin.DELETE("/ai/pricing", deleteAIModelPricing(d))
 
 		admin.POST("/scheduler/score-now", scoreNow(d))
 

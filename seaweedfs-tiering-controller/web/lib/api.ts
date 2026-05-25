@@ -979,6 +979,7 @@ export interface AIUsageDailyRow {
   input_tokens: number;
   output_tokens: number;
   avg_latency_ms: number;
+  estimated_cost: number;
 }
 export interface AIUsageModelTotal {
   provider: string;
@@ -988,6 +989,8 @@ export interface AIUsageModelTotal {
   input_tokens: number;
   output_tokens: number;
   avg_latency_ms: number;
+  estimated_cost: number;
+  priced: boolean;
 }
 export interface AIUsageTopUser {
   user_id: string;
@@ -995,15 +998,46 @@ export interface AIUsageTopUser {
   calls: number;
   input_tokens: number;
   output_tokens: number;
+  estimated_cost: number;
 }
 export interface AIUsageResp {
   days: number;
+  currency: string;
   by_day: AIUsageDailyRow[];
   by_model: AIUsageModelTotal[];
   top_users: AIUsageTopUser[];
+  total_cost: number;
+  unpriced_models: number;
+  pricing_row_count: number;
 }
 export function useAIUsage(days = 7) {
   return useSWR<AIUsageResp>(`${BASE}/ai/usage?days=${days}`, fetcher);
+}
+
+// AI model pricing — operator-managed lookup, joined into AI Usage
+// rollups server-side to compute estimated cost.
+export interface AIModelPricing {
+  id: string;
+  provider: string;
+  model: string;
+  input_price_per_1m_tokens: number;
+  output_price_per_1m_tokens: number;
+  currency: string;
+  notes: string;
+  updated_at: string;
+}
+export function useAIPricing() {
+  return useSWR<{ rows: AIModelPricing[] }>(`${BASE}/ai/pricing`, fetcher);
+}
+export async function upsertAIPricing(p: Omit<AIModelPricing, "id" | "updated_at">): Promise<void> {
+  await jpost(`${BASE}/ai/pricing`, p, "PUT");
+}
+export async function deleteAIPricing(provider: string, model: string): Promise<void> {
+  await jpost(
+    `${BASE}/ai/pricing?provider=${encodeURIComponent(provider)}&model=${encodeURIComponent(model)}`,
+    undefined,
+    "DELETE",
+  );
 }
 
 // S3 policy proposal acceptance metrics — counterpart of useAILearning
