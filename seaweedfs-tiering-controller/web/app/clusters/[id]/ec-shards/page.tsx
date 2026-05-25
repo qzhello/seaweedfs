@@ -2,14 +2,17 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Loader2, Grid3X3, RefreshCw, Wrench } from "lucide-react";
+import { Loader2, Grid3X3, RefreshCw, Wrench, Server } from "lucide-react";
 import { useClusterECShards, type ECVolumeMatrixRow } from "@/lib/api";
 import { useCaps } from "@/lib/caps-context";
 import { useT } from "@/lib/i18n";
 import { bytes } from "@/lib/utils";
 import { HealthBadge } from "@/components/health-badge";
 import { ECPlanDialog } from "@/components/ec/plan-dialog";
+import { ECByServerMatrix } from "@/components/ec/by-server-matrix";
 import { useClusterDetail } from "../_context";
+
+type View = "by_volume" | "by_server";
 
 export default function ECShardsPage() {
   const { has, loading: capsLoading } = useCaps();
@@ -23,6 +26,7 @@ export default function ECShardsPage() {
   // any volume in collection X is equivalent to the volume-detail
   // version of the button.
   const [rebuildCollection, setRebuildCollection] = useState<string | null>(null);
+  const [view, setView] = useState<View>("by_volume");
   const canRebuild = has("volume.write");
 
   const filtered = useMemo(() => {
@@ -76,17 +80,41 @@ export default function ECShardsPage() {
               : <span className="text-success">{t("all volumes complete")}</span>}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <input
-            value={collectionFilter}
-            onChange={(e) => setCollectionFilter(e.target.value)}
-            placeholder={t("Filter by collection…")}
-            className="input w-56"
-          />
-          <label className="inline-flex items-center gap-1 text-xs text-muted cursor-pointer">
-            <input type="checkbox" checked={onlyUnhealthy} onChange={(e) => setOnlyUnhealthy(e.target.checked)}/>
-            {t("Only show incomplete")}
-          </label>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="inline-flex rounded-md border border-border overflow-hidden text-xs">
+            <button
+              type="button"
+              onClick={() => setView("by_volume")}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 transition-colors ${
+                view === "by_volume" ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2"
+              }`}
+            >
+              <Grid3X3 size={11}/> {t("By volume")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("by_server")}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 border-l border-border transition-colors ${
+                view === "by_server" ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2"
+              }`}
+            >
+              <Server size={11}/> {t("By server")}
+            </button>
+          </div>
+          {view === "by_volume" && (
+            <>
+              <input
+                value={collectionFilter}
+                onChange={(e) => setCollectionFilter(e.target.value)}
+                placeholder={t("Filter by collection…")}
+                className="input w-56"
+              />
+              <label className="inline-flex items-center gap-1 text-xs text-muted cursor-pointer">
+                <input type="checkbox" checked={onlyUnhealthy} onChange={(e) => setOnlyUnhealthy(e.target.checked)}/>
+                {t("Only show incomplete")}
+              </label>
+            </>
+          )}
           <button onClick={() => mutate()} disabled={isValidating} className="btn inline-flex items-center gap-1">
             <RefreshCw size={12} className={isValidating ? "animate-spin" : ""}/>
             {t("Refresh")}
@@ -94,10 +122,12 @@ export default function ECShardsPage() {
         </div>
       </header>
 
+      {view === "by_server" && <ECByServerMatrix volumes={data.volumes} clusterID={id}/>}
+
       {/* Repair affordance — one button per collection with degraded
           volumes, so the operator can fire ec.rebuild without having
           to drill into each volume first. */}
-      {canRebuild && unhealthyCollections.length > 0 && (
+      {view === "by_volume" && canRebuild && unhealthyCollections.length > 0 && (
         <div className="card p-3 border-warning/40 bg-warning/10 text-xs flex flex-wrap items-center gap-2">
           <span className="text-warning font-semibold inline-flex items-center gap-1.5">
             <Wrench size={12}/> {t("Rebuild degraded volumes")}:
@@ -116,6 +146,7 @@ export default function ECShardsPage() {
         </div>
       )}
 
+      {view === "by_volume" && (
       <section className="card overflow-hidden">
         {filtered.length === 0 ? (
           <div className="p-6 text-sm text-muted text-center">
@@ -150,6 +181,7 @@ export default function ECShardsPage() {
           </div>
         )}
       </section>
+      )}
 
       {rebuildCollection !== null && (
         <ECPlanDialog

@@ -2767,6 +2767,26 @@ const ZH: Dict = {
   // "rollback" / "risk" already defined earlier (lines ~2132 / ~1865) — wizard reuses them
   "postchecks":                   "事后检查",
   "preconditions":                "前置检查",
+
+  // --- EC by-server matrix ---
+  "By volume":                    "按卷",
+  "By server":                    "按服务器",
+  "Placement risks":              "放置风险",
+  "server×volume pairs with ≥{n} shards on one server. Losing that server consumes most of the EC safety margin.":
+                                  "服务器×卷 对存在 ≥{n} 个分片集中在同一服务器。该服务器宕机会吃掉大部分 EC 容错余量。",
+  "volume(s) with every shard on a single rack — EC durability is rack-fault-tolerant only if shards are spread across racks.":
+                                  "个卷的全部分片在同一机架——EC 的机架级容错前提是分片跨机架分散。",
+  "shards":                       "分片",
+  "more":                         "更多",
+  "No EC shard locations to pivot. Run ec.encode on some volumes first.":
+                                  "没有可透视的 EC 分片位置。先对一些卷运行 ec.encode。",
+  "servers, sorted by total shards held":
+                                  "台服务器,按持有分片总数排序",
+  "Server":                       "服务器",
+  "DC / Rack":                    "DC / 机架",
+  "Shards":                       "分片",
+  "Volumes":                      "卷",
+  "Concentration":                "集中度",
 };
 
 const DICTS: Record<Lang, Dict> = {
