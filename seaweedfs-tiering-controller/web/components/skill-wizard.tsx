@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { OP_CATALOG, explainOp } from "@/lib/op-catalog";
+import { AISuggestButton } from "./skill-wizard-ai";
 
 // ---- Shared draft types --------------------------------------------------
 
@@ -356,6 +357,12 @@ function StepIdentity({
           <p className="field-helper">{RISK_HINTS[meta.risk_level]}</p>
         </Field>
       </div>
+
+      <AISuggestButton
+        section="risk"
+        draft={draft}
+        onReplace={(sug) => update({ risk_level: sug as RiskLevel })}
+      />
     </div>
   );
 }
@@ -482,6 +489,13 @@ function StepExecute({
           <li>Always end with <code>audit_log</code> so the action shows up in the audit trail.</li>
         </ul>
       </Guidance>
+
+      <AISuggestButton
+        section="steps"
+        draft={draft}
+        onAppend={(sug) => setSteps([...steps, ...(sug as SkillStep[])])}
+        onReplace={(sug) => setSteps(sug as SkillStep[])}
+      />
 
       {!hasAudit && steps.length > 0 && (
         <Note tone="warning">
@@ -666,12 +680,26 @@ function StepSafety({
         </ul>
       </Guidance>
 
+      <AISuggestButton
+        section="preconditions"
+        draft={draft}
+        onAppend={(sug) => updateDef(d => ({ ...d, preconditions: [...(d.preconditions ?? []), ...(sug as SkillCheck[])] }))}
+        onReplace={(sug) => updateDef(d => ({ ...d, preconditions: sug as SkillCheck[] }))}
+      />
+
       <CheckList
         title="Preconditions"
         helper="Run before any step. Fatal failures stop the Skill."
         items={pre}
         onChange={next => updateDef(d => ({ ...d, preconditions: next }))}
         suggest={COMMON_CHECKS}
+      />
+
+      <AISuggestButton
+        section="rollback"
+        draft={draft}
+        onAppend={(sug) => updateDef(d => ({ ...d, rollback: [...(d.rollback ?? []), ...(sug as { op: string; args?: Record<string, unknown>; doc?: string }[])] }))}
+        onReplace={(sug) => updateDef(d => ({ ...d, rollback: sug as { op: string; args?: Record<string, unknown>; doc?: string }[] }))}
       />
 
       <section className="space-y-2">
@@ -707,6 +735,13 @@ function StepSafety({
           </ol>
         )}
       </section>
+
+      <AISuggestButton
+        section="postchecks"
+        draft={draft}
+        onAppend={(sug) => updateDef(d => ({ ...d, postchecks: [...(d.postchecks ?? []), ...(sug as SkillCheck[])] }))}
+        onReplace={(sug) => updateDef(d => ({ ...d, postchecks: sug as SkillCheck[] }))}
+      />
 
       <CheckList
         title="Postchecks"

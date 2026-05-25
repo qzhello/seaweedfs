@@ -569,6 +569,28 @@ export interface AuditSummaryResp {
   raw?: string;
 }
 
+// Skill wizard AI helper. Section-scoped suggestion: the operator is
+// halfway through editing a skill and wants AI to fill in ONE missing
+// part (steps / rollback / postchecks / preconditions / risk). Server
+// validates the suggestion against the skill schema before reply.
+export type SkillWizardSection = "steps" | "rollback" | "postchecks" | "preconditions" | "risk";
+export interface SkillWizardSuggestResp {
+  ok: boolean;
+  section: SkillWizardSection;
+  suggestion?: unknown; // shape depends on section — array for collections, string for risk
+  rationale?: string;
+  provider_name?: string;
+  error?: string;
+  raw?: string;
+}
+export async function skillWizardSuggest(body: {
+  section: SkillWizardSection;
+  draft: unknown;
+  extra_context?: string;
+}): Promise<SkillWizardSuggestResp> {
+  return jpost(`${BASE}/skills/wizard-suggest`, body) as Promise<SkillWizardSuggestResp>;
+}
+
 // Fleet ops overview. Pure SQL roll-up across tasks + executions
 // tables, used by the Activity → Fleet tab. No AI in this path —
 // the numbers must be cheap and verifiable.

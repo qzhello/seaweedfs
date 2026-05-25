@@ -606,6 +606,11 @@ func Router(d Deps) *gin.Engine {
 		admin.POST("/skills/:key/toggle", toggleSkill(d))
 		admin.POST("/skills/validate", validateSkillDef(d))
 		admin.POST("/skills/draft-from-text", draftSkillFromText(d))
+		// Section-scoped AI helper. Operator passes the partial draft +
+		// one section name ("steps", "rollback", "postchecks",
+		// "preconditions", "risk"); AI returns just that section,
+		// validated against the skill schema before reply.
+		admin.POST("/skills/wizard-suggest", skillWizardSuggest(d))
 
 		v1.GET("/audit", listAudit(d))
 		v1.GET("/audit/facets", auditFacets(d))

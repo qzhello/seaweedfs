@@ -2750,6 +2750,23 @@ const ZH: Dict = {
   "m":                            "分",
   "w":                            "周",
   // "h" / "d" intentionally left untranslated — they're shorter than 时/天 in the table cells
+
+  // --- Skill wizard AI helper ---
+  "Suggest {section} with AI":    "用 AI 建议 {section}",
+  // "Generate" / "Generating…" already defined earlier (lines ~2564-2565)
+  "Regenerate":                   "重新生成",
+  "Validated server-side before preview. You decide whether to apply.":
+                                  "服务端已校验后再预览,是否采纳由你决定。",
+  "Why":                          "理由",
+  "Append":                       "追加",
+  "Replace":                      "替换",
+  "(empty)":                      "(空)",
+  "e.g. include EC rebuild, target collection logs-*":
+                                  "例如:包含 EC 重建、目标 collection 为 logs-*",
+  "steps":                        "执行步骤",
+  // "rollback" / "risk" already defined earlier (lines ~2132 / ~1865) — wizard reuses them
+  "postchecks":                   "事后检查",
+  "preconditions":                "前置检查",
 };
 
 const DICTS: Record<Lang, Dict> = {
