@@ -6,12 +6,13 @@
 // time slices. Single page, ?tab= drives which slice is visible.
 
 import { Suspense } from "react";
-import { ListChecks, History } from "lucide-react";
+import { ListChecks, History, Globe2 } from "lucide-react";
 import { TabsLayout } from "@/components/tabs-layout";
 import { useT } from "@/lib/i18n";
 import { useRunningCounts } from "@/lib/use-running-counts";
 import { TasksPanel } from "./_panels/tasks";
 import { ExecutionsPanel } from "./_panels/executions";
+import { FleetOpsPanel } from "./_panels/fleet";
 
 function ActivityInner() {
   const { t } = useT();
@@ -27,6 +28,10 @@ function ActivityInner() {
       subtitle={t("What the system is doing and what it has done.")}
       defaultTab="tasks"
       tabs={[
+        {
+          key: "fleet", label: "Fleet", icon: Globe2,
+          panel: <FleetOpsPanel/>,
+        },
         {
           key: "tasks", label: "Tasks", icon: ListChecks,
           badge: tasksBadge > 0 ? String(tasksBadge) : undefined,

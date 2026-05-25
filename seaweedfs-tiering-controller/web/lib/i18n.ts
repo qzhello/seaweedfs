@@ -2721,6 +2721,35 @@ const ZH: Dict = {
   "MoM Δ":                        "环比 Δ",
   "forecast":                     "预测",
   // "actual" / "counterfactual" already defined earlier (lines ~1858-1859)
+
+  // --- Fleet ops overview (Activity → Fleet) ---
+  "Fleet ops overview":           "全集群运维概览",
+  "Where tasks are queueing, what's failing, throughput trend.":
+                                  "任务在哪里排队、什么在失败、吞吐趋势。",
+  "Pending":                      "待处理",
+  "Running":                      "运行中",
+  "Succeeded":                    "成功",
+  "Failed":                       "失败",
+  "Daily executions":             "每日执行数",
+  "By cluster":                   "按集群",
+  "No tasks recorded for any cluster yet.":
+                                  "暂无任何集群的任务记录。",
+  "Stuck tasks":                  "卡住的任务",
+  "running > {r}, pending > {p}":
+                                  "运行中 > {r},待处理 > {p}",
+  "Age":                          "时长",
+  "Action":                       "动作",
+  "Volume":                       "卷",
+  "Status":                       "状态",
+  "Inspect":                      "查看",
+  "Action failure rate":          "动作失败率",
+  "min 3 runs":                   "至少 3 次",
+  "Rate":                         "比率",
+  "succeeded":                    "成功",
+  // "failed" already defined earlier (line ~711)
+  "m":                            "分",
+  "w":                            "周",
+  // "h" / "d" intentionally left untranslated — they're shorter than 时/天 in the table cells
 };
 
 const DICTS: Record<Lang, Dict> = {

@@ -569,6 +569,58 @@ export interface AuditSummaryResp {
   raw?: string;
 }
 
+// Fleet ops overview. Pure SQL roll-up across tasks + executions
+// tables, used by the Activity → Fleet tab. No AI in this path —
+// the numbers must be cheap and verifiable.
+export interface OpsFleetClusterRow {
+  cluster_id?: string;
+  name: string;
+  pending: number;
+  running: number;
+  succeeded_in_window: number;
+  failed_in_window: number;
+}
+export interface OpsFleetStuckRow {
+  id: string;
+  cluster_id?: string;
+  cluster_name?: string;
+  action: string;
+  collection: string;
+  volume_id: number;
+  status: string;
+  age_seconds: number;
+}
+export interface OpsFleetActionFailureRow {
+  action: string;
+  total: number;
+  failed: number;
+  failure_rate: number;
+}
+export interface OpsFleetDailyThroughputRow {
+  day: string;
+  started: number;
+  succeeded: number;
+  failed: number;
+}
+export interface OpsFleetResp {
+  window_hours: number;
+  running_stuck_threshold_seconds: number;
+  pending_stuck_threshold_seconds: number;
+  clusters: OpsFleetClusterRow[];
+  stuck_tasks: OpsFleetStuckRow[];
+  action_failures: OpsFleetActionFailureRow[];
+  daily_throughput: OpsFleetDailyThroughputRow[];
+  total_pending: number;
+  total_running: number;
+  total_succeeded_in_window: number;
+  total_failed_in_window: number;
+}
+export function useOpsFleet(windowHours = 168) {
+  return useSWR<OpsFleetResp>(`${BASE}/ops/fleet?window_hours=${windowHours}`, fetcher, {
+    refreshInterval: 30000,
+  });
+}
+
 // Fleet-wide cost overview. Aggregates monthly snapshots across all
 // clusters + a 3-month linear forecast. ai_explainer is best-effort
 // prose; it never modifies the numeric fields.

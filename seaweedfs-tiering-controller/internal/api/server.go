@@ -320,6 +320,10 @@ func Router(d Deps) *gin.Engine {
 		// authed user; doesn't expose row contents.
 		v1.GET("/counts", counts(d))
 		v1.GET("/tasks", listTasks(d))
+		// Fleet ops rollup — per-cluster queue depth, stuck-task
+		// hotspots, action failure rate, daily throughput. Pure SQL,
+		// no AI. Gated by cluster.read since it's a passive view.
+		v1.GET("/ops/fleet", opsFleetOverview(d))
 		// Create a task from an AI migration proposal. Requires
 		// cost.write (the same gate that lets the operator generate
 		// proposals); the admin group gate is reused so the existing
