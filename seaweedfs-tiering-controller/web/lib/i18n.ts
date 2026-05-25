@@ -2787,6 +2787,32 @@ const ZH: Dict = {
   "Shards":                       "分片",
   "Volumes":                      "卷",
   "Concentration":                "集中度",
+
+  // --- Unified AI learning panel ---
+  "All AI streams":               "全部 AI 流",
+  "Side-by-side ROI. Low acceptance suggests the prompt or the surface needs work; high acceptance suggests the stream is worth extending.":
+                                  "并排 ROI 对比。采纳率低提示 prompt 或入口需要打磨;采纳率高说明这条流值得扩展。",
+  "Stream":                       "流",
+  "Signal source":                "信号来源",
+  "Accepted / correct":           "采纳 / 正确",
+  "auto-graded":                  "自动评分",
+  "operator-driven":              "操作员驱动",
+  "correct":                      "正确",
+  "approved+edited":              "已批准+编辑",
+  "low n":                        "样本不足",
+  "Task verdicts":                "任务判决",
+  "NL → IAM policies":            "NL → IAM 策略",
+  "Circuit-breaker limits":       "限流阈值",
+  "Bucket lifecycle plans":       "Bucket 生命周期计划",
+  "Bucket plan proposals":        "Bucket 计划建议",
+  "From the bucket lifecycle planner":
+                                  "来自 Bucket 生命周期规划器",
+  "No bucket plan proposals in this window. Open /costs → Bucket plan (AI) to generate some.":
+                                  "此窗口暂无 Bucket 计划建议。打开 /costs → Bucket plan (AI) 生成。",
+  "Recorded savings on accepted proposals":
+                                  "已记录的采纳建议节省",
+  "By action":                    "按动作",
+  // "Action" / "Rate" / "Open" already defined earlier
 };
 
 const DICTS: Record<Lang, Dict> = {
