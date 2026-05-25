@@ -2813,6 +2813,12 @@ const ZH: Dict = {
                                   "已记录的采纳建议节省",
   "By action":                    "按动作",
   // "Action" / "Rate" / "Open" already defined earlier
+
+  // --- Audit AI filter ---
+  "AI only":                      "仅 AI",
+  "AI activity only":             "仅 AI 活动",
+  "Show only AI-initiated actions":
+                                  "只显示 AI 触发的操作",
 };
 
 const DICTS: Record<Lang, Dict> = {

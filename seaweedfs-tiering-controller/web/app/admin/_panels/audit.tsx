@@ -7,7 +7,7 @@ import { EmptyState } from "@/components/empty-state";
 import { TableSkeleton } from "@/components/table-skeleton";
 import {
   ScrollText, X, Search, Clock, Sparkles, ChevronDown, ChevronRight,
-  AlertTriangle, Loader2, FileText,
+  AlertTriangle, Loader2, FileText, Bot,
 } from "lucide-react";
 import { relTime } from "@/lib/utils";
 import { Pagination, usePagination } from "@/components/pagination";
@@ -44,6 +44,7 @@ export function AuditPanel() {
   const [action, setAction] = useState("");
   const [kind, setKind] = useState("");
   const [text, setText] = useState("");
+  const [aiOnly, setAIOnly] = useState(false);
   const [range, setRange] = useState<RangeKey>("24h");
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
 
@@ -57,16 +58,30 @@ export function AuditPanel() {
   const { data: facets } = useAuditFacets();
   const items: AuditEntry[] = (data?.items ?? []) as AuditEntry[];
 
-  // Client-side free-text filter — runs after the server filter so the user
-  // can type ad-hoc keywords without waiting for a refetch.
+  // Client-side filters — run after the server filter so the user can
+  // toggle quickly without waiting for a refetch.
+  //
+  // aiOnly matches BOTH conventions we use today:
+  //   - actor starts with "ai:"     (every assistant_write_tools.go call)
+  //   - action starts with "ai."    (catches anything routed through the
+  //                                  AI surface even if the actor was a
+  //                                  human triggering it, e.g. /audit/summary)
+  // Either match is enough — the goal is "show me everything AI touched",
+  // not "only autonomous AI actions".
   const filtered = useMemo(() => {
-    if (!text) return items;
-    const t = text.toLowerCase();
-    return items.filter(e => {
-      const hay = `${e.actor} ${e.action} ${e.target_kind} ${e.target_id} ${JSON.stringify(e.payload)}`.toLowerCase();
-      return hay.includes(t);
-    });
-  }, [items, text]);
+    let out = items;
+    if (aiOnly) {
+      out = out.filter(e => e.actor.startsWith("ai:") || e.action.startsWith("ai."));
+    }
+    if (text) {
+      const q = text.toLowerCase();
+      out = out.filter(e => {
+        const hay = `${e.actor} ${e.action} ${e.target_kind} ${e.target_id} ${JSON.stringify(e.payload)}`.toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    return out;
+  }, [items, text, aiOnly]);
 
   const pg = usePagination(filtered, 50);
 
@@ -75,9 +90,10 @@ export function AuditPanel() {
     action && { key: "action", label: `action=${action}`, clear: () => setAction("") },
     kind   && { key: "kind",   label: `kind=${kind}`,     clear: () => setKind("") },
     text   && { key: "text",   label: `"${text}"`,        clear: () => setText("") },
+    aiOnly && { key: "aiOnly", label: t("AI activity only"), clear: () => setAIOnly(false) },
   ].filter(Boolean) as { key: string; label: string; clear: () => void }[];
 
-  const clearAll = () => { setActor(""); setAction(""); setKind(""); setText(""); };
+  const clearAll = () => { setActor(""); setAction(""); setKind(""); setText(""); setAIOnly(false); };
 
   return (
     <div className="space-y-5">
@@ -137,6 +153,20 @@ export function AuditPanel() {
               </button>
             ))}
           </div>
+          {/* AI-only quick toggle. Matches any row where the actor was AI
+              (ai:<chat-id>) OR the action lives in the ai.* namespace. */}
+          <button
+            type="button"
+            onClick={() => setAIOnly(v => !v)}
+            className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors ${
+              aiOnly
+                ? "bg-accent/15 text-accent border-accent/40"
+                : "text-muted border-border hover:bg-panel2 hover:text-text"
+            }`}
+            title={t("Show only AI-initiated actions")}
+          >
+            <Bot size={12}/> {t("AI only")}
+          </button>
           <div className="flex-1"/>
           {chips.length > 0 && (
             <>
@@ -190,7 +220,10 @@ export function AuditPanel() {
                         {relTime(e.at)}
                       </td>
                       <td className="text-xs font-mono">
-                        <button onClick={() => setActor(e.actor)} className="hover:text-accent transition-colors" title={t("Filter by this actor")}>
+                        <button onClick={() => setActor(e.actor)} className="inline-flex items-center gap-1 hover:text-accent transition-colors" title={t("Filter by this actor")}>
+                          {e.actor.startsWith("ai:") && (
+                            <Bot size={11} className="text-accent shrink-0" aria-label="AI actor"/>
+                          )}
                           {e.actor}
                         </button>
                       </td>
