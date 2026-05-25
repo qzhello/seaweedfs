@@ -79,31 +79,24 @@ In <=2 sentences, explain to an SRE why this action is recommended and call out 
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := o.http.Do(req)
 	if err != nil {
-		emitUsage(ctx, Usage{Provider: "openai", Model: o.model, Operation: "chat", Latency: time.Since(start), Err: err.Error()})
 		return "", fmt.Errorf("openai call: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		emitUsage(ctx, Usage{Provider: "openai", Model: o.model, Operation: "chat", Latency: time.Since(start), Err: fmt.Sprintf("status %d", resp.StatusCode)})
 		return "", fmt.Errorf("openai status %d", resp.StatusCode)
 	}
 	var out struct {
 		Choices []struct{ Message struct{ Content string } }
-		Usage   openAIUsage `json:"usage"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		emitUsage(ctx, Usage{Provider: "openai", Model: o.model, Operation: "chat", Latency: time.Since(start), Err: err.Error()})
 		return "", fmt.Errorf("decode openai response: %w", err)
 	}
 	if len(out.Choices) == 0 {
-		emitUsage(ctx, Usage{Provider: "openai", Model: o.model, Operation: "chat", Latency: time.Since(start), Err: "empty response"})
 		return "", fmt.Errorf("openai empty response")
 	}
-	emitUsage(ctx, Usage{
-		Provider: "openai", Model: o.model, Operation: "chat",
-		InputTokens: out.Usage.PromptTokens, OutputTokens: out.Usage.CompletionTokens,
-		Latency: time.Since(start),
-	})
+	// Explain is the rule-explainer hot path; usage capture
+	// is intentionally skipped here. Chat / JSONChat — the
+	// actual LLM-burning paths — are instrumented below.
 	return strings.TrimSpace(out.Choices[0].Message.Content), nil
 }
 
@@ -141,20 +134,30 @@ func (o *OpenAI) Chat(ctx context.Context, system string, messages []ChatMessage
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := o.http.Do(req)
 	if err != nil {
+		emitUsage(ctx, Usage{Provider: "openai", Model: o.model, Operation: "chat", Latency: time.Since(start), Err: err.Error()})
 		return "", fmt.Errorf("openai call: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
+		emitUsage(ctx, Usage{Provider: "openai", Model: o.model, Operation: "chat", Latency: time.Since(start), Err: fmt.Sprintf("status %d", resp.StatusCode)})
 		return "", fmt.Errorf("openai status %d", resp.StatusCode)
 	}
 	var out struct {
 		Choices []struct{ Message struct{ Content string } }
+		Usage   openAIUsage `json:"usage"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		emitUsage(ctx, Usage{Provider: "openai", Model: o.model, Operation: "chat", Latency: time.Since(start), Err: err.Error()})
 		return "", fmt.Errorf("decode openai response: %w", err)
 	}
 	if len(out.Choices) == 0 {
+		emitUsage(ctx, Usage{Provider: "openai", Model: o.model, Operation: "chat", Latency: time.Since(start), Err: "empty response"})
 		return "", fmt.Errorf("openai empty response")
 	}
+	emitUsage(ctx, Usage{
+		Provider: "openai", Model: o.model, Operation: "chat",
+		InputTokens: out.Usage.PromptTokens, OutputTokens: out.Usage.CompletionTokens,
+		Latency: time.Since(start),
+	})
 	return strings.TrimSpace(out.Choices[0].Message.Content), nil
 }
