@@ -251,14 +251,8 @@ func alertFacetsFor(events []store.AlertEvent) alertTriageFacets {
 	}
 }
 
-func containsString(xs []string, s string) bool {
-	for _, x := range xs {
-		if x == s {
-			return true
-		}
-	}
-	return false
-}
+// containsString lives in cluster_masters.go — reuse it rather
+// than redeclaring the same trivial helper.
 
 // Severity ordering for sev-floor filtering. Anything not in the map
 // is treated as "info" so we don't accidentally drop useful events.

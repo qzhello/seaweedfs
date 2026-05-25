@@ -153,12 +153,35 @@ if [ "$STOP_ONLY" = 1 ]; then
 fi
 
 # ---- start backend ---------------------------------------------------------
+
+# pick_go resolves a Go binary that satisfies the version declared in
+# go.mod. Operators have multiple Go SDKs installed (homebrew at 1.17,
+# ~/sdk/go for the latest) and the default PATH `go` is often the
+# stale one — building with it fails with cryptic
+#     "invalid go version '1.25.0': must match format 1.23"
+# So we prefer ~/sdk/go (the rolling-latest install) and fall back to
+# PATH only if it still parses go.mod. Override with TIER_GO=/path/to/go.
+pick_go() {
+  if [ -n "${TIER_GO:-}" ] && [ -x "$TIER_GO" ]; then
+    echo "$TIER_GO"; return
+  fi
+  if [ -x "$HOME/sdk/go/bin/go" ]; then
+    echo "$HOME/sdk/go/bin/go"; return
+  fi
+  command -v go
+}
+
 if [ "$DO_BACKEND" = 1 ]; then
   ensure_master_key
 
-  say "building backend…"
-  go build -o bin/controller ./cmd/controller
-  [ "$DO_COLLECTOR" = 1 ] && go build -o bin/collector ./cmd/collector
+  GO_BIN="$(pick_go)"
+  if [ -z "$GO_BIN" ] || [ ! -x "$GO_BIN" ]; then
+    warn "no Go toolchain found — install one or set TIER_GO=/path/to/go"
+    exit 1
+  fi
+  say "building backend… ($("$GO_BIN" version 2>&1 | awk '{print $3}'))"
+  "$GO_BIN" build -o bin/controller ./cmd/controller
+  [ "$DO_COLLECTOR" = 1 ] && "$GO_BIN" build -o bin/collector ./cmd/collector
 
   say "starting controller…"
   TIER_MASTER_KEY="$TIER_MASTER_KEY" nohup ./bin/controller --config "$CONFIG" > "$LOG_DIR/controller.log" 2>&1 &
