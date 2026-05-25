@@ -1040,6 +1040,45 @@ export async function deleteAIPricing(provider: string, model: string): Promise<
   );
 }
 
+// AI budgets — monthly spend caps with warn/critical thresholds.
+// Reads return the live evaluation state (month-to-date spend +
+// tier) so the panel doesn't need a second round-trip.
+export interface AIBudget {
+  id: string;
+  name: string;
+  scope_type: "global" | "provider" | "user";
+  scope_value: string;
+  monthly_limit: number;
+  currency: string;
+  threshold_warn_pct: number;
+  threshold_critical_pct: number;
+  active: boolean;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+export interface AIBudgetState {
+  budget: AIBudget;
+  month_to_date: number;
+  percent_of_cap: number;
+  tier: "ok" | "warn" | "critical";
+  calendar_month: string;
+}
+export function useAIBudgets() {
+  return useSWR<{ rows: AIBudgetState[] }>(`${BASE}/ai/budgets`, fetcher);
+}
+export async function upsertAIBudget(
+  b: Omit<AIBudget, "id" | "created_at" | "updated_at"> & { id?: string },
+): Promise<AIBudget> {
+  return (await jpost(`${BASE}/ai/budgets`, b, "PUT")) as AIBudget;
+}
+export async function deleteAIBudget(id: string): Promise<void> {
+  await jpost(`${BASE}/ai/budgets/${id}`, undefined, "DELETE");
+}
+export async function evaluateAIBudgets(): Promise<{ states: AIBudgetState[]; fired: unknown[] }> {
+  return (await jpost(`${BASE}/ai/budgets/evaluate`, {})) as { states: AIBudgetState[]; fired: unknown[] };
+}
+
 // S3 policy proposal acceptance metrics — counterpart of useAILearning
 // for the NL → IAM generator. Renders as its own card on the AI
 // Learning panel.

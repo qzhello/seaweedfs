@@ -2866,6 +2866,38 @@ const ZH: Dict = {
   // (dup of line 926)  "Notes":                        "备注",
   "Add or update this pricing row":
                                   "新增或更新该定价行",
+
+  // --- AI budgets ---
+  "Budgets":                      "预算",
+  "configured":                   "项已配置",
+  "Re-check spend against budgets and fire any pending alerts":
+                                  "重新核对预算并触发待发的告警",
+  "Re-check now":                 "立即核对",
+  "Checking…":                    "核对中…",
+  "Budget":                       "预算",
+  "No budgets yet. Add one to start tracking AI spend against a monthly cap.":
+                                  "尚未配置预算。添加后即可按月跟踪 AI 支出。",
+  "budget(s) currently over threshold":
+                                  "个预算当前已超阈值",
+  "of":                           "/",
+  "over cap":                     "超出上限",
+  "inactive":                     "未启用",
+  "Delete budget":                "删除预算",
+  // (dup of line 2216) "global":             "全局",
+  "provider":                     "服务商",
+  // (dup of line 1662) "user":               "用户",
+  "Name":                         "名称",
+  // (dup of line 2192) "Scope":              "范围",
+  "Provider name":                "服务商名称",
+  "User UUID":                    "用户 UUID",
+  "Monthly limit":                "月度上限",
+  "Warn at %":                    "警告 %",
+  "Critical at %":                "严重 %",
+  // (dup of line 951) "Saving…":            "保存中…",
+  "New budget":                   "新增预算",
+  "Name is required":             "名称必填",
+  "Scope value is required for provider/user budgets":
+                                  "服务商 / 用户预算必须填写范围值",
 };
 
 const DICTS: Record<Lang, Dict> = {

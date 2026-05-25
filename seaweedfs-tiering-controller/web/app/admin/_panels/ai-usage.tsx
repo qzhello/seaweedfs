@@ -17,12 +17,18 @@
 import { useMemo, useState } from "react";
 import {
   Activity, AlertTriangle, Cpu, Users, Clock, Coins, Brain,
-  DollarSign, Trash2, Plus, X,
+  DollarSign, Trash2, Plus, X, Target, ShieldAlert,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
-import { useAIUsage, useAIPricing, upsertAIPricing, deleteAIPricing } from "@/lib/api";
-import type { AIUsageDailyRow, AIUsageModelTotal, AIUsageTopUser, AIModelPricing } from "@/lib/api";
+import {
+  useAIUsage, useAIPricing, upsertAIPricing, deleteAIPricing,
+  useAIBudgets, upsertAIBudget, deleteAIBudget, evaluateAIBudgets,
+} from "@/lib/api";
+import type {
+  AIUsageDailyRow, AIUsageModelTotal, AIUsageTopUser, AIModelPricing,
+  AIBudgetState, AIBudget,
+} from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
 type WindowDays = 7 | 30 | 90;
@@ -121,6 +127,7 @@ export function AIUsagePanel() {
               unpriced={data.unpriced_models}
             />
           )}
+          <BudgetsSection currency={data.currency} />
           <DailyChart rows={data.by_day} />
           <ModelTable rows={data.by_model} currency={data.currency} />
           {data.top_users.length > 0 && <TopUsersTable rows={data.top_users} currency={data.currency} />}
@@ -562,5 +569,332 @@ function fmtCurrency(n: number, currency: string): string {
   if (n < 0.005 && n > -0.005) return `${currency} 0.00`;
   if (Math.abs(n) >= 1_000) return `${currency} ${n.toFixed(0)}`;
   return `${currency} ${n.toFixed(2)}`;
+}
+
+// ----- Budgets -----
+
+// BudgetsSection is the at-a-glance card row plus an inline editor
+// for monthly spend caps. Breaches surface as a banner above the
+// per-budget bars — operators see "AI Usage is over budget" without
+// having to scroll a settings page.
+function BudgetsSection({ currency }: { currency: string }) {
+  const { t } = useT();
+  const { data, mutate, isLoading } = useAIBudgets();
+  const [showEditor, setShowEditor] = useState(false);
+  const [evaluating, setEvaluating] = useState(false);
+  const [evalErr, setEvalErr] = useState<string | null>(null);
+
+  const states = data?.rows ?? [];
+  const breached = states.filter(s => s.tier !== "ok");
+
+  const runEvaluate = async () => {
+    setEvaluating(true);
+    setEvalErr(null);
+    try {
+      await evaluateAIBudgets();
+      await mutate();
+    } catch (e) {
+      setEvalErr(String((e as Error).message ?? e));
+    } finally {
+      setEvaluating(false);
+    }
+  };
+
+  return (
+    <section className="card overflow-hidden">
+      <header className="border-b border-border px-3 py-2 text-xs font-semibold flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-2">
+          <Target size={13}/> {t("Budgets")}
+          <span className="font-normal text-muted">
+            — {states.length} {t("configured")}
+          </span>
+        </span>
+        <div className="inline-flex items-center gap-2">
+          {states.length > 0 && (
+            <button
+              type="button"
+              onClick={runEvaluate}
+              disabled={evaluating}
+              className="btn text-xs"
+              title={t("Re-check spend against budgets and fire any pending alerts")}
+            >
+              {evaluating ? t("Checking…") : t("Re-check now")}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowEditor(v => !v)}
+            className="btn text-xs inline-flex items-center gap-1"
+          >
+            <Plus size={11}/> {t("Budget")}
+          </button>
+        </div>
+      </header>
+
+      {evalErr && (
+        <div className="px-3 py-2 text-xs text-danger bg-danger/10 border-b border-danger/30">
+          {evalErr}
+        </div>
+      )}
+
+      {breached.length > 0 && (
+        <div className={`px-3 py-2 text-xs border-b inline-flex items-center gap-2 w-full ${
+          breached.some(b => b.tier === "critical")
+            ? "bg-danger/10 border-danger/30 text-danger"
+            : "bg-warning/10 border-warning/30 text-warning"
+        }`}>
+          <ShieldAlert size={12}/>
+          {breached.length} {t("budget(s) currently over threshold")}
+        </div>
+      )}
+
+      {showEditor && (
+        <BudgetEditor
+          defaultCurrency={currency}
+          onClose={() => setShowEditor(false)}
+          onSaved={() => { mutate(); setShowEditor(false); }}
+        />
+      )}
+
+      {states.length === 0 && !showEditor && !isLoading && (
+        <div className="p-4 text-xs text-muted text-center">
+          {t("No budgets yet. Add one to start tracking AI spend against a monthly cap.")}
+        </div>
+      )}
+
+      {states.length > 0 && (
+        <ul className="divide-y divide-border">
+          {states.map(s => (
+            <BudgetRow key={s.budget.id} state={s} onChange={() => mutate()}/>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function BudgetRow({ state, onChange }: { state: AIBudgetState; onChange: () => void }) {
+  const { t } = useT();
+  const { budget, month_to_date, percent_of_cap, tier } = state;
+  const pct = Math.min(100, percent_of_cap);
+  const overshoot = percent_of_cap > 100 ? percent_of_cap - 100 : 0;
+  const barColor =
+    tier === "critical" ? "bg-danger" : tier === "warn" ? "bg-warning" : "bg-accent/60";
+  const pctLabel =
+    overshoot > 0
+      ? `${percent_of_cap.toFixed(0)}%`
+      : `${percent_of_cap.toFixed(1)}%`;
+
+  const remove = async () => {
+    if (!confirm(`${t("Delete budget")} "${budget.name}"?`)) return;
+    try {
+      await deleteAIBudget(budget.id);
+      onChange();
+    } catch (e) {
+      alert(String((e as Error).message ?? e));
+    }
+  };
+
+  return (
+    <li className="px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-medium inline-flex items-center gap-2">
+            {budget.name}
+            <ScopeBadge type={budget.scope_type} value={budget.scope_value}/>
+            {!budget.active && (
+              <span className="text-[10px] text-muted">({t("inactive")})</span>
+            )}
+          </div>
+          <div className="text-[11px] text-muted tabular-nums">
+            {fmtCurrency(month_to_date, budget.currency)} {t("of")} {fmtCurrency(budget.monthly_limit, budget.currency)}
+            <span className="mx-1 text-muted/60">·</span>
+            {state.calendar_month}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={`text-xs tabular-nums font-semibold ${
+            tier === "critical" ? "text-danger" : tier === "warn" ? "text-warning" : "text-muted"
+          }`}>
+            {pctLabel}
+          </span>
+          <button
+            type="button"
+            onClick={remove}
+            className="text-muted hover:text-danger"
+            title={t("Delete")}
+          >
+            <Trash2 size={11}/>
+          </button>
+        </div>
+      </div>
+      <div className="mt-1.5 h-1.5 rounded-full bg-panel2 overflow-hidden">
+        <div className={`h-full ${barColor}`} style={{ width: `${pct}%` }}/>
+      </div>
+      {overshoot > 0 && (
+        <div className="mt-0.5 text-[10px] text-danger">
+          +{overshoot.toFixed(0)}% {t("over cap")}
+        </div>
+      )}
+    </li>
+  );
+}
+
+function ScopeBadge({ type, value }: { type: AIBudget["scope_type"]; value: string }) {
+  const { t } = useT();
+  let label = t("global");
+  if (type === "provider") label = `${t("provider")}: ${value}`;
+  if (type === "user") label = `${t("user")}: ${value.slice(0, 8)}…`;
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded bg-panel2 text-muted font-mono">
+      {label}
+    </span>
+  );
+}
+
+function BudgetEditor({
+  defaultCurrency,
+  onClose,
+  onSaved,
+}: {
+  defaultCurrency: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { t } = useT();
+  const [draft, setDraft] = useState<Omit<AIBudget, "id" | "created_at" | "updated_at">>({
+    name: "",
+    scope_type: "global",
+    scope_value: "",
+    monthly_limit: 100,
+    currency: defaultCurrency,
+    threshold_warn_pct: 80,
+    threshold_critical_pct: 100,
+    active: true,
+    notes: "",
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const save = async () => {
+    setErr(null);
+    if (!draft.name.trim()) {
+      setErr(t("Name is required"));
+      return;
+    }
+    if (draft.scope_type !== "global" && !draft.scope_value.trim()) {
+      setErr(t("Scope value is required for provider/user budgets"));
+      return;
+    }
+    setSaving(true);
+    try {
+      await upsertAIBudget(draft);
+      onSaved();
+    } catch (e) {
+      setErr(String((e as Error).message ?? e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="border-b border-border bg-panel2/40 p-3 space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-semibold inline-flex items-center gap-1.5">
+          <Plus size={12}/> {t("New budget")}
+        </span>
+        <button onClick={onClose} className="text-muted hover:text-text" aria-label={t("Close")}>
+          <X size={13}/>
+        </button>
+      </div>
+      {err && <div className="text-xs text-danger">{err}</div>}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+        <label className="flex flex-col gap-0.5">
+          <span className="text-muted">{t("Name")}</span>
+          <input
+            className="input"
+            value={draft.name}
+            onChange={e => setDraft({ ...draft, name: e.target.value })}
+          />
+        </label>
+        <label className="flex flex-col gap-0.5">
+          <span className="text-muted">{t("Scope")}</span>
+          <select
+            className="input"
+            value={draft.scope_type}
+            onChange={e => setDraft({ ...draft, scope_type: e.target.value as AIBudget["scope_type"] })}
+          >
+            <option value="global">{t("global")}</option>
+            <option value="provider">{t("provider")}</option>
+            <option value="user">{t("user")}</option>
+          </select>
+        </label>
+        {draft.scope_type !== "global" && (
+          <label className="flex flex-col gap-0.5">
+            <span className="text-muted">
+              {draft.scope_type === "provider" ? t("Provider name") : t("User UUID")}
+            </span>
+            <input
+              className="input"
+              value={draft.scope_value}
+              placeholder={draft.scope_type === "provider" ? "openai" : "00000000-…"}
+              onChange={e => setDraft({ ...draft, scope_value: e.target.value })}
+            />
+          </label>
+        )}
+        <label className="flex flex-col gap-0.5">
+          <span className="text-muted">{t("Monthly limit")}</span>
+          <input
+            className="input text-right"
+            type="number"
+            min="0"
+            step="1"
+            value={draft.monthly_limit}
+            onChange={e => setDraft({ ...draft, monthly_limit: Number(e.target.value) })}
+          />
+        </label>
+        <label className="flex flex-col gap-0.5">
+          <span className="text-muted">{t("Currency")}</span>
+          <input
+            className="input"
+            value={draft.currency}
+            onChange={e => setDraft({ ...draft, currency: e.target.value })}
+          />
+        </label>
+        <label className="flex flex-col gap-0.5">
+          <span className="text-muted">{t("Warn at %")}</span>
+          <input
+            className="input text-right"
+            type="number"
+            min="1"
+            max="999"
+            value={draft.threshold_warn_pct}
+            onChange={e => setDraft({ ...draft, threshold_warn_pct: Number(e.target.value) })}
+          />
+        </label>
+        <label className="flex flex-col gap-0.5">
+          <span className="text-muted">{t("Critical at %")}</span>
+          <input
+            className="input text-right"
+            type="number"
+            min="1"
+            max="999"
+            value={draft.threshold_critical_pct}
+            onChange={e => setDraft({ ...draft, threshold_critical_pct: Number(e.target.value) })}
+          />
+        </label>
+      </div>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="btn text-accent border-accent/40 hover:bg-accent/10 inline-flex items-center gap-1"
+        >
+          <Plus size={11}/> {saving ? t("Saving…") : t("Save")}
+        </button>
+      </div>
+    </div>
+  );
 }
 

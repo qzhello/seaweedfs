@@ -430,6 +430,13 @@ func Router(d Deps) *gin.Engine {
 		v1.GET("/ai/pricing", listAIModelPricing(d))
 		admin.PUT("/ai/pricing", upsertAIModelPricing(d))
 		admin.DELETE("/ai/pricing", deleteAIModelPricing(d))
+		// AI budgets: monthly spend caps + tier alerts. Read open;
+		// mutations admin-only; evaluate fires alerts so it's
+		// admin-only too (cron job runs with admin credentials).
+		v1.GET("/ai/budgets", listAIBudgets(d))
+		admin.PUT("/ai/budgets", upsertAIBudget(d))
+		admin.DELETE("/ai/budgets/:id", deleteAIBudget(d))
+		admin.POST("/ai/budgets/evaluate", evaluateAIBudgets(d))
 
 		admin.POST("/scheduler/score-now", scoreNow(d))
 
