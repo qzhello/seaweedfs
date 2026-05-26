@@ -10,13 +10,15 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  ShieldAlert, AlertTriangle, CheckCircle2, Lock, Layers, ClipboardCheck, HeartPulse, Shield, Activity, ChevronRight,
+  ShieldAlert, AlertTriangle, CheckCircle2, Lock, Layers, ClipboardCheck, HeartPulse, Shield, Activity, ChevronRight, BellOff,
 } from "lucide-react";
 import {
   useClusters, useTasks, useHealthGate, useSafetyStatus, useAlertEvents,
-  useClusterMasters, useClusterECShards,
+  useClusterMasters, useClusterECShards, ackAlertEvents,
 } from "@/lib/api";
 import { useT } from "@/lib/i18n";
+import { toast } from "@/lib/toast";
+import { confirm as confirmDlg } from "@/lib/confirm";
 
 type Tone = "err" | "warn" | "ok";
 
@@ -27,6 +29,11 @@ interface Signal {
   title: string;
   detail?: string;
   href?: string;
+  // Optional inline action — currently used to attach "Ignore all" to
+  // the alert signals so an operator can clear noise without leaving
+  // the dashboard. Kept generic so other signal sources can add their
+  // own dismiss UX later (snooze raft warning until maintenance etc).
+  action?: { label: string; onClick: () => void | Promise<void>; icon?: React.ReactNode };
 }
 
 const TONE_CLASSES: Record<Tone, string> = {
@@ -47,7 +54,25 @@ export function TodaysAttention() {
   const { data: pending } = useTasks("pending");
   const { data: gate } = useHealthGate();
   const { data: safety } = useSafetyStatus();
-  const { data: alerts } = useAlertEvents();
+  const { data: alerts, mutate: refetchAlerts } = useAlertEvents();
+
+  // "Ignore all current alerts" — acks every event older than now so
+  // anything firing between click and server-side commit stays visible.
+  const ignoreAllAlerts = async () => {
+    const recent = ((alerts as { items?: { id: number }[] } | undefined)?.items ?? []);
+    if (recent.length === 0) return;
+    if (!(await confirmDlg.warning({
+      title: t("Ignore all {n} active alert(s)?").replace("{n}", String(recent.length)),
+      body: t("New alerts that fire after this stay visible. Use the alerts page to undo."),
+    }))) return;
+    try {
+      const r = await ackAlertEvents({ before: new Date().toISOString() });
+      toast.success(t("Ignored {n}").replace("{n}", String(r.acked)));
+      refetchAlerts();
+    } catch (e) {
+      toast.fromError(e, t("Ignore failed"));
+    }
+  };
   const [clusterCounts, setClusterCounts] = useState<ClusterSignalCounts>({});
   const reportClusterCount = (id: string, n: number) => {
     setClusterCounts((prev) => (prev[id] === n ? prev : { ...prev, [id]: n }));
@@ -132,6 +157,7 @@ export function TodaysAttention() {
         title: t("Critical alerts firing"),
         detail: `${recentCritical} ${t("critical")} · ${recentWarning} ${t("warning")}`,
         href: "/reliability?tab=alerts",
+        action: { label: t("Ignore all"), icon: <BellOff size={12}/>, onClick: ignoreAllAlerts },
       });
     } else if (recentWarning > 0) {
       out.push({
@@ -141,9 +167,14 @@ export function TodaysAttention() {
         title: t("Warnings firing"),
         detail: `${recentWarning} ${t("warning")}`,
         href: "/reliability?tab=alerts",
+        action: { label: t("Ignore all"), icon: <BellOff size={12}/>, onClick: ignoreAllAlerts },
       });
     }
     return out;
+    // ignoreAllAlerts is stable enough between renders that depending on
+    // it would just churn the memo; we depend on the underlying alerts
+    // payload instead, which is what actually changes the signal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending, gate, safety, alerts, t]);
 
   return (
@@ -266,6 +297,20 @@ function ClusterSignals({ clusterID, clusterName, onCountChange }: {
 
 function SignalCard({ signal }: { signal: Signal }) {
   const { t } = useT();
+  // Inline action sits outside the Link wrapper so clicking it doesn't
+  // navigate. We stopPropagation just in case a parent ever listens.
+  const actionButton = signal.action ? (
+    <button
+      type="button"
+      className="text-[11px] inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-current/30 hover:bg-current/10 shrink-0"
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); void signal.action!.onClick(); }}
+      title={signal.action.label}
+    >
+      {signal.action.icon}
+      {signal.action.label}
+    </button>
+  ) : null;
+
   const inner = (
     <div className={`rounded-md border px-3 py-2 ${TONE_CLASSES[signal.tone]} hover:brightness-110 transition`}>
       <div className="flex items-start gap-2">
@@ -274,6 +319,7 @@ function SignalCard({ signal }: { signal: Signal }) {
           <div className="text-xs font-semibold truncate">{signal.title}</div>
           {signal.detail && <div className="text-[11px] opacity-80 mt-0.5 truncate">{signal.detail}</div>}
         </div>
+        {actionButton}
         {signal.href && <ChevronRight size={12} className="shrink-0 mt-0.5 opacity-60"/>}
       </div>
     </div>

@@ -909,8 +909,37 @@ export interface AnalyzerRunResult {
 
 export function useAlertChannels() { return useSWR(`${BASE}/alerts/channels`, fetcher); }
 export function useAlertRules()    { return useSWR(`${BASE}/alerts/rules`,    fetcher); }
-export function useAlertEvents()   { return useSWR(`${BASE}/alerts/events?limit=100`, fetcher); }
+// includeAck=true brings already-dismissed events back into the feed
+// (alerts page "show ignored" toggle). Default hides them so Today's
+// Attention quiets down once the operator acks.
+export function useAlertEvents(includeAck = false) {
+  const qs = includeAck ? "?limit=100&include_ack=1" : "?limit=100";
+  return useSWR(`${BASE}/alerts/events${qs}`, fetcher);
+}
 export function useAlertTemplates(){ return useSWR(`${BASE}/alerts/templates`, fetcher); }
+
+export interface AlertEvent {
+  id: number;
+  fired_at: string;
+  event_kind: string;
+  source: string;
+  severity: "info" | "warning" | "critical";
+  title: string;
+  body: string;
+  deliveries: { ok: boolean; channel: string }[] | null;
+  suppressed: boolean;
+  suppressed_reason: string;
+  acknowledged: boolean;
+  acknowledged_at?: string;
+  acknowledged_by?: string;
+}
+
+// Bulk-ack: pass `ids` for explicit row selection, or `before` (RFC3339)
+// to ack everything older than the cutoff the UI observed. Returns the
+// count actually flipped from un-acked → acked.
+export function ackAlertEvents(body: { ids?: number[]; before?: string }) {
+  return jpost(`${BASE}/alerts/events/ack`, body) as Promise<{ acked: number }>;
+}
 
 export interface AlertTemplate {
   id: string;

@@ -46,6 +46,9 @@ type AlertEvent struct {
 	Deliveries       json.RawMessage `json:"deliveries"`
 	Suppressed       bool            `json:"suppressed"`
 	SuppressedReason string          `json:"suppressed_reason"`
+	Acknowledged     bool            `json:"acknowledged"`
+	AcknowledgedAt   *time.Time      `json:"acknowledged_at,omitempty"`
+	AcknowledgedBy   string          `json:"acknowledged_by,omitempty"`
 }
 
 func (p *PG) ListAlertChannels(ctx context.Context) ([]AlertChannel, error) {
@@ -156,13 +159,22 @@ func (p *PG) DeleteAlertRule(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
-func (p *PG) RecentAlertEvents(ctx context.Context, limit int) ([]AlertEvent, error) {
+// RecentAlertEvents returns the most recent events. By default it
+// hides events the operator has already acknowledged (dismissed) on
+// the dashboard / alerts page; pass includeAck=true to include them.
+func (p *PG) RecentAlertEvents(ctx context.Context, limit int, includeAck bool) ([]AlertEvent, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	rows, err := p.Pool.Query(ctx, fmt.Sprintf(`
-		SELECT id,fired_at,event_kind,source,severity,title,body,payload,deliveries,suppressed,suppressed_reason
-		FROM alert_events ORDER BY fired_at DESC LIMIT %d`, limit))
+	where := "WHERE acknowledged = FALSE"
+	if includeAck {
+		where = ""
+	}
+	q := fmt.Sprintf(`
+		SELECT id,fired_at,event_kind,source,severity,title,body,payload,deliveries,
+		       suppressed,suppressed_reason,acknowledged,acknowledged_at,acknowledged_by
+		FROM alert_events %s ORDER BY fired_at DESC LIMIT %d`, where, limit)
+	rows, err := p.Pool.Query(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("recent alerts: %w", err)
 	}
@@ -170,13 +182,68 @@ func (p *PG) RecentAlertEvents(ctx context.Context, limit int) ([]AlertEvent, er
 	out := []AlertEvent{}
 	for rows.Next() {
 		var e AlertEvent
+		var ackAt *time.Time
+		var ackBy *string
 		if err := rows.Scan(&e.ID, &e.FiredAt, &e.EventKind, &e.Source, &e.Severity,
-			&e.Title, &e.Body, &e.Payload, &e.Deliveries, &e.Suppressed, &e.SuppressedReason); err != nil {
+			&e.Title, &e.Body, &e.Payload, &e.Deliveries, &e.Suppressed, &e.SuppressedReason,
+			&e.Acknowledged, &ackAt, &ackBy); err != nil {
 			return nil, fmt.Errorf("scan event: %w", err)
+		}
+		e.AcknowledgedAt = ackAt
+		if ackBy != nil {
+			e.AcknowledgedBy = *ackBy
 		}
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// AckAlertEvents marks the given event IDs as acknowledged. Idempotent —
+// already-acknowledged rows keep their original acknowledged_by/at, so
+// re-acking from a stale UI doesn't overwrite the original silencer.
+// Returns the number of rows actually flipped from false → true.
+func (p *PG) AckAlertEvents(ctx context.Context, ids []int64, user string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	if user == "" {
+		user = "unknown"
+	}
+	tag, err := p.Pool.Exec(ctx, `
+		UPDATE alert_events
+		   SET acknowledged    = TRUE,
+		       acknowledged_at = NOW(),
+		       acknowledged_by = $2
+		 WHERE id = ANY($1::bigint[])
+		   AND acknowledged = FALSE`,
+		ids, user)
+	if err != nil {
+		return 0, fmt.Errorf("ack alert events: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// AckAllUnackBefore is the "ignore everything currently shown" path:
+// acks every unacknowledged event with fired_at <= the cutoff the UI
+// observed. Using a timestamp cutoff (instead of "everything") protects
+// against a race where new events fire between the page render and the
+// click — those younger events stay visible.
+func (p *PG) AckAllUnackBefore(ctx context.Context, cutoff time.Time, user string) (int64, error) {
+	if user == "" {
+		user = "unknown"
+	}
+	tag, err := p.Pool.Exec(ctx, `
+		UPDATE alert_events
+		   SET acknowledged    = TRUE,
+		       acknowledged_at = NOW(),
+		       acknowledged_by = $2
+		 WHERE acknowledged = FALSE
+		   AND fired_at <= $1`,
+		cutoff, user)
+	if err != nil {
+		return 0, fmt.Errorf("ack all alerts: %w", err)
+	}
+	return tag.RowsAffected(), nil
 }
 
 func (p *PG) InsertAlertEvent(ctx context.Context, e AlertEvent) (int64, error) {

@@ -1,9 +1,9 @@
 "use client";
-import { useAlertChannels, useAlertRules, useAlertEvents, useAlertTemplates, api, type AlertTemplate } from "@/lib/api";
+import { useAlertChannels, useAlertRules, useAlertEvents, useAlertTemplates, api, ackAlertEvents, type AlertTemplate, type AlertEvent } from "@/lib/api";
 import { confirm as confirmDlg } from "@/lib/confirm";
 import { toast } from "@/lib/toast";
 import { EmptyState } from "@/components/empty-state";
-import { Bell, Plus, Trash2, TestTube2, AlertTriangle, CheckCircle2 , Send , ShieldAlert, FileText, Eye } from "lucide-react";
+import { Bell, Plus, Trash2, TestTube2, AlertTriangle, CheckCircle2, Send, ShieldAlert, FileText, Eye, BellOff, EyeOff } from "lucide-react";
 import { useState } from "react";
 import { relTime } from "@/lib/utils";
 import { Pagination, usePagination } from "@/components/pagination";
@@ -19,7 +19,8 @@ export function AlertsPanel() {
   const { t } = useT();
   const { data: channels, mutate: refetchChannels, isValidating: chanValidating } = useAlertChannels();
   const { data: rules,    mutate: refetchRules, isValidating: ruleValidating } = useAlertRules();
-  const { data: events, mutate: refetchEvents, isLoading: eventsLoading, isValidating: eventsValidating } = useAlertEvents();
+  const [showIgnored, setShowIgnored] = useState(false);
+  const { data: events, mutate: refetchEvents, isLoading: eventsLoading, isValidating: eventsValidating } = useAlertEvents(showIgnored);
   const { data: templates, mutate: refetchTemplates, isValidating: tplValidating } = useAlertTemplates();
   const [tab, setTab] = useState<"events"|"channels"|"rules"|"templates">("events");
   const [editingChan, setEditingChan] = useState<any | null>(null);
@@ -52,7 +53,13 @@ export function AlertsPanel() {
       {tab === "events" && (
         <>
           <AITriageCard hasEvents={(events?.items?.length || 0) > 0}/>
-          <EventsTab items={events?.items || []} loading={eventsLoading && !events}/>
+          <EventsTab
+            items={events?.items || []}
+            loading={eventsLoading && !events}
+            showIgnored={showIgnored}
+            onToggleShowIgnored={() => setShowIgnored((v) => !v)}
+            onAcked={() => refetchEvents()}
+          />
         </>
       )}
       {tab === "channels" && (
@@ -401,36 +408,156 @@ function TriageFacet({ label, rows }: { label: string; rows: { key: string; coun
   );
 }
 
-function EventsTab({ items, loading }: { items: any[]; loading?: boolean }) {
+function EventsTab({
+  items, loading, showIgnored, onToggleShowIgnored, onAcked,
+}: {
+  items: AlertEvent[];
+  loading?: boolean;
+  showIgnored: boolean;
+  onToggleShowIgnored: () => void;
+  onAcked: () => void;
+}) {
   const { t } = useT();
   const pg = usePagination(items, 20);
+  // Selection by event ID. Cleared every time the underlying list
+  // changes so stale rows can't be re-acked after an ignore.
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [busy, setBusy] = useState(false);
+
+  // The unacked rows currently visible on this page — selecting "all"
+  // only affects them, never reaches across pagination.
+  const ackable = pg.slice.filter((e) => !e.acknowledged);
+  const allOnPageSelected = ackable.length > 0 && ackable.every((e) => selected.has(e.id));
+
+  const toggleOne = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const togglePage = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allOnPageSelected) ackable.forEach((e) => next.delete(e.id));
+      else ackable.forEach((e) => next.add(e.id));
+      return next;
+    });
+  };
+
+  const ackSelected = async () => {
+    if (selected.size === 0) return;
+    if (!(await confirmDlg.warning({
+      title: t("Ignore {n} selected alert(s)?").replace("{n}", String(selected.size)),
+      body: t("They won't show up in Today's Attention or the default events list."),
+    }))) return;
+    setBusy(true);
+    try {
+      const r = await ackAlertEvents({ ids: Array.from(selected) });
+      toast.success(t("Ignored {n}").replace("{n}", String(r.acked)));
+      setSelected(new Set());
+      onAcked();
+    } catch (e) {
+      toast.fromError(e, t("Ignore failed"));
+    } finally { setBusy(false); }
+  };
+
+  const ackAllVisible = async () => {
+    const visibleUnacked = items.filter((e) => !e.acknowledged);
+    if (visibleUnacked.length === 0) return;
+    if (!(await confirmDlg.warning({
+      title: t("Ignore all {n} unacked alert(s)?").replace("{n}", String(visibleUnacked.length)),
+      body: t("Affects only events older than now — anything that fires after this stays visible."),
+    }))) return;
+    setBusy(true);
+    try {
+      // Use a `before` cutoff so events that fire between the click and
+      // the server-side update don't get silenced accidentally.
+      const cutoff = new Date().toISOString();
+      const r = await ackAlertEvents({ before: cutoff });
+      toast.success(t("Ignored {n}").replace("{n}", String(r.acked)));
+      setSelected(new Set());
+      onAcked();
+    } catch (e) {
+      toast.fromError(e, t("Ignore failed"));
+    } finally { setBusy(false); }
+  };
+
   if (loading) {
     return (
       <section className="card overflow-hidden">
-        <TableSkeleton rows={6} headers={[t("Time"), t("Kind"), t("Source"), t("Severity"), t("Title"), t("Delivered"), t("Suppressed")]}/>
+        <TableSkeleton rows={6} headers={["", t("Time"), t("Kind"), t("Source"), t("Severity"), t("Title"), t("Delivered"), t("Suppressed")]}/>
       </section>
     );
   }
   return (
     <section className="card overflow-hidden">
+      <div className="flex items-center justify-between gap-2 p-2 border-b border-border/40 text-xs">
+        <div className="flex items-center gap-2">
+          <button className="btn" disabled={busy || selected.size === 0} onClick={ackSelected} title={t("Ignore selected events")}>
+            <BellOff size={12}/> {t("Ignore selected")} {selected.size > 0 && <span className="text-muted">({selected.size})</span>}
+          </button>
+          <button className="btn" disabled={busy || items.filter((e) => !e.acknowledged).length === 0} onClick={ackAllVisible} title={t("Ignore everything currently shown")}>
+            <BellOff size={12}/> {t("Ignore all")}
+          </button>
+        </div>
+        <label className="inline-flex items-center gap-1.5 cursor-pointer text-muted">
+          <input type="checkbox" checked={showIgnored} onChange={onToggleShowIgnored}/>
+          {showIgnored ? <Eye size={12}/> : <EyeOff size={12}/>}
+          {t("Show ignored")}
+        </label>
+      </div>
       <table className="grid">
-        <thead><tr><th>{t("Time")}</th><th>{t("Kind")}</th><th>{t("Source")}</th><th>{t("Severity")}</th><th>{t("Title")}</th><th>{t("Delivered")}</th><th>{t("Suppressed")}</th></tr></thead>
+        <thead>
+          <tr>
+            <th className="w-8">
+              <input type="checkbox" aria-label={t("Select all on page")}
+                checked={allOnPageSelected} onChange={togglePage}
+                disabled={ackable.length === 0}/>
+            </th>
+            <th>{t("Time")}</th>
+            <th>{t("Kind")}</th>
+            <th>{t("Source")}</th>
+            <th>{t("Severity")}</th>
+            <th>{t("Title")}</th>
+            <th>{t("Delivered")}</th>
+            <th>{t("Suppressed")}</th>
+          </tr>
+        </thead>
         <tbody>
-          {pg.slice.map((e: any) => {
-            const dels = e.deliveries || [];
+          {pg.slice.map((e) => {
+            const dels = Array.isArray(e.deliveries) ? e.deliveries : [];
+            const isAcked = e.acknowledged;
             return (
-              <tr key={e.id}>
+              <tr key={e.id} className={isAcked ? "opacity-60" : ""}>
+                <td>
+                  {!isAcked && (
+                    <input type="checkbox"
+                      checked={selected.has(e.id)}
+                      onChange={() => toggleOne(e.id)}
+                      aria-label={t("Select event")}/>
+                  )}
+                </td>
                 <td className="text-muted text-xs">{relTime(e.fired_at)}</td>
                 <td><span className="badge">{e.event_kind}</span></td>
                 <td className="font-mono text-xs">{e.source}</td>
                 <td><SevBadge s={e.severity}/></td>
                 <td>
-                  <div className="font-medium text-sm">{e.title}</div>
+                  <div className="font-medium text-sm">
+                    {e.title}
+                    {isAcked && (
+                      <span className="ml-1.5 badge border-muted text-muted text-[10px]"
+                        title={e.acknowledged_by ? `${t("Ignored by")} ${e.acknowledged_by}${e.acknowledged_at ? " · " + relTime(e.acknowledged_at) : ""}` : t("Ignored")}>
+                        {t("ignored")}
+                      </span>
+                    )}
+                  </div>
                   <div className="text-xs text-muted truncate max-w-[480px]" title={e.body}>{e.body}</div>
                 </td>
                 <td>
-                  {Array.isArray(dels) && dels.length > 0
-                    ? dels.map((d: any, i: number) => (
+                  {dels.length > 0
+                    ? dels.map((d, i: number) => (
                         <span key={i} className={`badge mr-1 ${d.ok ? "border-success/40 text-success" : "border-danger/40 text-danger"}`}>
                           {d.ok ? <CheckCircle2 size={10}/> : <AlertTriangle size={10}/>} {d.channel}
                         </span>

@@ -1,8 +1,10 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -100,12 +102,58 @@ func deleteAlertRule(d Deps) gin.HandlerFunc {
 func recentAlertEvents(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
-		es, err := d.PG.RecentAlertEvents(c.Request.Context(), limit)
+		// include_ack=1 brings acknowledged (dismissed) events back into
+		// the list for the alerts page "show ignored" toggle. Default
+		// is to hide them so Today's Attention stays quiet.
+		includeAck := c.Query("include_ack") == "1" || c.Query("include_ack") == "true"
+		es, err := d.PG.RecentAlertEvents(c.Request.Context(), limit, includeAck)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"items": es})
+	}
+}
+
+// ackAlertEvents marks the given event IDs (or everything older than a
+// cutoff) as acknowledged. Body: { ids?: int64[], before?: RFC3339 }.
+// "ids" takes precedence; "before" is the "ignore-all-currently-shown"
+// path from Today's Attention.
+func ackAlertEvents(d Deps) gin.HandlerFunc {
+	type req struct {
+		IDs    []int64 `json:"ids"`
+		Before string  `json:"before"`
+	}
+	return func(c *gin.Context) {
+		var r req
+		if err := c.BindJSON(&r); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		user := userOf(c)
+		var n int64
+		var err error
+		switch {
+		case len(r.IDs) > 0:
+			n, err = d.PG.AckAlertEvents(c.Request.Context(), r.IDs, user)
+		case r.Before != "":
+			t, perr := time.Parse(time.RFC3339, r.Before)
+			if perr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "bad 'before' timestamp: " + perr.Error()})
+				return
+			}
+			n, err = d.PG.AckAllUnackBefore(c.Request.Context(), t, user)
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{"error": "provide 'ids' or 'before'"})
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		_ = d.PG.Audit(c.Request.Context(), user, "ack", "alert_events", "",
+			fmt.Sprintf("acked=%d ids=%d before=%s", n, len(r.IDs), r.Before))
+		c.JSON(http.StatusOK, gin.H{"acked": n})
 	}
 }
 

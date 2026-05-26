@@ -106,7 +106,10 @@ func alertTriage(d Deps) gin.HandlerFunc {
 		// in-memory because severity is a small enum and the table
 		// isn't massive. If alert volume ever explodes, push the
 		// severity filter into SQL.
-		events, err := d.PG.RecentAlertEvents(c.Request.Context(), alertTriageMaxRows)
+		// includeAck=true: triage analyses historical patterns; ignoring
+		// acknowledged events here would hide storms the operator already
+		// chose to silence, defeating the point of the summary.
+		events, err := d.PG.RecentAlertEvents(c.Request.Context(), alertTriageMaxRows, true)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

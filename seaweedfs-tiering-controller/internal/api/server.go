@@ -575,6 +575,10 @@ func Router(d Deps) *gin.Engine {
 		admin.PUT("/alerts/rules", upsertAlertRule(d))
 		admin.DELETE("/alerts/rules/:id", deleteAlertRule(d))
 		v1.GET("/alerts/events", recentAlertEvents(d))
+		// Bulk-ack ("ignore") alert events. Available to any authed
+		// caller (not admin-only) — it's a per-operator silencing
+		// gesture, not a configuration change. Audited.
+		v1.POST("/alerts/events/ack", ackAlertEvents(d))
 		admin.POST("/alerts/test", fireTestAlert(d))
 
 		// Alert templates: reusable subject/body templates used by
