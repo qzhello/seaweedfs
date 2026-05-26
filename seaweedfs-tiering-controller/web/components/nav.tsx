@@ -18,29 +18,45 @@ import { useRunningCounts } from "@/lib/use-running-counts";
 type NavItem = { href: string; label: string; icon: LucideIcon; cap?: string };
 type NavGroup = { label: string; items: NavItem[] };
 
-// Nav groups follow the operator's mental model. Each group is ONE
-// concept — kept deliberately small so the rail scans top-down:
-//   Overview     — read-only big picture
-//   Storage      — the resources you browse (clusters → files → S3 → backends)
-//   Insights     — analysis & reporting: heat, cohort, cost
-//   Operations   — the "do things" surface: shell, playbooks, maintenance
-//   Automation   — policies, lifecycle, skills, schedule
-//   Activity     — what the system is doing / has done
-//   Monitoring   — passive watchers: durability, reliability
-//   System       — meta config + audit + AI provider setup
+// Nav groups follow the operator's mental model. Each group answers
+// one question so the rail scans top-down without re-reading labels:
+//
+//   Overview   — "what's happening right now?"  (dashboards + activity + passive watchers)
+//   Storage    — "what is in the system?"       (the resources you browse)
+//   Insights   — "what does the data look like?" (read-only analysis)
+//   Tools      — "do one thing, now"            (ad-hoc / interactive)
+//   Automation — "do things on a schedule / by rule"
+//   System     — meta config + audit + AI setup
+//
+// Why we collapsed the old 8-group layout:
+//   - "Activity" was a single-item group; "Monitoring" was two items.
+//     Both are read-only "what's happening" surfaces, so they belong
+//     in Overview alongside Dashboard and NOC Wall.
+//   - "Operations" was overloaded with both ad-hoc tools and rule
+//     engines. Renamed to "Tools" so it's clearly the "run this now"
+//     surface; rule-driven things (Policies / Lifecycle / Skills /
+//     Holidays) stay in Automation.
+//   - Path migrate stays in Tools (it's a one-off action). Cross-links
+//     between path-migrate and Lifecycle/Policies pages keep the
+//     "migration" concept reachable from either direction.
 //
 // Order within a group goes from most-frequently-used to least.
 const GROUPS: NavGroup[] = [
   {
     label: "Overview",
     items: [
-      { href: "/",     label: "Dashboard", icon: LayoutDashboard },
-      { href: "/wall", label: "NOC Wall",  icon: Tv },
+      { href: "/",            label: "Dashboard",   icon: LayoutDashboard },
+      { href: "/activity",    label: "Activity",    icon: ListChecks },
+      // Reliability merges Health + Alerts + Safety — the probe→fire→pause chain.
+      { href: "/reliability", label: "Reliability", icon: ShieldCheck },
+      // Durability = read-only raft + replication health view.
+      { href: "/raft",        label: "Durability",  icon: Network,     cap: "volume.read" },
+      { href: "/wall",        label: "NOC Wall",    icon: Tv },
     ],
   },
   // Storage holds only the resources an operator browses day to day —
   // analysis views (temperature, cohort, cost) live under Insights, and
-  // maintenance jobs (drain, check-disk, path-migrate) under Operations.
+  // maintenance jobs (drain, check-disk, path-migrate) under Tools.
   {
     label: "Storage",
     items: [
@@ -56,9 +72,8 @@ const GROUPS: NavGroup[] = [
       { href: "/backends",    label: "Backends",     icon: Cloud },
     ],
   },
-  // Insights = read-only analysis. Pulled out of the old overloaded
-  // Storage group so "browse a resource" and "study the data" stay
-  // visually separate.
+  // Insights = read-only analysis. Separate from Storage so "browse a
+  // resource" and "study the data" stay visually distinct.
   {
     label: "Insights",
     items: [
@@ -68,22 +83,24 @@ const GROUPS: NavGroup[] = [
       { href: "/costs",       label: "Costs",       icon: DollarSign,  cap: "cost.read" },
     ],
   },
-  // One Operations group replaces the old confusing "Operations" +
-  // "Cluster Ops" pair. Ordered: ad-hoc tooling first, then specific
-  // maintenance jobs. Volume balance/grow/etc. stay on the /volumes
-  // toolbar — operators reach them where they pick the cluster filter.
+  // Tools = "do one thing, now". Ad-hoc / interactive. Volume
+  // balance/grow/etc. stay on the /volumes toolbar — operators reach
+  // them where they pick the cluster filter.
   {
-    label: "Operations",
+    label: "Tools",
     items: [
-      { href: "/ops",                    label: "Ops Console",        icon: Terminal,          cap: "ops.shell.read" },
-      { href: "/ops/templates",          label: "Ops Templates",      icon: LayoutTemplate,    cap: "ops.templates.read" },
-      { href: "/scripts",                label: "Analyzer Scripts",   icon: FileCode2 },
-      { href: "/path-migrate",           label: "Path migrate",       icon: Shuffle,           cap: "file.read" },
+      { href: "/ops",                  label: "Ops Console",         icon: Terminal,       cap: "ops.shell.read" },
+      { href: "/ops/templates",        label: "Ops Templates",       icon: LayoutTemplate, cap: "ops.templates.read" },
+      { href: "/scripts",              label: "Analyzer Scripts",    icon: FileCode2 },
+      { href: "/path-migrate",         label: "Path migrate",        icon: Shuffle,        cap: "file.read" },
       // Cluster maintenance (check-disk / replication / drain server /
       // drain history) collapsed into one tabbed page.
-      { href: "/clusters/maintenance",   label: "Cluster maintenance", icon: Wrench,           cap: "volume.check-disk" },
+      { href: "/clusters/maintenance", label: "Cluster maintenance", icon: Wrench,         cap: "volume.check-disk" },
     ],
   },
+  // Automation = "do things on a schedule / by rule". Distinct from
+  // Tools so an operator looking for a one-off action doesn't trip
+  // over policy editors and vice versa.
   {
     label: "Automation",
     items: [
@@ -91,22 +108,6 @@ const GROUPS: NavGroup[] = [
       { href: "/lifecycle", label: "Lifecycle", icon: Recycle },
       { href: "/skills",    label: "Skills",    icon: Wrench },
       { href: "/holidays",  label: "Holidays",  icon: CalendarDays },
-    ],
-  },
-  {
-    label: "Activity",
-    items: [
-      { href: "/activity", label: "Activity", icon: ListChecks },
-    ],
-  },
-  // Durability (the read-only raft + replication health view) belongs
-  // with the other passive watchers, not with Operations.
-  {
-    label: "Monitoring",
-    items: [
-      { href: "/raft",        label: "Durability",  icon: Network,     cap: "volume.read" },
-      // Reliability merges Health + Alerts + Safety — the probe→fire→pause chain.
-      { href: "/reliability", label: "Reliability", icon: ShieldCheck },
     ],
   },
   {
@@ -127,8 +128,9 @@ const NAV_FAVS_KEY = "tier.nav.favorites";
 
 // Groups that start collapsed by default. Overview/Storage stay open so
 // the operator lands on something useful; everything else folds to keep
-// the rail short on smaller laptops.
-const DEFAULT_OPEN = new Set(["Overview", "Storage"]);
+// the rail short on smaller laptops. Tools is also open by default
+// because it's the most-touched action surface.
+const DEFAULT_OPEN = new Set(["Overview", "Storage", "Tools"]);
 
 function loadCollapsedGroups(): Record<string, boolean> {
   if (typeof window === "undefined") return {};

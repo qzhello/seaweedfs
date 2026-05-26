@@ -1,5 +1,6 @@
 "use client";
-import { ShieldCheck, Info, Code2, Wand2, AlertTriangle, Plus, X, Pencil, FlaskConical, Sparkles } from "lucide-react";
+import { ShieldCheck, Info, Code2, Wand2, AlertTriangle, Plus, X, Pencil, FlaskConical, Sparkles, Shuffle, ArrowRight } from "lucide-react";
+import Link from "next/link";
 import { PolicySimulateModal } from "./_simulate-modal";
 import { AiAdvisorModal } from "./_ai-advisor";
 import { useCluster } from "@/lib/cluster-context";
@@ -200,6 +201,12 @@ export default function PoliciesPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {/* Cross-link: a policy targets volumes by rule; path-migrate
+              targets one path right now. Keep them mutually reachable
+              so "I want to move X" never has to hunt across groups. */}
+          <Link href="/path-migrate" className="badge hover:bg-panel2 transition-colors inline-flex items-center gap-1 text-[11px]">
+            <Shuffle size={11}/> {t("Run one-off path migration")} <ArrowRight size={10}/>
+          </Link>
           <RefreshButton loading={isValidating} onClick={() => mutate()}/>
           <button className="btn flex items-center gap-1.5" onClick={() => setAiOpen(true)}>
             <Sparkles size={14} className="text-accent"/> {t("AI advice")}

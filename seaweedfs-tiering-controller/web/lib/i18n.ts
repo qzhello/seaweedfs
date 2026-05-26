@@ -2618,6 +2618,19 @@ const ZH: Dict = {
   "Cluster maintenance":          "集群维护",
   "Disk check, replication setup, server drain, and drain history.": "磁盘巡检、副本配置、节点下线与下线历史。",
   "Overview":                     "概览",
+  // Nav group labels (post-2026-05-26 reorg: 8 groups → 6).
+  "Storage":                      "存储",
+  "Insights":                     "洞察",
+  "Tools":                        "工具",
+  "Automation":                   "自动化",
+  "System":                       "系统",
+  // Cross-links between path-migrate (Tools) and Lifecycle/Policies
+  // (Automation) so the "migration" concept stays reachable from both
+  // sides after the nav reorg.
+  "Recurring instead?":           "需要常态化?",
+  "Lifecycle rules":              "生命周期规则",
+  "Tiering policies":             "分层策略",
+  "Run one-off path migration":   "执行一次性路径迁移",
 
   // Bulk bucket delete
   "Select all on page":           "选择本页全部",

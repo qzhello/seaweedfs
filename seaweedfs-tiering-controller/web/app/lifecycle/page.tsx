@@ -5,7 +5,8 @@
 // deleted"). The background scan refreshes the counts; retention itself
 // is set per-bucket on the Buckets page. Deletion stays manual.
 
-import { Recycle } from "lucide-react";
+import { Recycle, Shuffle, ArrowRight } from "lucide-react";
+import Link from "next/link";
 import { useGovernedBuckets, type GovernedBucket } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { bytes } from "@/lib/utils";
@@ -38,7 +39,15 @@ export default function LifecyclePage() {
             </p>
           )}
         </div>
-        <RefreshButton loading={isValidating} onClick={() => mutate()} />
+        <div className="flex items-center gap-2">
+          {/* Reverse of path-migrate header link. The "迁移" concept
+              spans both — give the operator a way to switch from
+              "by-rule" thinking to "do one path right now". */}
+          <Link href="/path-migrate" className="badge hover:bg-panel2 transition-colors inline-flex items-center gap-1 text-[11px]">
+            <Shuffle size={11}/> {t("Run one-off path migration")} <ArrowRight size={10}/>
+          </Link>
+          <RefreshButton loading={isValidating} onClick={() => mutate()} />
+        </div>
       </header>
 
       {error && <ErrorPanel error={error} />}

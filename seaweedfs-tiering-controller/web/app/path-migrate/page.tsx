@@ -226,12 +226,29 @@ function Inner() {
 function Header({ t }: { t: (k: string) => string }) {
   return (
     <header>
-      <h1 className="text-base font-semibold tracking-tight inline-flex items-center gap-2">
-        <FolderTree size={20}/> {t("Path migration wizard")}
-      </h1>
-      <p className="text-xs text-muted mt-1 max-w-2xl">
-        {t("Pick a path, see its impact, and ask the AI to draft a tiering plan for the data underneath. The wizard never executes migrations directly — proposals open in the Ops console for review.")}
-      </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-base font-semibold tracking-tight inline-flex items-center gap-2">
+            <FolderTree size={20}/> {t("Path migration wizard")}
+          </h1>
+          <p className="text-xs text-muted mt-1 max-w-2xl">
+            {t("Pick a path, see its impact, and ask the AI to draft a tiering plan for the data underneath. The wizard never executes migrations directly — proposals open in the Ops console for review.")}
+          </p>
+        </div>
+        {/* Cross-link to rule-based migration surfaces in Automation.
+            The user complaint was that "迁移" lived in two places with
+            no link between them — these chips fix that without merging
+            the groups. */}
+        <div className="hidden md:flex flex-col gap-1 text-[11px] shrink-0">
+          <span className="text-muted/70 uppercase tracking-wide text-[9px]">{t("Recurring instead?")}</span>
+          <Link href="/lifecycle" className="badge hover:bg-panel2 transition-colors inline-flex items-center gap-1">
+            {t("Lifecycle rules")} <ArrowRight size={10}/>
+          </Link>
+          <Link href="/policies" className="badge hover:bg-panel2 transition-colors inline-flex items-center gap-1">
+            {t("Tiering policies")} <ArrowRight size={10}/>
+          </Link>
+        </div>
+      </div>
     </header>
   );
 }
