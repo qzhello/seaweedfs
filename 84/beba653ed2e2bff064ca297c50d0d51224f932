@@ -1,0 +1,17 @@
+seaweedfs-tiering-controller/web/components/nav.tsx
+  ai_agent 21-41,48-54,59,75-76,86-88,90,92-95,98,101-103,131-133
+seaweedfs-tiering-controller/web/lib/i18n.ts
+  ai_agent 2621-2633
+seaweedfs-tiering-controller/web/app/lifecycle/page.tsx
+  ai_agent 8-9,42-50
+seaweedfs-tiering-controller/web/app/policies/page.tsx
+  ai_agent 2-3,204-209
+seaweedfs-tiering-controller/web/app/path-migrate/page.tsx
+  ai_agent 229-251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "84beba653ed2e2bff064ca297c50d0d51224f932",
+  "prompts": {}
+}
