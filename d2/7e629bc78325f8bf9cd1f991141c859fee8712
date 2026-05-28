@@ -1,0 +1,25 @@
+seaweedfs-tiering-controller/web/components/dashboard/todays-attention.tsx
+  ai_agent 13,17,20-21,32-36,57-75,160,170,174-177,300-313,322
+seaweedfs-tiering-controller/migrations/pg/046_alert_event_ack.sql
+  ai_agent 1-20
+seaweedfs-tiering-controller/web/lib/i18n.ts
+  ai_agent 1633-1650
+seaweedfs-tiering-controller/web/app/reliability/_panels/alerts.tsx
+  ai_agent 2,6,22-23,56-62,411-419,422-486,490,496-510,512-527,529-531,533-541,547-555,559-560
+seaweedfs-tiering-controller/internal/store/alerts.go
+  ai_agent 49-51,162-165,169-177,185-186,188-189,192-195,201-246
+seaweedfs-tiering-controller/internal/api/alert_triage.go
+  ai_agent 109-112
+seaweedfs-tiering-controller/web/lib/api.ts
+  ai_agent 912-918,921-942
+seaweedfs-tiering-controller/internal/api/alerts.go
+  ai_agent 4,7,105-109,118-156
+seaweedfs-tiering-controller/internal/api/server.go
+  ai_agent 578-581
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "d27e629bc78325f8bf9cd1f991141c859fee8712",
+  "prompts": {}
+}

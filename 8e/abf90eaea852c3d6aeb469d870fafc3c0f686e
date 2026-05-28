@@ -1,0 +1,23 @@
+seaweedfs-tiering-controller/web/lib/i18n.ts
+  ai_agent 2632-2667
+seaweedfs-tiering-controller/migrations/pg/042_ai_bucket_cost_proposals.sql
+  ai_agent 1-51
+seaweedfs-tiering-controller/web/lib/api.ts
+  ai_agent 572-621,852-853
+seaweedfs-tiering-controller/web/app/costs/_panels/bucket-plan.tsx
+  ai_agent 1-319
+seaweedfs-tiering-controller/web/app/costs/page.tsx
+  ai_agent 9,14,32-34
+seaweedfs-tiering-controller/internal/store/ai_bucket_cost_proposals.go
+  ai_agent 1-222
+seaweedfs-tiering-controller/internal/api/bucket_cost_plan.go
+  ai_agent 1-368
+seaweedfs-tiering-controller/internal/api/server.go
+  ai_agent 367-374
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "8eabf90eaea852c3d6aeb469d870fafc3c0f686e",
+  "prompts": {}
+}

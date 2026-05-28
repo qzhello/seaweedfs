@@ -1,0 +1,33 @@
+seaweedfs-tiering-controller/internal/ai/openai_compat_stream.go
+  ai_agent 46-50,98-101,134-135,139,147-163,194-195,199-202,209-216
+seaweedfs-tiering-controller/web/app/admin/page.tsx
+  ai_agent 15,23,38
+seaweedfs-tiering-controller/internal/ai/usage.go
+  ai_agent 1-61
+seaweedfs-tiering-controller/web/lib/api.ts
+  ai_agent 968-1008
+seaweedfs-tiering-controller/internal/api/server.go
+  ai_agent 133-136,426-427
+seaweedfs-tiering-controller/web/app/admin/_panels/ai-usage.tsx
+  ai_agent 1-307
+seaweedfs-tiering-controller/internal/ai/openai.go
+  ai_agent 50-58,82,87,92,95,99,102-106,118
+seaweedfs-tiering-controller/web/lib/i18n.ts
+  ai_agent 2822-2845
+seaweedfs-tiering-controller/internal/ai/openai_compat.go
+  ai_agent 110,136,143,148,151,155,158-162,170,187,194,199,202,206,209-213
+seaweedfs-tiering-controller/internal/api/ai_usage.go
+  ai_agent 1-103
+seaweedfs-tiering-controller/migrations/pg/043_ai_usage_events.sql
+  ai_agent 1-42
+seaweedfs-tiering-controller/internal/ai/anthropic.go
+  ai_agent 86-89,104-109,111,141,146,154,157,160-164,176,200,205,213,216,219-223
+seaweedfs-tiering-controller/internal/store/ai_usage.go
+  ai_agent 1-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "bdb42f3fc26835621748836597974c40b2e4bed8",
+  "prompts": {}
+}

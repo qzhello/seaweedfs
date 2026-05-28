@@ -1,0 +1,17 @@
+seaweedfs-tiering-controller/internal/api/server.go
+  ai_agent 590-592
+seaweedfs-tiering-controller/web/app/admin/_panels/audit.tsx
+  ai_agent 4-5,8-11,104-114,239-438
+seaweedfs-tiering-controller/internal/api/audit_summary.go
+  ai_agent 1-247
+seaweedfs-tiering-controller/web/lib/api.ts
+  ai_agent 547-579
+seaweedfs-tiering-controller/web/lib/i18n.ts
+  ai_agent 2474-2496
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "6f6c8b9d23225eb60b93ed887b79ae353c4248ea",
+  "prompts": {}
+}

@@ -1,0 +1,11 @@
+seaweedfs-tiering-controller/restart.sh
+  ai_agent 156-173,177-184
+seaweedfs-tiering-controller/internal/api/alert_triage.go
+  ai_agent 254-255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "ed582169efdc6e6e99d000e9af3bc2b81e9b537e",
+  "prompts": {}
+}
