@@ -1,7 +1,8 @@
 "use client";
-import { useClusters, api } from "@/lib/api";
+import { useClusters, api, type FleetHealthResult } from "@/lib/api";
 import { EmptyState } from "@/components/empty-state";
-import { Plus, Trash2, Power, ExternalLink, Server, Pencil, X } from "lucide-react";
+import { HealthBadge } from "@/components/health-badge";
+import { Plus, Trash2, Power, ExternalLink, Server, Pencil, X, Loader2, Activity } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Pagination, usePagination } from "@/components/pagination";
@@ -9,8 +10,24 @@ import { RefreshButton } from "@/components/refresh-button";
 import { TableSkeleton } from "@/components/table-skeleton";
 import { useT } from "@/lib/i18n";
 import { confirm as confirmDlg } from "@/lib/confirm";
+import { PageHeader } from "@/components/page-header";
+import { PageToolbar } from "@/components/page-toolbar";
+import { KpiStrip } from "@/components/kpi-strip";
 
 const DOMAINS = ["flight","train","hotel","car_rental","attraction","logs","finance","backup","other"];
+
+function healthTone(status: string): "ok" | "warn" | "err" {
+  return status === "green" ? "ok" : status === "red" ? "err" : "warn";
+}
+
+function healthLabel(status: string, t: (s: string) => string): string {
+  switch (status) {
+    case "green": return t("healthy");
+    case "red": return t("down");
+    case "skipped": return t("skipped");
+    default: return t("warning");
+  }
+}
 
 type ClusterRow = {
   id: string;
@@ -34,28 +51,69 @@ export default function ClustersPage() {
   const pg = usePagination<ClusterRow>(items, 20);
   const loadingFirst = isLoading && !data;
 
+  const [health, setHealth] = useState<Record<string, FleetHealthResult> | null>(null);
+  const [healthSummary, setHealthSummary] = useState<{ green: number; yellow: number; red: number; skipped: number; total: number } | null>(null);
+  const [healthErr, setHealthErr] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  async function runFleetCheck() {
+    setChecking(true);
+    setHealthErr(null);
+    try {
+      const res = await api.fleetHealthCheck();
+      const byId: Record<string, FleetHealthResult> = {};
+      for (const r of res.results) byId[r.cluster_id] = r;
+      setHealth(byId);
+      setHealthSummary(res.summary);
+    } catch (e) {
+      setHealthSummary(null);
+      setHealthErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setChecking(false);
+    }
+  }
+
   const openCreate = () => { setEditing(null); setOpen(true); };
   const openEdit = (c: ClusterRow) => { setEditing(c); setOpen(true); };
 
   return (
     <div className="space-y-6">
-      <header className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-base font-semibold tracking-tight">{t("Clusters")}</h1>
-          <p className="text-sm text-muted mt-1">{t("SeaweedFS clusters managed by this controller.")}</p>
+      <PageHeader title={t("Clusters")} subtitle={t("SeaweedFS clusters managed by this controller.")}/>
+      <KpiStrip items={[
+        { label: t("Registered"), value: items.length, tone: "muted" },
+        { label: t("Enabled"),    value: items.filter(c => c.enabled).length, tone: "success" },
+        { label: t("Disabled"),   value: items.filter(c => !c.enabled).length, tone: items.some(c => !c.enabled) ? "warning" : "muted" },
+      ]}/>
+      <PageToolbar
+        actions={
+          <>
+            <RefreshButton loading={isValidating} onClick={() => mutate()}/>
+            <button className="btn flex items-center gap-1.5" onClick={runFleetCheck} disabled={checking}>
+              {checking ? <Loader2 size={14} className="animate-spin"/> : <Activity size={14}/>}
+              {t("Check all")}
+            </button>
+            <button className="btn btn-primary flex items-center gap-1.5" onClick={openCreate}>
+              <Plus size={14}/> {t("New cluster")}
+            </button>
+          </>
+        }
+      />
+
+      {healthErr && (
+        <div className="text-xs text-danger">{healthErr}</div>
+      )}
+      {healthSummary && (
+        <div className="flex items-center gap-2 text-xs flex-wrap">
+          <HealthBadge tone="ok">{healthSummary.green} {t("healthy")}</HealthBadge>
+          {healthSummary.yellow > 0 && <HealthBadge tone="warn">{healthSummary.yellow} {t("warning")}</HealthBadge>}
+          {healthSummary.red > 0 && <HealthBadge tone="err">{healthSummary.red} {t("down")}</HealthBadge>}
+          {healthSummary.skipped > 0 && <span className="text-muted">{healthSummary.skipped} {t("skipped")}</span>}
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-sm text-muted tabular-nums">{items.length} {t("registered")}</span>
-          <RefreshButton loading={isValidating} onClick={() => mutate()}/>
-          <button className="btn btn-primary flex items-center gap-1.5" onClick={openCreate}>
-            <Plus size={14}/> {t("New cluster")}
-          </button>
-        </div>
-      </header>
+      )}
 
       <section className="card overflow-hidden">
         {loadingFirst ? (
-          <TableSkeleton rows={5} headers={[t("Name"), t("Master"), t("weed binary"), t("Domain"), t("Status"), ""]}/>
+          <TableSkeleton rows={5} headers={[t("Name"), t("Master"), t("weed binary"), t("Domain"), t("Status"), t("Health"), ""]}/>
         ) : items.length === 0 ? (
           <EmptyState
             icon={Server}
@@ -76,6 +134,7 @@ export default function ClustersPage() {
                 <th>{t("weed binary")}</th>
                 <th>{t("Domain")}</th>
                 <th>{t("Status")}</th>
+                <th>{t("Health")}</th>
                 <th></th>
               </tr></thead>
               <tbody>
@@ -91,6 +150,18 @@ export default function ClustersPage() {
                       <span className={`badge ${c.enabled ? "border-success/40 text-success" : "border-muted text-muted"}`}>
                         <Power size={12}/> {c.enabled ? t("Enabled") : t("Disabled")}
                       </span>
+                    </td>
+                    <td>
+                      {health?.[c.id] ? (
+                        <HealthBadge
+                          tone={healthTone(health[c.id].status)}
+                          title={health[c.id].reasons.length ? health[c.id].reasons.join("\n") : t("All signals OK")}
+                        >
+                          {healthLabel(health[c.id].status, t)}
+                        </HealthBadge>
+                      ) : (
+                        <span className="text-muted/60">—</span>
+                      )}
                     </td>
                     <td className="text-right space-x-1 whitespace-nowrap">
                       <Link href={`/clusters/${c.id}`} className="btn">
