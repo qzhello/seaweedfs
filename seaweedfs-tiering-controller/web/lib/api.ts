@@ -1375,6 +1375,13 @@ export interface ClusterMasterRow {
   error?: string;
 }
 
+export interface RaftServerInfo {
+  id: string;
+  address: string;
+  suffrage: "leader" | "voter" | "nonvoter" | "unknown" | string;
+  is_leader: boolean;
+}
+
 export interface MasterConsistencyIssue {
   code: string;
   message: string;
@@ -1394,6 +1401,7 @@ export interface ClusterMastersResponse {
   configured_master: string;
   masters: ClusterMasterRow[];
   consistency: MasterConsistency;
+  raft_servers: RaftServerInfo[];
 }
 
 export function useClusterMasters(clusterID?: string) {
@@ -1863,6 +1871,14 @@ export const api = {
       holder?: string;
       message?: string;
       latency_ms?: number;
+    }>,
+  transferLeader: (
+    clusterID: string,
+    b?: { target_id: string; target_address: string },
+  ) =>
+    jpost(`${BASE}/clusters/${clusterID}/masters/transfer-leader`, b ?? {}) as Promise<{
+      output: string;
+      args: string;
     }>,
   clusterConfigureReplication: (clusterID: string, b: { collection?: string; replication: string; volume_id?: number }) =>
     jpost(`${BASE}/clusters/${clusterID}/replication`, b) as Promise<{ output: string; args: string }>,
