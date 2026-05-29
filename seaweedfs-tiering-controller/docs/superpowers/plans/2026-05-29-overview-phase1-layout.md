@@ -557,6 +557,32 @@ git commit -m "feat(overview): 右半区改为 Bento 富视觉(容量进度条 +
 
 ---
 
+## Task 5: 检查按钮进卡片 + 今日关注移入左列做成可滚动列表(迭代)
+
+用户确认:`检查`按钮从顶栏移进耐久性卡右上角(箭头左侧);`今日关注`移到左列、填满耐久性卡下方空白,改为单列可滚动列表。
+
+**Files:** `web/app/page.tsx`、`web/components/dashboard/todays-attention.tsx`
+
+要点:
+- 外层第一行 grid 去掉 `items-start`(改为默认 stretch,使左右两列等高)。
+- 左列包一层 `flex flex-col gap-6`:内含耐久性 `relative` 卡(新增紧凑 Check 按钮 `absolute top-2 right-9`)+ `<TodaysAttention className="flex-1 min-h-0"/>`。
+- 删除原先位于第一行下方的独立 `<TodaysAttention/>` 及其注释;headerActions 去掉 Check 按钮(仅留 1d/7d/30d)。
+- `TodaysAttention` 加可选 `className`,section 改 `card p-4 flex flex-col gap-3 ${className}`,信号容器改 `flex-1 min-h-0 overflow-y-auto grid grid-cols-1 gap-2 pr-1`(单列 + 可滚动;无 className 时退化为正常展示,向后兼容)。
+- 验证:`typecheck` 过滤 `app/page.tsx`/`todays-attention.tsx` 无新增错误;`lint` 干净;dev 肉眼看左列等高、列表可滚动、Check 按钮不遮挡内容。
+
+---
+
+## Task 6: Monitoring charts 重新设计(迭代)
+
+用户确认排布 A:三等宽卡片,每张重做 + 空状态占位(不再凭空消失导致网格缺块)。
+- **层级分布**:ECharts 甜甜圈 → 纯 DOM 水平堆叠条 + 图例(名称·字节·百分比),标题右侧显示总量。
+- **访问趋势**:去掉 `visible` 门控,无数据时显示虚线空状态占位。
+- **集群压力**:ECharts 横条 → 每集群一行(名称 + 条带 + 阈值竖线 + 数值/状态),颜色按接近阈值 绿/橙/红;无数据空状态。
+- **清理**:删除 `buildPressureBar`、`ReactECharts`(及 `dynamic` import)、整行 `chartColors/tooltipStyle/legendStyle` import(替换后全部未使用;后两者本就未用)。
+- **i18n 新增**:`idle→空闲`、`No access data yet→暂无访问数据`、`No pressure data→暂无压力数据`。
+
+---
+
 ## Self-Review(已核对)
 
 - **Spec 覆盖**:第1期规格 4.1–4.8 全部对应到任务 —— 布局(T1S1)、6 KPI 数据映射(T1S1)、复用 Stat(T1S1)、移除旧行(T1S2)、死代码清理(T2)、响应式(T1 className + T3)、测试/验收(T3)。i18n 键全为现有,无需新增(4.7 确认)。
