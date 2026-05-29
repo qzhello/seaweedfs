@@ -671,6 +671,28 @@ export interface FleetCostResp {
   ai_explainer?: string;
   ai_provider?: string;
 }
+export interface FleetHealthSignal {
+  key: string;        // master | quorum | filers | replication
+  status: string;     // ok | warn | down | unknown
+  detail?: string;
+}
+
+export interface FleetHealthResult {
+  cluster_id: string;
+  name: string;
+  enabled: boolean;
+  status: "green" | "yellow" | "red" | "skipped";
+  reachable: boolean;
+  latency_ms: number;
+  signals: FleetHealthSignal[];
+  reasons: string[];
+}
+
+export interface FleetHealthResponse {
+  results: FleetHealthResult[];
+  summary: { green: number; yellow: number; red: number; skipped: number; total: number };
+}
+
 export function useFleetCost(months = 12, explain = false) {
   const url = `${BASE}/costs/fleet?months=${months}${explain ? "&explain=true" : ""}`;
   return useSWR<FleetCostResp>(url, fetcher);
@@ -2280,4 +2302,7 @@ export const api = {
       error?: string;
       raw?: string;
     }>,
+
+  fleetHealthCheck: () =>
+    jpost(`${BASE}/clusters/health-check`, {}) as Promise<FleetHealthResponse>,
 };
