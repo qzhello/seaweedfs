@@ -260,7 +260,7 @@ export default function Dashboard() {
       <SectionLabel icon={<Activity size={12}/>} text={t("Monitoring charts")}/>
       <SortableRow
         rowKey="charts_visual"
-        className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"
+        className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3"
         items={(() => {
           const visualItems: SortableItem[] = [
             {
@@ -365,9 +365,67 @@ export default function Dashboard() {
       <SectionLabel icon={<ListChecks size={12}/>} text={t("Data lists")}/>
       <SortableRow
         rowKey="lists"
-        className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"
+        className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3"
         items={(() => {
           const listItems: SortableItem[] = [
+            {
+              id: "node_dist",
+              className: "col-span-2",
+              node: (
+                <section className="card p-4 h-full flex flex-col">
+                  <header className="flex items-start justify-between gap-2 mb-2 flex-wrap">
+                    <h2 className="text-xs font-medium uppercase tracking-wider text-muted flex items-center gap-1.5">
+                      <HardDrive size={12}/>
+                      <span className="text-text normal-case tracking-normal font-normal">
+                        {distMetric === "count" ? t("Volume count") : distMetric === "size" ? t("Storage size") : t("Slot usage")}
+                        {" "}{distMode === "node" ? t("by_node") : t("by_rack")}
+                      </span>
+                    </h2>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <div className="inline-flex rounded-md border border-border overflow-hidden">
+                        {(["count", "size", "usage"] as const).map((m) => (
+                          <button key={m}
+                            onClick={() => setDistMetric(m)}
+                            className={`px-2 py-0.5 text-[11px] transition-colors ${
+                              distMetric === m ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2 hover:text-text"
+                            }`}>
+                            {m === "count" ? t("Count") : m === "size" ? t("Size") : t("Usage")}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="inline-flex rounded-md border border-border overflow-hidden">
+                        {(["node", "rack"] as const).map((m) => (
+                          <button key={m}
+                            onClick={() => setDistMode(m)}
+                            className={`px-2 py-0.5 text-[11px] transition-colors ${
+                              distMode === m ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2 hover:text-text"
+                            }`}>
+                            {m === "node" ? t("N") : t("R")}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </header>
+                  <div className="text-[11px] text-muted mb-1">
+                    {distMetric === "usage"
+                      ? `${nodeStats.totalGroups} ${distMode === "node" ? t("nodes_lc") : t("racks_lc")} · ${nodeStats.usedSlots}/${nodeStats.maxSlots} ${t("slots")}`
+                      : <>{nodes.totalNodes} {distMode === "node" ? t("nodes_lc") : t("racks_lc")} · {nodes.totalVolumes} {t("volumes_lc")}
+                          {nodes.readOnly > 0 && <> · <span className="text-warning">{nodes.readOnly} {t("R/O")}</span></>}
+                        </>
+                    }
+                  </div>
+                  {(distMetric === "usage" ? nodeStats.entries.length : nodes.bars.length) === 0 ? (
+                    <div className="text-xs text-muted py-6 text-center">{t("No data returned.")}</div>
+                  ) : (
+                    <NodeDistBars
+                      metric={distMetric}
+                      bars={distMetric === "usage" ? [] : nodes.bars}
+                      usage={distMetric === "usage" ? nodeStats.entries : []}
+                    />
+                  )}
+                </section>
+              ),
+            },
             {
               id: "capacity_forecast",
               visible: hasForecast,
@@ -442,62 +500,6 @@ export default function Dashboard() {
           return listItems;
         })()}
       />
-
-      {/* Node / rack distribution gets its own full row — long server
-          hostnames need horizontal room in the legend. Same controls
-          (count / size / usage + node / rack) as before. */}
-      <section className="card p-4">
-        <header className="flex items-start justify-between gap-2 mb-2 flex-wrap">
-          <h2 className="text-xs font-medium uppercase tracking-wider text-muted flex items-center gap-1.5">
-            <HardDrive size={12}/>
-            <span className="text-text normal-case tracking-normal font-normal">
-              {distMetric === "count" ? t("Volume count") : distMetric === "size" ? t("Storage size") : t("Slot usage")}
-              {" "}{distMode === "node" ? t("by_node") : t("by_rack")}
-            </span>
-          </h2>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <div className="inline-flex rounded-md border border-border overflow-hidden">
-              {(["count", "size", "usage"] as const).map((m) => (
-                <button key={m}
-                  onClick={() => setDistMetric(m)}
-                  className={`px-2 py-0.5 text-[11px] transition-colors ${
-                    distMetric === m ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2 hover:text-text"
-                  }`}>
-                  {m === "count" ? t("Count") : m === "size" ? t("Size") : t("Usage")}
-                </button>
-              ))}
-            </div>
-            <div className="inline-flex rounded-md border border-border overflow-hidden">
-              {(["node", "rack"] as const).map((m) => (
-                <button key={m}
-                  onClick={() => setDistMode(m)}
-                  className={`px-2 py-0.5 text-[11px] transition-colors ${
-                    distMode === m ? "bg-accent/15 text-accent" : "text-muted hover:bg-panel2 hover:text-text"
-                  }`}>
-                  {m === "node" ? t("N") : t("R")}
-                </button>
-              ))}
-            </div>
-          </div>
-        </header>
-        <div className="text-[11px] text-muted mb-1">
-          {distMetric === "usage"
-            ? `${nodeStats.totalGroups} ${distMode === "node" ? t("nodes_lc") : t("racks_lc")} · ${nodeStats.usedSlots}/${nodeStats.maxSlots} ${t("slots")}`
-            : <>{nodes.totalNodes} {distMode === "node" ? t("nodes_lc") : t("racks_lc")} · {nodes.totalVolumes} {t("volumes_lc")}
-                {nodes.readOnly > 0 && <> · <span className="text-warning">{nodes.readOnly} {t("R/O")}</span></>}
-              </>
-          }
-        </div>
-        {(distMetric === "usage" ? nodeStats.entries.length : nodes.bars.length) === 0 ? (
-          <div className="text-xs text-muted py-6 text-center">{t("No data returned.")}</div>
-        ) : (
-          <NodeDistBars
-            metric={distMetric}
-            bars={distMetric === "usage" ? [] : nodes.bars}
-            usage={distMetric === "usage" ? nodeStats.entries : []}
-          />
-        )}
-      </section>
 
       {(trendDomain?.series?.length ?? 0) > 0 && (
         <section className="space-y-3">

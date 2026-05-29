@@ -27,6 +27,9 @@ export interface SortableItem {
   // scoped). We accept it on the item rather than filtering upstream so
   // the saved order doesn't churn just because a card temporarily hides.
   visible?: boolean;
+  // Extra classes for the card's grid wrapper — used for column spans
+  // (e.g. "col-span-2" to make a card take a wider slot).
+  className?: string;
   node: ReactNode;
 }
 
@@ -49,10 +52,24 @@ export function SortableRow({ rowKey, items, className }: Props) {
     for (const it of items) m.set(it.id, it.node);
     return m;
   }, [items]);
+  const classNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const it of items) if (it.className) m.set(it.id, it.className);
+    return m;
+  }, [items]);
 
   const [order, setOrder] = useState<string[]>(visibleIds);
+  // Defer DndContext mounting to the client. dnd-kit assigns
+  // "DndDescribedBy-N" ids from a module-level counter — the server-rendered
+  // tree always gets N=0 for the first DndContext, while the client may
+  // mount several rows in a different order during hydration, producing
+  // "Server X / Client Y" hydration warnings on every card. Rendering a
+  // plain grid for first paint and swapping in DndContext after mount
+  // sidesteps the counter race entirely.
+  const [mounted, setMounted] = useState(false);
   useEffect(() => {
     setOrder(loadOrder(rowKey, visibleIds));
+    setMounted(true);
   }, [rowKey, visibleIds]);
 
   const sensors = useSensors(
@@ -73,6 +90,21 @@ export function SortableRow({ rowKey, items, className }: Props) {
     saveOrder(rowKey, next);
   };
 
+  // SSR / pre-hydration render: a plain grid with the same layout
+  // classes, NO drag wrappers. Matches what the server renders so
+  // hydration sees identical markup.
+  if (!mounted) {
+    return (
+      <div className={className}>
+        {visibleIds.map(id => {
+          const node = nodeById.get(id);
+          if (!node) return null;
+          return <div key={id} className={`relative h-full ${classNameById.get(id) ?? ""}`}>{node}</div>;
+        })}
+      </div>
+    );
+  }
+
   return (
     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
       <SortableContext items={order} strategy={rectSortingStrategy}>
@@ -80,7 +112,7 @@ export function SortableRow({ rowKey, items, className }: Props) {
           {order.map(id => {
             const node = nodeById.get(id);
             if (!node) return null;
-            return <SortableCard key={id} id={id}>{node}</SortableCard>;
+            return <SortableCard key={id} id={id} className={classNameById.get(id)}>{node}</SortableCard>;
           })}
         </div>
       </SortableContext>
@@ -88,7 +120,7 @@ export function SortableRow({ rowKey, items, className }: Props) {
   );
 }
 
-function SortableCard({ id, children }: { id: string; children: ReactNode }) {
+function SortableCard({ id, className, children }: { id: string; className?: string; children: ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   return (
     <div
@@ -99,7 +131,7 @@ function SortableCard({ id, children }: { id: string; children: ReactNode }) {
         opacity: isDragging ? 0.5 : 1,
         zIndex: isDragging ? 20 : "auto",
       }}
-      className="relative group/sortable h-full"
+      className={`relative group/sortable h-full ${className ?? ""}`}
     >
       <button
         type="button"
