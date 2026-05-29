@@ -424,14 +424,66 @@ func (e *Executor) dispatch(ctx context.Context, t store.Task, log *strings.Buil
 		return e.sw.TierMoveDatFromRemote(deadline, t.SrcServer, uint32(t.VolumeID), t.Collection, true)
 
 	case "ec_encode":
-		// MVP: leave EC encoding to a future iteration (uses different RPC sequence).
-		// For now, write a stub log so the operator sees the queued op.
-		fmt.Fprintf(log, "ec.encode vol=%d (MVP: stub — wire ec_encode RPC)\n", t.VolumeID)
-		return fmt.Errorf("ec_encode not yet implemented")
+		// Run `ec.encode` for the single target volume via the weed shell at
+		// the task's cluster master. ec.encode applies directly (no -apply).
+		if t.ClusterID == nil {
+			return fmt.Errorf("ec_encode missing cluster_id")
+		}
+		cl, err := e.pg.GetCluster(deadline, *t.ClusterID)
+		if err != nil {
+			return fmt.Errorf("ec_encode: get cluster: %w", err)
+		}
+		args := []string{fmt.Sprintf("-volumeId=%d", t.VolumeID)}
+		if t.Collection != "" {
+			args = append(args, "-collection="+t.Collection)
+		}
+		fmt.Fprintf(log, "ec.encode vol=%d collection=%s\n", t.VolumeID, t.Collection)
+		out, runErr := e.sw.RunShellCommandAtWithBin(deadline, cl.MasterAddr, cl.WeedBinPath,
+			"ec.encode", args, func(ln string) { fmt.Fprintln(log, ln) })
+		if runErr != nil {
+			return fmt.Errorf("ec.encode vol=%d: %w (output: %s)", t.VolumeID, runErr, out)
+		}
+		return nil
 
 	case "tier_move":
-		fmt.Fprintf(log, "tier.move vol=%d (MVP: stub — wire master.VolumeMarkReadonly + balance)\n", t.VolumeID)
-		return fmt.Errorf("tier_move not yet implemented")
+		// Move volumes between local disk tiers via `volume.tier.move`.
+		//
+		// CAVEAT: upstream `volume.tier.move` selects volumes by disk type +
+		// collection pattern — it has NO -volumeId. So this moves ALL volumes
+		// of the task's collection currently on fromDiskType (batch semantics),
+		// not just t.VolumeID. Per-volume precision would require `volume.move`
+		// with explicit target-server selection (a follow-up). We require
+		// explicit from/to disk types so a malformed task fails fast instead of
+		// moving the wrong tier.
+		if t.ClusterID == nil {
+			return fmt.Errorf("tier_move missing cluster_id")
+		}
+		toDisk := strings.TrimSpace(target["to_disk_type"])
+		if toDisk == "" {
+			toDisk = strings.TrimSpace(target["toDiskType"])
+		}
+		fromDisk := strings.TrimSpace(target["from_disk_type"])
+		if fromDisk == "" {
+			fromDisk = strings.TrimSpace(t.SrcDiskType)
+		}
+		if fromDisk == "" || toDisk == "" {
+			return fmt.Errorf("tier_move requires from/to disk types (have from=%q to=%q)", fromDisk, toDisk)
+		}
+		cl, err := e.pg.GetCluster(deadline, *t.ClusterID)
+		if err != nil {
+			return fmt.Errorf("tier_move: get cluster: %w", err)
+		}
+		args := []string{"-fromDiskType=" + fromDisk, "-toDiskType=" + toDisk, "-apply"}
+		if t.Collection != "" {
+			args = append(args, "-collectionPattern="+t.Collection)
+		}
+		fmt.Fprintf(log, "volume.tier.move from=%s to=%s collection=%s (batch by disk type)\n", fromDisk, toDisk, t.Collection)
+		out, runErr := e.sw.RunShellCommandAtWithBin(deadline, cl.MasterAddr, cl.WeedBinPath,
+			"volume.tier.move", args, func(ln string) { fmt.Fprintln(log, ln) })
+		if runErr != nil {
+			return fmt.Errorf("volume.tier.move: %w (output: %s)", runErr, out)
+		}
+		return nil
 
 	default:
 		return fmt.Errorf("unknown action %q", t.Action)

@@ -415,16 +415,20 @@ var shellCatalog = []shellCommand{
 	{Name: "cluster.raft.add", Category: "cluster", Risk: "mutate",
 		Summary: "Add a master to the raft quorum.",
 		Args: []shellArg{
+			{Flag: "-id", Label: "Server ID", Kind: "string", Required: true},
 			{Flag: "-address", Label: "Master address", Kind: "string", Required: true},
 			{Flag: "-voter", Label: "Voter", Kind: "bool", Default: "true"},
 		}},
 	{Name: "cluster.raft.remove", Category: "cluster", Risk: "destructive",
-		Summary: "Remove a master from the raft quorum. Quorum loss is permanent."},
+		Summary: "Remove a master from the raft quorum. Quorum loss is permanent.",
+		Args: []shellArg{
+			{Flag: "-id", Label: "Server ID", Kind: "string", Required: true},
+		}},
 
 	// ---------------- MQ ----------------
 	{Name: "mq.topic.list", Category: "mq", Risk: "read", ReadOnly: true,
 		Summary: "List message-queue topics."},
-	{Name: "mq.topic.describe", Category: "mq", Risk: "read", ReadOnly: true,
+	{Name: "mq.topic.desc", Category: "mq", Risk: "read", ReadOnly: true,
 		Summary: "Show partitions, brokers, and offsets for a topic."},
 	{Name: "mq.topic.configure", Category: "mq", Risk: "mutate",
 		Summary: "Create / update / delete a topic."},

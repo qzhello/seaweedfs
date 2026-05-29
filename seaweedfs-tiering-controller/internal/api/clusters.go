@@ -181,8 +181,10 @@ func clusterShellExec(d Deps) gin.HandlerFunc {
 			args = strings.Fields(s)
 		}
 
+		// Redact secret-bearing args before they hit the audit log.
+		safeArgs := scrubSecretArgs(args)
 		_ = d.PG.Audit(c.Request.Context(), userOf(c), "shell.exec", "cluster", id.String(), map[string]any{
-			"command": name, "args": args, "reason": body.Reason,
+			"command": name, "args": safeArgs, "reason": body.Reason,
 			"master": cl.MasterAddr, "bin_path": cl.WeedBinPath,
 		})
 
@@ -193,10 +195,11 @@ func clusterShellExec(d Deps) gin.HandlerFunc {
 		defer cancel()
 		out, err := d.Sw.RunShellCommandAtWithBin(ctx, cl.MasterAddr, cl.WeedBinPath, name, args, nil)
 		if err != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error(), "output": out})
+			// Redact secrets from stdout (e.g. s3.accesskey.* prints the SK).
+			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error(), "output": scrubSecretText(out)})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"output": out, "command": name, "args": args})
+		c.JSON(http.StatusOK, gin.H{"output": scrubSecretText(out), "command": name, "args": safeArgs})
 	}
 }
 
@@ -328,7 +331,7 @@ func clusterShellStream(d Deps) gin.HandlerFunc {
 		}
 
 		_ = d.PG.Audit(c.Request.Context(), userOf(c), "shell.stream", "cluster", id.String(), map[string]any{
-			"command": name, "args": args, "reason": reason,
+			"command": name, "args": scrubSecretArgs(args), "reason": reason,
 			"master": cl.MasterAddr, "bin_path": cl.WeedBinPath,
 		})
 
@@ -348,7 +351,8 @@ func clusterShellStream(d Deps) gin.HandlerFunc {
 			c.Writer.Flush()
 		}
 
-		sink := func(ln string) { flush("line", ln) }
+		// Redact secrets from each streamed line (e.g. s3.accesskey.* SK output).
+		sink := func(ln string) { flush("line", scrubSecretText(ln)) }
 
 		// Detach from the request context so the operator navigating away
 		// doesn't kill a 10-minute volume.balance. SSE write failures (client
