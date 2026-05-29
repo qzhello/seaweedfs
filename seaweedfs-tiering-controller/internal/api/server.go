@@ -258,6 +258,10 @@ func Router(d Deps) *gin.Engine {
 			auth.RequireCap(d.Caps, "volume.ec.decode"), ecDecodeStream(d))
 
 		// --- Cluster operations (Phase 3) ---
+		// Manual fleet-wide health probe: fan out a tiered reachability +
+		// quorum + filer + replication check across all clusters. Read-only.
+		v1.POST("/clusters/health-check",
+			auth.RequireCap(d.Caps, "cluster.read"), fleetHealthCheck(d))
 		v1.POST("/clusters/:id/check-disk",
 			auth.RequireCap(d.Caps, "volume.check-disk"), clusterCheckDisk(d))
 		v1.POST("/clusters/:id/replication",
