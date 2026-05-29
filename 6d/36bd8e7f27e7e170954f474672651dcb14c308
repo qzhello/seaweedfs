@@ -1,0 +1,9 @@
+seaweedfs-tiering-controller/web/components/table-skeleton.tsx
+  ai_agent 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6d36bd8e7f27e7e170954f474672651dcb14c308",
+  "prompts": {}
+}
