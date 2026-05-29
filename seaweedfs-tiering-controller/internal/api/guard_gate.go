@@ -34,3 +34,25 @@ func guardAllow(d Deps, c *gin.Context, clusterID *uuid.UUID) bool {
 	}
 	return true
 }
+
+// guardEmergencyAllow enforces ONLY the emergency-stop gate before a
+// maintenance-prep mutating operation (e.g. raft leadership transfer).
+// Unlike guardAllow it intentionally ignores change/maintenance/holiday
+// windows, since those are exactly when an operator needs to move
+// leadership off a node before working on it. On block it writes HTTP 423
+// and returns false.
+func guardEmergencyAllow(d Deps, c *gin.Context) bool {
+	if d.Guard == nil {
+		return true
+	}
+	v := d.Guard.AllowEmergencyOnly()
+	if !v.Allowed {
+		c.JSON(http.StatusLocked, gin.H{
+			"error":      v.Reason,
+			"code":       v.Code,
+			"blocked_by": "safety_guard",
+		})
+		return false
+	}
+	return true
+}
