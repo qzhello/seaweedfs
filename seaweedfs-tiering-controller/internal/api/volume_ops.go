@@ -37,8 +37,8 @@ type VolumeMove struct {
 // it WOULD perform. The exact format varies slightly across SeaweedFS
 // versions but the canonical shape is:
 //
-//   volume 42 from 10.0.0.5:8080 to 10.0.0.6:8080
-//   plan: moving volume 42 collection logs size 1024MB from 10.0.0.5:8080 to 10.0.0.6:8080
+//	volume 42 from 10.0.0.5:8080 to 10.0.0.6:8080
+//	plan: moving volume 42 collection logs size 1024MB from 10.0.0.5:8080 to 10.0.0.6:8080
 //
 // We accept either shape via a permissive regex; anything we can't
 // parse is preserved in the raw output for the operator to inspect.
@@ -268,6 +268,9 @@ func volumeGrow(d Deps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "bad cluster id"})
 			return
 		}
+		if !guardAllow(d, c, &id) {
+			return
+		}
 		var body struct {
 			Collection  string `json:"collection"`
 			Replication string `json:"replication,omitempty"`
@@ -330,11 +333,11 @@ func volumeGrow(d Deps) gin.HandlerFunc {
 // The streaming flow:
 //  1. start  : echo the constructed `weed shell -- volume.grow ...`
 //  2. line   : surface every line the shell prints (rare but possible:
-//              error messages, "collection not found", etc.)
+//     error messages, "collection not found", etc.)
 //  3. progress: after the shell exits, poll the master's volume list
-//              every ~500ms and emit a `progress` event with the new
-//              counts. Stop when we observe count >= target or after
-//              ~20s — newer than the typical heartbeat interval.
+//     every ~500ms and emit a `progress` event with the new
+//     counts. Stop when we observe count >= target or after
+//     ~20s — newer than the typical heartbeat interval.
 //  4. done   : final added count + before/after snapshot.
 //
 // POST /api/v1/clusters/:id/volume/grow/stream
@@ -343,6 +346,9 @@ func volumeGrowStream(d Deps) gin.HandlerFunc {
 		id, err := uuid.Parse(c.Param("id"))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "bad cluster id"})
+			return
+		}
+		if !guardAllow(d, c, &id) {
 			return
 		}
 		var body struct {
@@ -465,10 +471,10 @@ func volumeGrowStream(d Deps) gin.HandlerFunc {
 				finalCount = cur
 				if cur != lastCount {
 					emit("progress", gin.H{
-						"before":   beforeCount,
-						"current":  cur,
-						"target":   target,
-						"added":    cur - beforeCount,
+						"before":  beforeCount,
+						"current": cur,
+						"target":  target,
+						"added":   cur - beforeCount,
 					})
 					lastCount = cur
 				}
@@ -531,6 +537,9 @@ func volumeDeleteEmpty(d Deps) gin.HandlerFunc {
 		id, err := uuid.Parse(c.Param("id"))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "bad cluster id"})
+			return
+		}
+		if !guardAllow(d, c, &id) {
 			return
 		}
 		var body struct {

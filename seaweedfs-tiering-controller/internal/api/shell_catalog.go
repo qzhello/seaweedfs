@@ -1,5 +1,7 @@
 package api
 
+import "strings"
+
 // shellCommand describes one `weed shell` command in a way the UI can
 // render a guided form for it. Fields are deliberately conservative:
 // only the most-used flags get a typed entry; everything else falls
@@ -14,6 +16,32 @@ type shellCommand struct {
 	Args     []shellArg `json:"args"`      // optional typed arg fields; omit → raw-args only
 	ReadOnly bool       `json:"read_only"` // true → skip lock/unlock wrap
 	Streams  bool       `json:"streams"`   // long-running, output streams over time
+	// RequiredCap, when set, is an extra capability the principal must hold
+	// to run this command through the generic shell exec — on top of the
+	// admin role. Empty means "admin role is sufficient". See requiredCapFor
+	// for the default policy applied to sensitive S3 IAM/credential commands.
+	RequiredCap string `json:"required_cap,omitempty"`
+}
+
+// requiredCapFor returns the capability required to run cmd via the generic
+// shell exec, beyond the admin role. An explicit cmd.RequiredCap wins;
+// otherwise S3 IAM / credential commands (create/rotate/export keys, manage
+// users/groups/policies/service accounts) default to the "s3.configure" cap
+// so reaching them is not implied by the bare admin role.
+func requiredCapFor(cmd shellCommand) string {
+	if cmd.RequiredCap != "" {
+		return cmd.RequiredCap
+	}
+	n := cmd.Name
+	if strings.HasPrefix(n, "s3.") && (strings.Contains(n, "accesskey") ||
+		strings.Contains(n, "iam") ||
+		strings.Contains(n, "user") ||
+		strings.Contains(n, "serviceaccount") ||
+		strings.Contains(n, "policy") ||
+		strings.Contains(n, "group")) {
+		return "s3.configure"
+	}
+	return ""
 }
 
 // shellArg is one form field on the command panel. The UI renders by

@@ -126,6 +126,9 @@ func clusterConfigureReplication(d Deps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "bad cluster id"})
 			return
 		}
+		if !guardAllow(d, c, &id) {
+			return
+		}
 		var body struct {
 			Collection  string `json:"collection"`
 			Replication string `json:"replication"`

@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/auth"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/store"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/validation"
 )
@@ -162,10 +163,29 @@ func clusterShellExec(d Deps) gin.HandlerFunc {
 			return
 		}
 		allow := shellAllowedNames()
-		if _, ok := allow[name]; !ok {
+		cmd, ok := allow[name]
+		if !ok {
 			c.JSON(http.StatusForbidden, gin.H{
 				"error": fmt.Sprintf("command %q is not in the operator catalog; wrap it in a Skill instead", name),
 			})
+			return
+		}
+		// Per-command capability gate: sensitive commands (S3 IAM/credential
+		// ops) require an extra cap beyond the admin role.
+		if rc := requiredCapFor(cmd); rc != "" {
+			p, okp := auth.Of(c)
+			if !okp {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
+				return
+			}
+			if d.Caps == nil || !d.Caps.Has(c.Request.Context(), p.Role, rc) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden", "needed": rc, "role": p.Role})
+				return
+			}
+		}
+		// Safety guard: mutating commands respect emergency stop / change
+		// window / maintenance / holiday freeze. Read-only stays available.
+		if !cmd.ReadOnly && !guardAllow(d, c, &id) {
 			return
 		}
 		// Reason is recorded for audit but no longer required — operators
@@ -317,6 +337,22 @@ func clusterShellStream(d Deps) gin.HandlerFunc {
 		cmd, ok := shellAllowedNames()[name]
 		if !ok {
 			c.JSON(http.StatusForbidden, gin.H{"error": "command not in catalog"})
+			return
+		}
+		// Per-command capability gate (see clusterShell for rationale).
+		if rc := requiredCapFor(cmd); rc != "" {
+			p, okp := auth.Of(c)
+			if !okp {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthenticated"})
+				return
+			}
+			if d.Caps == nil || !d.Caps.Has(c.Request.Context(), p.Role, rc) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden", "needed": rc, "role": p.Role})
+				return
+			}
+		}
+		// Safety guard for mutating commands (see clusterShell).
+		if !cmd.ReadOnly && !guardAllow(d, c, &id) {
 			return
 		}
 		// Reason optional — see clusterShell for rationale.
