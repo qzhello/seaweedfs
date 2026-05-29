@@ -1378,7 +1378,7 @@ export interface ClusterMasterRow {
 export interface RaftServerInfo {
   id: string;
   address: string;
-  suffrage: "leader" | "voter" | "nonvoter" | "unknown" | string;
+  suffrage: "leader" | "voter" | "nonvoter" | "unknown";
   is_leader: boolean;
 }
 

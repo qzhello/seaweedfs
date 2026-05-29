@@ -214,6 +214,9 @@ func TestPickRaftServers(t *testing.T) {
 	if got[0].ID != "m1" || got[0].Address != "10.0.0.1:19333" || !got[0].IsLeader {
 		t.Fatalf("unexpected leader entry: %+v", got[0])
 	}
+	if got[1].Suffrage != "voter" {
+		t.Fatalf("expected normalized suffrage \"voter\", got %q", got[1].Suffrage)
+	}
 
 	t.Run("empty when no reports", func(t *testing.T) {
 		out := pickRaftServers(map[string][]seaweed.MasterRaftServer{}, "")

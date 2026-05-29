@@ -858,7 +858,7 @@ func pickRaftServers(reports map[string][]seaweed.MasterRaftServer, leaderAddr s
 		out = append(out, raftServerInfo{
 			ID:       s.Id,
 			Address:  s.GrpcAddress,
-			Suffrage: s.Suffrage,
+			Suffrage: normalizeSuffrage(s.Suffrage, s.IsLeader),
 			IsLeader: s.IsLeader,
 		})
 	}
