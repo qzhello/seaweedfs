@@ -570,6 +570,10 @@ func Router(d Deps) *gin.Engine {
 			auth.RequireCap(d.Caps, "cluster.read"), clusterMasters(d))
 		v1.POST("/clusters/:id/masters/lock-probe",
 			auth.RequireCap(d.Caps, "cluster.lock.probe"), clusterMasterLockProbe(d))
+		// Graceful raft leadership transfer (maintenance prep). Emergency-
+		// stop gated only — must work during change/maintenance windows.
+		v1.POST("/clusters/:id/masters/transfer-leader",
+			auth.RequireCap(d.Caps, "cluster.raft.transfer"), clusterRaftTransferLeader(d))
 
 		// --- Filer / volume / EC drilldown ---
 		// `/filers` lists filers from the master + parallel HTTP `/status`
