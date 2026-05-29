@@ -583,6 +583,14 @@ git commit -m "feat(overview): 右半区改为 Bento 富视觉(容量进度条 +
 
 ---
 
+## Task 7: 底部两区网格重排(迭代)
+
+- `SortableRow`/`SortableItem` 增加可选 `className`,应用到卡片 wrapper(支持单卡跨列)。
+- Monitoring charts 网格 `xl:grid-cols-3` → `xl:grid-cols-4`(三张各 1/4,右侧留空,用户明确选择)。
+- Data lists 网格 → `xl:grid-cols-4`;把原本独立全宽的「按节点/机架卷分布图」移进 Data lists **首位**,`className: "col-span-2"`(占 1/2),其后 容量预测 / 最冷集合排行 / 推荐 各 1/4;删除原独立分布图 section。
+
+---
+
 ## Self-Review(已核对)
 
 - **Spec 覆盖**:第1期规格 4.1–4.8 全部对应到任务 —— 布局(T1S1)、6 KPI 数据映射(T1S1)、复用 Stat(T1S1)、移除旧行(T1S2)、死代码清理(T2)、响应式(T1 className + T3)、测试/验收(T3)。i18n 键全为现有,无需新增(4.7 确认)。
