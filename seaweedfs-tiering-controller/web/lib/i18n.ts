@@ -3617,6 +3617,10 @@ const ZH: Dict = {
   "Name is required":             "名称必填",
   "Scope value is required for provider/user budgets":
                                   "服务商 / 用户预算必须填写范围值",
+  // Fleet health check
+  "Check all":                    "检查全部",
+  "down":                         "异常",
+  "All signals OK":               "所有信号正常",
 };
 
 const DICTS: Record<Lang, Dict> = {
