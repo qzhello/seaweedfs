@@ -196,3 +196,41 @@ func TestBuildMasterConsistency_DetectsDuplicatePeersAfterDedupe(t *testing.T) {
 		t.Fatal("expected duplicate_peer_entries issue")
 	}
 }
+
+func TestPickRaftServers(t *testing.T) {
+	leaderReport := []seaweed.MasterRaftServer{
+		{Id: "m1", GrpcAddress: "10.0.0.1:19333", Suffrage: "Voter", IsLeader: true},
+		{Id: "m2", GrpcAddress: "10.0.0.2:19333", Suffrage: "Voter", IsLeader: false},
+	}
+	reports := map[string][]seaweed.MasterRaftServer{
+		"10.0.0.1:9333": leaderReport,
+		"10.0.0.2:9333": {}, // empty report from a lagging master
+	}
+
+	got := pickRaftServers(reports, "10.0.0.1:9333")
+	if len(got) != 2 {
+		t.Fatalf("expected 2 raft servers, got %d", len(got))
+	}
+	if got[0].ID != "m1" || got[0].Address != "10.0.0.1:19333" || !got[0].IsLeader {
+		t.Fatalf("unexpected leader entry: %+v", got[0])
+	}
+
+	t.Run("empty when no reports", func(t *testing.T) {
+		out := pickRaftServers(map[string][]seaweed.MasterRaftServer{}, "")
+		if out == nil {
+			t.Fatal("expected non-nil empty slice, got nil")
+		}
+		if len(out) != 0 {
+			t.Fatalf("expected 0 entries, got %d", len(out))
+		}
+	})
+
+	t.Run("fallback to longest when leader absent", func(t *testing.T) {
+		out := pickRaftServers(map[string][]seaweed.MasterRaftServer{
+			"10.0.0.2:9333": leaderReport,
+		}, "10.0.0.1:9333") // leader addr not present in the map
+		if len(out) != 2 {
+			t.Fatalf("expected 2 entries from fallback, got %d", len(out))
+		}
+	})
+}

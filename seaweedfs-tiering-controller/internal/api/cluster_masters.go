@@ -65,16 +65,27 @@ type masterConsistency struct {
 	Issues           []masterConsistencyIssue `json:"issues"`
 }
 
+// raftServerInfo is the wire representation of a single raft peer, used by the
+// frontend leadership-transfer target picker.
+type raftServerInfo struct {
+	ID       string `json:"id"`
+	Address  string `json:"address"` // gRPC address — what transferLeader -address expects
+	Suffrage string `json:"suffrage"`
+	IsLeader bool   `json:"is_leader"`
+}
+
 type clusterMastersResponse struct {
 	Cluster          *store.Cluster     `json:"cluster"`
 	ConfiguredMaster string             `json:"configured_master"`
 	Masters          []clusterMasterRow `json:"masters"`
 	Consistency      masterConsistency  `json:"consistency"`
+	RaftServers      []raftServerInfo   `json:"raft_servers"`
 }
 
 type masterFetchResult struct {
-	row       clusterMasterRow
-	discovery []string
+	row         clusterMasterRow
+	discovery   []string
+	raftServers []seaweed.MasterRaftServer
 }
 
 func clusterMasters(d Deps) gin.HandlerFunc {
@@ -98,6 +109,7 @@ func clusterMasters(d Deps) gin.HandlerFunc {
 
 		results := make(map[string]clusterMasterRow)
 		fetched := make(map[string]struct{})
+		rawReports := make(map[string][]seaweed.MasterRaftServer)
 		for pass := 0; pass < 3; pass++ {
 			pending := make([]string, 0, len(discovered))
 			for addr := range discovered {
@@ -124,6 +136,9 @@ func clusterMasters(d Deps) gin.HandlerFunc {
 					continue
 				}
 				results[addr] = res.row
+				// Keyed by normalized HTTP address (same as row.Address), so
+				// pickRaftServers can match leaderAddr below.
+				rawReports[addr] = res.raftServers
 				for _, peer := range res.discovery {
 					if peer == "" {
 						continue
@@ -147,11 +162,23 @@ func clusterMasters(d Deps) gin.HandlerFunc {
 			rows[i].Health = classifyMasterHealth(rows[i], consistency)
 		}
 
+		// Take the first leader in sorted order; split-brain (multiple
+		// self-reported leaders) is surfaced separately in consistency issues.
+		leaderAddr := ""
+		for _, row := range rows {
+			if row.IsLeader {
+				leaderAddr = row.Address
+				break
+			}
+		}
+		raftServers := pickRaftServers(rawReports, leaderAddr)
+
 		c.JSON(http.StatusOK, clusterMastersResponse{
 			Cluster:          cl,
 			ConfiguredMaster: configured,
 			Masters:          rows,
 			Consistency:      consistency,
+			RaftServers:      raftServers,
 		})
 	}
 }
@@ -196,6 +223,7 @@ func fetchMaster(ctx context.Context, sw *seaweed.Client, addr string) masterFet
 		raftRTT    time.Duration
 		raftErr    error
 	)
+	var capturedRaft []seaweed.MasterRaftServer
 
 	var g errgroup.Group
 	g.Go(func() error {
@@ -243,6 +271,7 @@ func fetchMaster(ctx context.Context, sw *seaweed.Client, addr string) masterFet
 	if raftErr == nil {
 		latencies = append(latencies, raftRTT)
 		row.Reachable = true
+		capturedRaft = append([]seaweed.MasterRaftServer(nil), raftPeers...)
 		raftObserved := make([]string, 0, len(raftPeers))
 		raftLeader := ""
 		for _, peer := range raftPeers {
@@ -288,8 +317,9 @@ func fetchMaster(ctx context.Context, sw *seaweed.Client, addr string) masterFet
 	}
 
 	return masterFetchResult{
-		row:       row,
-		discovery: sortedKeys(discovery),
+		row:         row,
+		discovery:   sortedKeys(discovery),
+		raftServers: capturedRaft,
 	}
 }
 
@@ -808,4 +838,29 @@ func trimMasterGrpcSuffix(addr string) (string, bool) {
 		return "", false
 	}
 	return net.JoinHostPort(host, httpPort), true
+}
+
+// pickRaftServers chooses the most authoritative raft membership report and
+// converts it to the wire shape. The leader's own report is preferred; if it
+// is missing/empty the longest available report wins. Always returns a
+// non-nil slice so JSON serializes [] rather than null.
+func pickRaftServers(reports map[string][]seaweed.MasterRaftServer, leaderAddr string) []raftServerInfo {
+	best := reports[leaderAddr]
+	if len(best) == 0 {
+		for _, r := range reports {
+			if len(r) > len(best) {
+				best = r
+			}
+		}
+	}
+	out := make([]raftServerInfo, 0, len(best))
+	for _, s := range best {
+		out = append(out, raftServerInfo{
+			ID:       s.Id,
+			Address:  s.GrpcAddress,
+			Suffrage: s.Suffrage,
+			IsLeader: s.IsLeader,
+		})
+	}
+	return out
 }
