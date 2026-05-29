@@ -53,9 +53,11 @@ type MasterStatusSnapshot struct {
 }
 
 type MasterRaftServer struct {
-	Address  string
-	Suffrage string
-	IsLeader bool
+	Id          string // raft server id (from gRPC ClusterServers[].Id); empty if omitted
+	Address     string // HTTP-normalized address, for display/peer matching; falls back to Id
+	GrpcAddress string // raw gRPC address (transferLeader -address); empty if omitted
+	Suffrage    string
+	IsLeader    bool
 }
 
 func New(masterAddr string, dialTimeout time.Duration) *Client {
@@ -155,12 +157,12 @@ func (c *Client) ListFilers(ctx context.Context, masterAddr string) ([]FilerNode
 // The probe leases the named lock for a microsecond and then releases it,
 // so it never actually keeps the lock — it just learns the holder.
 type LockProbeOutcome struct {
-	Acquired    bool   // true if we managed to lease (and immediately released)
-	Held        bool   // true if a different client holds the lock
-	Holder      string // parsed lastClient from "already locked by X" error
-	NotLeader   bool   // true if the addr isn't the raft leader
-	RawError    string // original error string when not Acquired
-	LockTsNs    int64  // lock timestamp returned by the master (when acquired)
+	Acquired  bool   // true if we managed to lease (and immediately released)
+	Held      bool   // true if a different client holds the lock
+	Holder    string // parsed lastClient from "already locked by X" error
+	NotLeader bool   // true if the addr isn't the raft leader
+	RawError  string // original error string when not Acquired
+	LockTsNs  int64  // lock timestamp returned by the master (when acquired)
 }
 
 // ProbeMasterAdminLock dials the master, attempts to lease lockName, and
@@ -248,14 +250,18 @@ func (c *Client) FetchMasterRaftServers(ctx context.Context, addr string) ([]Mas
 		if server == nil {
 			continue
 		}
-		address := strings.TrimSpace(server.Id)
-		if trimmed := strings.TrimSpace(server.Address); trimmed != "" {
-			address = grpcToHTTPAddr(trimmed)
+		rawId := strings.TrimSpace(server.Id)
+		rawGrpc := strings.TrimSpace(server.Address)
+		address := rawId
+		if rawGrpc != "" {
+			address = grpcToHTTPAddr(rawGrpc)
 		}
 		out = append(out, MasterRaftServer{
-			Address:  address,
-			Suffrage: strings.TrimSpace(server.Suffrage),
-			IsLeader: server.IsLeader,
+			Id:          rawId,
+			Address:     address,
+			GrpcAddress: rawGrpc,
+			Suffrage:    strings.TrimSpace(server.Suffrage),
+			IsLeader:    server.IsLeader,
 		})
 	}
 	return out, latency, nil
