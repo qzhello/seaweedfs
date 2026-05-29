@@ -3,19 +3,20 @@
 import { useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { Loader2, Server, ArrowLeft } from "lucide-react";
 import { useVolumeServer, type VolumeReplicaRow } from "@/lib/api";
 import { useCaps } from "@/lib/caps-context";
 import { useT } from "@/lib/i18n";
 import { bytes } from "@/lib/utils";
 import { HealthBadge } from "@/components/health-badge";
+import { Breadcrumb } from "@/components/breadcrumb";
+import { CardSkeleton, TableSkeleton } from "@/components/table-skeleton";
 
 export default function VolumeServerDetailPage() {
   const { id, addr } = useParams<{ id: string; addr: string }>();
   const decoded = decodeURIComponent(addr);
   const { has, loading: capsLoading } = useCaps();
   const { t } = useT();
-  const { data, isLoading, error } = useVolumeServer(id, decoded);
+  const { data, error } = useVolumeServer(id, decoded);
 
   const collectionRows = useMemo(() => {
     if (!data) return [] as { collection: string; replicas: number; bytes: number }[];
@@ -41,121 +42,135 @@ export default function VolumeServerDetailPage() {
       </div>
     );
   }
-  if (isLoading || !data) {
-    return (
-      <div className="p-6 text-sm text-muted inline-flex items-center gap-2">
-        <Loader2 size={14} className="animate-spin"/> {t("Loading volume server…")}
-      </div>
-    );
-  }
-
-  const fill = data.max_volumes > 0 ? data.volumes.length / Math.max(1, Number(data.max_volumes)) : 0;
-  const tone = fill >= 0.9 ? "err" : fill >= 0.75 ? "warn" : "ok";
 
   return (
     <div className="space-y-5">
+      <Breadcrumb items={[
+        { label: t("Topology"), href: `/clusters/${id}/topology` },
+        { label: decoded },
+      ]}/>
       <header className="flex items-end justify-between gap-4 flex-wrap">
         <div>
-          <Link href={`/clusters/${id}/topology`} className="text-xs text-muted inline-flex items-center gap-1 hover:text-text">
-            <ArrowLeft size={12}/> {t("Back to topology")}
-          </Link>
-          <h1 className="text-base font-semibold tracking-tight inline-flex items-center gap-2 mt-1">
-            <Server size={18}/> <span className="font-mono">{data.address}</span>
-          </h1>
-          <p className="text-xs text-muted">
-            {data.data_center && <>{t("DC")} <span className="font-mono text-text">{data.data_center}</span></>}
-            {data.rack && <> · {t("Rack")} <span className="font-mono text-text">{data.rack}</span></>}
-          </p>
+          <h1 className="text-lg font-semibold font-mono">{decoded}</h1>
         </div>
-        <HealthBadge tone={tone}>{(fill * 100).toFixed(0)}% {t("full")}</HealthBadge>
       </header>
 
-      <section className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-        <Kpi label={t("Volumes")} value={data.volume_count.toLocaleString()}/>
-        <Kpi label={t("Used bytes")} value={bytes(data.used_bytes)}/>
-        <Kpi label={t("Max volumes")} value={Number(data.max_volumes).toLocaleString()}/>
-        <Kpi label={t("Free slots")} value={Number(data.free_volumes).toLocaleString()}/>
-        <Kpi label={t("EC shards")} value={data.ec_shard_count.toLocaleString()} hint={`${data.read_only_count.toLocaleString()} ${t("read-only")}`}/>
-      </section>
+      {data ? (
+        <>
+          <div className="flex items-end justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-xs text-muted mt-1">
+                {data.data_center && <>{t("DC")} <span className="font-mono text-text">{data.data_center}</span></>}
+                {data.rack && <> · {t("Rack")} <span className="font-mono text-text">{data.rack}</span></>}
+              </p>
+            </div>
+            <HealthBadge tone={
+              data.max_volumes > 0
+                ? (data.volumes.length / Math.max(1, Number(data.max_volumes)) >= 0.9 ? "err"
+                  : data.volumes.length / Math.max(1, Number(data.max_volumes)) >= 0.75 ? "warn"
+                  : "ok")
+                : "ok"
+            }>
+              {data.max_volumes > 0
+                ? ((data.volumes.length / Math.max(1, Number(data.max_volumes))) * 100).toFixed(0)
+                : "0"}% {t("full")}
+            </HealthBadge>
+          </div>
 
-      <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="card p-4">
-          <h2 className="text-sm font-semibold mb-3">{t("Disks")}</h2>
-          {data.disks.length === 0 ? (
-            <p className="text-xs text-muted">{t("No disk topology reported.")}</p>
-          ) : (
-            <table className="grid">
-              <thead><tr>
-                <th>{t("Type")}</th>
-                <th className="num">{t("Volumes")}</th>
-                <th className="num">{t("Max")}</th>
-                <th className="num">{t("Free")}</th>
-                <th className="num">{t("Used")}</th>
-              </tr></thead>
-              <tbody>
-                {data.disks.map((disk, idx) => (
-                  <tr key={`${disk.disk_type || "default"}-${idx}`}>
-                    <td className="font-mono text-xs">{disk.disk_type || "default"}</td>
-                    <td className="num">{disk.volume_count.toLocaleString()}</td>
-                    <td className="num">{disk.max_volume_count.toLocaleString()}</td>
-                    <td className="num">{disk.free_volume_count.toLocaleString()}</td>
-                    <td className="num">{bytes(disk.used_bytes)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-        <div className="card p-4">
-          <h2 className="text-sm font-semibold mb-3">{t("Collections on this server")}</h2>
-          {collectionRows.length === 0 ? (
-            <p className="text-xs text-muted">{t("No volumes hosted here.")}</p>
-          ) : (
-            <table className="grid">
-              <thead><tr>
-                <th>{t("Collection")}</th>
-                <th className="num">{t("Replicas")}</th>
-                <th className="num">{t("Size")}</th>
-              </tr></thead>
-              <tbody>
-                {collectionRows.map((row) => (
-                  <tr key={row.collection}>
-                    <td className="font-mono text-xs">
-                      <Link
-                        href={`/clusters/${id}/collections/${encodeURIComponent(row.collection === t("(default)") ? "_default_" : row.collection)}`}
-                        className="hover:underline"
-                      >
-                        {row.collection}
-                      </Link>
-                    </td>
-                    <td className="num">{row.replicas.toLocaleString()}</td>
-                    <td className="num">{bytes(row.bytes)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </section>
+          <section className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+            <Kpi label={t("Volumes")} value={data.volume_count.toLocaleString()}/>
+            <Kpi label={t("Used bytes")} value={bytes(data.used_bytes)}/>
+            <Kpi label={t("Max volumes")} value={Number(data.max_volumes).toLocaleString()}/>
+            <Kpi label={t("Free slots")} value={Number(data.free_volumes).toLocaleString()}/>
+            <Kpi label={t("EC shards")} value={data.ec_shard_count.toLocaleString()} hint={`${data.read_only_count.toLocaleString()} ${t("read-only")}`}/>
+          </section>
 
-      <section className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="grid">
-            <thead><tr>
-              <th className="num">{t("Volume")}</th>
-              <th>{t("Collection")}</th>
-              <th>{t("Placement")}</th>
-              <th className="num">{t("Size")}</th>
-              <th className="num">{t("Files")}</th>
-              <th className="num">{t("Deleted")}</th>
-              <th>{t("Flags")}</th>
-            </tr></thead>
-            <tbody>
-              {data.volumes.map((v, idx) => <VolumeRow key={`${v.ID}-${idx}`} v={v} clusterId={id}/>)}
-            </tbody>
-          </table>
-        </div>
-      </section>
+          <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="card p-4">
+              <h2 className="text-sm font-semibold mb-3">{t("Disks")}</h2>
+              {data.disks.length === 0 ? (
+                <p className="text-xs text-muted">{t("No disk topology reported.")}</p>
+              ) : (
+                <table className="grid">
+                  <thead><tr>
+                    <th>{t("Type")}</th>
+                    <th className="num">{t("Volumes")}</th>
+                    <th className="num">{t("Max")}</th>
+                    <th className="num">{t("Free")}</th>
+                    <th className="num">{t("Used")}</th>
+                  </tr></thead>
+                  <tbody>
+                    {data.disks.map((disk, idx) => (
+                      <tr key={`${disk.disk_type || "default"}-${idx}`}>
+                        <td className="font-mono text-xs">{disk.disk_type || "default"}</td>
+                        <td className="num">{disk.volume_count.toLocaleString()}</td>
+                        <td className="num">{disk.max_volume_count.toLocaleString()}</td>
+                        <td className="num">{disk.free_volume_count.toLocaleString()}</td>
+                        <td className="num">{bytes(disk.used_bytes)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="card p-4">
+              <h2 className="text-sm font-semibold mb-3">{t("Collections on this server")}</h2>
+              {collectionRows.length === 0 ? (
+                <p className="text-xs text-muted">{t("No volumes hosted here.")}</p>
+              ) : (
+                <table className="grid">
+                  <thead><tr>
+                    <th>{t("Collection")}</th>
+                    <th className="num">{t("Replicas")}</th>
+                    <th className="num">{t("Size")}</th>
+                  </tr></thead>
+                  <tbody>
+                    {collectionRows.map((row) => (
+                      <tr key={row.collection}>
+                        <td className="font-mono text-xs">
+                          <Link
+                            href={`/clusters/${id}/collections/${encodeURIComponent(row.collection === t("(default)") ? "_default_" : row.collection)}`}
+                            className="hover:underline"
+                          >
+                            {row.collection}
+                          </Link>
+                        </td>
+                        <td className="num">{row.replicas.toLocaleString()}</td>
+                        <td className="num">{bytes(row.bytes)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </section>
+
+          <section className="card overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="grid">
+                <thead><tr>
+                  <th className="num">{t("Volume")}</th>
+                  <th>{t("Collection")}</th>
+                  <th>{t("Placement")}</th>
+                  <th className="num">{t("Size")}</th>
+                  <th className="num">{t("Files")}</th>
+                  <th className="num">{t("Deleted")}</th>
+                  <th>{t("Flags")}</th>
+                </tr></thead>
+                <tbody>
+                  {data.volumes.map((v, idx) => <VolumeRow key={`${v.ID}-${idx}`} v={v} clusterId={id}/>)}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      ) : (
+        <>
+          <CardSkeleton lines={4}/>
+          <TableSkeleton rows={3}/>
+          <TableSkeleton rows={3}/>
+        </>
+      )}
     </div>
   );
 }
