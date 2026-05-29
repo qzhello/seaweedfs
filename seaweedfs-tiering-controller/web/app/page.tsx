@@ -135,12 +135,6 @@ export default function Dashboard() {
           <button key={r} className={`btn ${range===r?"btn-primary":""}`} onClick={() => setRange(r)}>{r}</button>
         ))}
       </div>
-      <button
-        className="btn btn-primary inline-flex items-center gap-1"
-        onClick={() => setDeepCheckOpen(true)}>
-        <RefreshCw size={14}/>
-        {t("Check")}
-      </button>
     </>
   );
 
@@ -157,13 +151,27 @@ export default function Dashboard() {
           were merged here so the operator sees vitals without scrolling.
           KPIs are a fixed, curated set: scale → capacity → space →
           read-only → backlog → savings. Bento: capacity bar + volume/read-only rings + number cards. */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        <div className="relative">
-          <HealthOverview masters={durMasters} repl={durRepl} statusSlot={hasStatus ? statusPills : undefined}/>
-          <EnterButton
-            href={`/raft${scopeCluster ? `?cluster=${scopeCluster}` : ""}`}
-            label={t("Cluster durability")}
-          />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left column: durability hero (with Check + open buttons) and
+            today's attention filling the space below as a scrollable list. */}
+        <div className="flex flex-col gap-6">
+          <div className="relative">
+            <HealthOverview masters={durMasters} repl={durRepl} statusSlot={hasStatus ? statusPills : undefined}/>
+            <button
+              type="button"
+              onClick={() => setDeepCheckOpen(true)}
+              title={t("Check")}
+              className="absolute top-2 right-9 z-10 inline-flex items-center gap-1 rounded-md bg-accent px-2 py-1 text-xs font-medium text-white hover:brightness-110 transition"
+            >
+              <RefreshCw size={13}/>
+              {t("Check")}
+            </button>
+            <EnterButton
+              href={`/raft${scopeCluster ? `?cluster=${scopeCluster}` : ""}`}
+              label={t("Cluster durability")}
+            />
+          </div>
+          <TodaysAttention className="flex-1 min-h-0"/>
         </div>
 
         <div className="flex flex-col gap-3">
@@ -246,11 +254,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Today's attention — aggregated signal panel. Lives on its own
-          row right under the score because it answers the next operator
-          question ("what should I act on?") and doesn't fit cleanly
-          beside the durability card visually. */}
-      <TodaysAttention/>
 
       {/* Charts and lists are split into two rows so visual chart cards
           (donuts, sparklines, bars) and textual list cards (forecast,
