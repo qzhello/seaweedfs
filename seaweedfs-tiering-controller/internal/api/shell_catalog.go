@@ -163,8 +163,13 @@ var shellCatalog = []shellCommand{
 		Args: []shellArg{
 			{Flag: "-node", Label: "Node", Kind: "string", Required: true},
 		}},
-	{Name: "volumeServer.state", Category: "volume", Risk: "read", ReadOnly: true,
-		Summary: "Inspect the runtime state of a single volume server."},
+	{Name: "volumeServer.state", Category: "volume", Risk: "mutate",
+		Summary: "Inspect or toggle a volume server's maintenance mode. With no flag it reports state; -maintenanceOn/-maintenanceOff set the per-node maintenance bit (suppresses new writes without a full evacuate). -maintenanceOn and -maintenanceOff are mutually exclusive.",
+		Args: []shellArg{
+			{Flag: "-nodes", Label: "Nodes (comma-separated)", Kind: "string"},
+			{Flag: "-maintenanceOn", Label: "Enable maintenance", Kind: "bool"},
+			{Flag: "-maintenanceOff", Label: "Disable maintenance", Kind: "bool"},
+		}},
 
 	// ---------------- Tiering (volume.tier.*) ----------------
 	{Name: "volume.tier.upload", Category: "tier", Risk: "mutate", Streams: true,

@@ -5,18 +5,14 @@ import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import {
-  LayoutDashboard, Database, Server, ShieldCheck, ListChecks, CalendarDays,
-  SlidersHorizontal, Cloud, Tv, Wrench, Layers, Languages, Terminal, Box, Boxes,
-  PanelLeftClose, PanelLeftOpen, ChevronDown, Grid3x3, Search, Star, X,
-  FileCode2, FolderTree, Thermometer, DollarSign, Network, Recycle,
-  LayoutTemplate, Shuffle,
-  type LucideIcon,
+  Languages, Layers,
+  PanelLeftClose, PanelLeftOpen, ChevronDown, Search, Star, X,
 } from "lucide-react";
 import { useCaps } from "@/lib/caps-context";
 import { useRunningCounts } from "@/lib/use-running-counts";
-
-type NavItem = { href: string; label: string; icon: LucideIcon; cap?: string };
-type NavGroup = { label: string; items: NavItem[] };
+import { NAV_GROUPS, type NavGroup, type NavItem } from "@/lib/nav-config";
+import { useCluster } from "@/lib/cluster-context";
+import { useClusterFilers } from "@/lib/api";
 
 // Nav groups follow the operator's mental model. Each group answers
 // one question so the rail scans top-down without re-reading labels:
@@ -41,84 +37,9 @@ type NavGroup = { label: string; items: NavItem[] };
 //     "migration" concept reachable from either direction.
 //
 // Order within a group goes from most-frequently-used to least.
-const GROUPS: NavGroup[] = [
-  {
-    label: "Overview",
-    items: [
-      { href: "/",            label: "Dashboard",   icon: LayoutDashboard },
-      { href: "/activity",    label: "Activity",    icon: ListChecks },
-      // Reliability merges Health + Alerts + Safety — the probe→fire→pause chain.
-      { href: "/reliability", label: "Reliability", icon: ShieldCheck },
-      // Durability = read-only raft + replication health view.
-      { href: "/raft",        label: "Durability",  icon: Network,     cap: "volume.read" },
-      { href: "/wall",        label: "NOC Wall",    icon: Tv },
-    ],
-  },
-  // Storage holds only the resources an operator browses day to day —
-  // analysis views (temperature, cohort, cost) live under Insights, and
-  // maintenance jobs (drain, check-disk, path-migrate) under Tools.
-  {
-    label: "Storage",
-    items: [
-      { href: "/clusters",    label: "Clusters",     icon: Server,     cap: "cluster.read" },
-      { href: "/volumes",     label: "Volumes",      icon: Database,   cap: "volume.read" },
-      { href: "/ec",          label: "EC",           icon: Grid3x3,    cap: "volume.read" },
-      { href: "/collections", label: "Collections",  icon: Boxes,      cap: "volume.read" },
-      { href: "/files",       label: "File Browser", icon: FolderTree, cap: "file.read" },
-      // S3 sits with Storage — it's another way to browse the same
-      // data (gateway view of buckets / identities / circuit-breaker /
-      // clean-uploads, all as tabs inside the page).
-      { href: "/s3",          label: "S3",           icon: Box,        cap: "s3.read" },
-      { href: "/backends",    label: "Backends",     icon: Cloud },
-    ],
-  },
-  // Insights = read-only analysis. Separate from Storage so "browse a
-  // resource" and "study the data" stay visually distinct.
-  {
-    label: "Insights",
-    items: [
-      { href: "/temperature", label: "Temperature", icon: Thermometer, cap: "volume.read" },
-      { href: "/cohort",      label: "Cohort",      icon: Layers },
-      // Costs page now has Pricing as a tab; removed the standalone entry.
-      { href: "/costs",       label: "Costs",       icon: DollarSign,  cap: "cost.read" },
-    ],
-  },
-  // Tools = "do one thing, now". Ad-hoc / interactive. Volume
-  // balance/grow/etc. stay on the /volumes toolbar — operators reach
-  // them where they pick the cluster filter.
-  {
-    label: "Tools",
-    items: [
-      { href: "/ops",                  label: "Ops Console",         icon: Terminal,       cap: "ops.shell.read" },
-      { href: "/ops/templates",        label: "Ops Templates",       icon: LayoutTemplate, cap: "ops.templates.read" },
-      { href: "/scripts",              label: "Analyzer Scripts",    icon: FileCode2 },
-      { href: "/path-migrate",         label: "Path migrate",        icon: Shuffle,        cap: "file.read" },
-      // Cluster maintenance (check-disk / replication / drain server /
-      // drain history) collapsed into one tabbed page.
-      { href: "/clusters/maintenance", label: "Cluster maintenance", icon: Wrench,         cap: "volume.check-disk" },
-    ],
-  },
-  // Automation = "do things on a schedule / by rule". Distinct from
-  // Tools so an operator looking for a one-off action doesn't trip
-  // over policy editors and vice versa.
-  {
-    label: "Automation",
-    items: [
-      { href: "/policies",  label: "Policies",  icon: ShieldCheck },
-      { href: "/lifecycle", label: "Lifecycle", icon: Recycle },
-      { href: "/skills",    label: "Skills",    icon: Wrench },
-      { href: "/holidays",  label: "Holidays",  icon: CalendarDays },
-    ],
-  },
-  {
-    label: "System",
-    items: [
-      // Single Admin entry — settings, permissions, audit, AI config, AI
-      // learning are all tabs inside one /admin page.
-      { href: "/admin", label: "Admin", icon: SlidersHorizontal, cap: "settings.read" },
-    ],
-  },
-];
+// Source of truth lives in lib/nav-config.ts so AutoBreadcrumb can
+// resolve URL → group/label without importing the sidebar tree.
+const GROUPS: NavGroup[] = NAV_GROUPS;
 
 const NAV_COLLAPSED_KEY = "tier.nav.collapsed";
 const NAV_GROUP_COLLAPSED_KEY = "tier.nav.groups.collapsed";
@@ -147,6 +68,11 @@ export function Nav() {
   const router = useRouter();
   const { lang, setLang, t } = useT();
   const { has, loading: capsLoading } = useCaps();
+  // Real SeaweedFS version of the active cluster — reported by its filers.
+  // Falls back to no version label when no cluster is scoped or unknown.
+  const { clusterID } = useCluster();
+  const { data: filersData } = useClusterFilers(clusterID || undefined);
+  const clusterVersion = filersData?.filers?.find((f) => f.version)?.version;
 
   // Hide nav items whose required capability the user lacks. Items
   // without a `cap` field are always visible (back-compat for pages
@@ -397,7 +323,7 @@ export function Nav() {
                 Tiering Console
               </span>
               <span className="block text-[10px] text-muted/80 tracking-wide mt-0.5">
-                SeaweedFS · v0.1
+                {clusterVersion ? `SeaweedFS · ${clusterVersion}` : "SeaweedFS"}
               </span>
             </span>
           </Link>

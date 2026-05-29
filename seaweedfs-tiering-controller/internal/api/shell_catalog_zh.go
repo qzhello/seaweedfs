@@ -165,7 +165,14 @@ var shellCatalogZh = map[string]cmdL10n{
 			"-node": {Label: "节点"},
 		},
 	},
-	"volumeServer.state": {Summary: "查看单台卷服务器的运行时状态。"},
+	"volumeServer.state": {
+		Summary: "查看或切换卷服务器的维护模式。不带参数时仅查看;-maintenanceOn/-maintenanceOff 设置维护位(抑制新写入,无需整机迁移)。两者互斥。",
+		Args: map[string]argL10n{
+			"-nodes":          {Label: "节点(逗号分隔)"},
+			"-maintenanceOn":  {Label: "开启维护模式"},
+			"-maintenanceOff": {Label: "关闭维护模式"},
+		},
+	},
 
 	// ---------------- Tier ----------------
 	"volume.tier.upload": {
