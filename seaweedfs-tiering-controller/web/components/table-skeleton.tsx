@@ -11,7 +11,7 @@ interface TableSkeletonProps {
 export function TableSkeleton({ rows = 5, cols, headers }: TableSkeletonProps) {
   const n = headers?.length ?? cols ?? 5;
   return (
-    <table className="grid">
+    <table className="grid" aria-busy="true" aria-live="polite">
       <thead>
         <tr>
           {Array.from({ length: n }).map((_, i) => (
