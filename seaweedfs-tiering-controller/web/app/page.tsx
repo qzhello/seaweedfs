@@ -2,11 +2,9 @@
 import { useSummary, useTasks, useTrend, useTrendByDomain, useClusters, useHolidays, useHealthGate, useSafetyStatus, useClusterPressure, useVolumes, useClusterDisk, useCollectionTemperatures, useCurrentCosts, useClusterMasters, useReplicationHealth, useCapacityForecast } from "@/lib/api";
 import { HealthOverview } from "@/app/raft/_health-overview";
 import { useT } from "@/lib/i18n";
-import { chartColors as C, tooltipStyle, legendStyle } from "@/lib/chart-theme";
 import { bytes } from "@/lib/utils";
 import { Activity, Database, Flame, Snowflake, Zap, RefreshCw, ShieldAlert, ShieldCheck, Lock, HardDrive, ThermometerSnowflake, DollarSign, ArrowUpRight, ListChecks } from "lucide-react";
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
 import { TrendChart } from "@/components/trend-chart";
 import { SortableRow, type SortableItem } from "@/components/sortable-row";
@@ -16,8 +14,6 @@ import { CapacityIncidentsBanner } from "@/components/capacity-incidents";
 import { CapacityForecastPanel } from "@/components/capacity-forecast";
 import { PageHeader } from "@/components/page-header";
 import { useCluster } from "@/lib/cluster-context";
-
-const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
 export default function Dashboard() {
   const { t } = useT();
@@ -269,36 +265,41 @@ export default function Dashboard() {
           const visualItems: SortableItem[] = [
             {
               id: "tier_distribution",
-              node: (
-                <div className="card p-3">
-                  <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted mb-1">
-                    {t("Tier Distribution")}
-                  </h2>
-                  <ReactECharts style={{ height: 170 }} option={{
-                    backgroundColor: "transparent",
-                    tooltip: { trigger: "item", formatter: (p: any) => `${p.name}<br/>${bytes(p.value)} (${p.percent}%)` },
-                    legend: {
-                      orient: "vertical", left: 4, top: "center",
-                      textStyle: { color: C.textMuted, fontSize: 9 },
-                      icon: "roundRect", itemWidth: 6, itemHeight: 6, itemGap: 4,
-                    },
-                    series: [{
-                      type: "pie", radius: ["48%", "72%"], center: ["66%", "50%"],
-                      padAngle: 2, itemStyle: { borderRadius: 4 },
-                      label: { color: C.text, fontSize: 9, formatter: (p: any) => p.percent >= 8 ? `${p.percent}%` : "" },
-                      labelLine: { show: false },
-                      data: tiers.map(t => ({ name: t.name, value: t.value, itemStyle: { color: t.color } })),
-                    }],
-                  }}/>
-                </div>
-              ),
+              node: (() => {
+                const tierTotal = tiers.reduce((a, x) => a + (x.value || 0), 0);
+                return (
+                  <div className="card p-3">
+                    <header className="flex items-center justify-between mb-3">
+                      <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted">{t("Tier Distribution")}</h2>
+                      <span className="text-[10px] text-muted tabular-nums">{bytes(tierTotal)}</span>
+                    </header>
+                    <div className="flex h-3.5 rounded-full overflow-hidden bg-border">
+                      {tiers.map((x) => {
+                        const w = tierTotal > 0 ? (x.value / tierTotal) * 100 : 0;
+                        return w > 0 ? (
+                          <span key={x.name} style={{ width: `${w}%`, background: x.color }} title={`${x.name} ${bytes(x.value)}`}/>
+                        ) : null;
+                      })}
+                    </div>
+                    <div className="mt-3 flex flex-col gap-1.5">
+                      {tiers.map((x) => {
+                        const pct = tierTotal > 0 ? (x.value / tierTotal) * 100 : 0;
+                        return (
+                          <div key={x.name} className="flex items-center gap-2 text-xs">
+                            <span className="w-2.5 h-2.5 rounded-[3px] shrink-0" style={{ background: x.color }}/>
+                            <span className="flex-1 min-w-0 truncate text-text/80">{x.name}</span>
+                            <span className="text-muted tabular-nums">{bytes(x.value)}</span>
+                            <span className="w-11 text-right font-semibold tabular-nums">{pct.toFixed(0)}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })(),
             },
             {
               id: "access_trend",
-              // Hide when the trend chart has nothing meaningful to plot.
-              // A flat-zero line next to real data reads as broken telemetry,
-              // not "quiet system".
-              visible: (trend?.points?.length ?? 0) > 0,
               node: (
                 <div className="card p-3 flex flex-col">
                   <header className="flex items-center justify-between mb-1">
@@ -307,26 +308,53 @@ export default function Dashboard() {
                     </h2>
                     <span className="text-[10px] text-muted">{range}</span>
                   </header>
-                  <TrendChart points={trend?.points || []} height={170} title=""/>
+                  {(trend?.points?.length ?? 0) > 0 ? (
+                    <TrendChart points={trend?.points || []} height={170} title=""/>
+                  ) : (
+                    <div className="h-[170px] flex items-center justify-center text-xs text-muted border border-dashed border-border rounded-md">
+                      {t("No access data yet")}
+                    </div>
+                  )}
                 </div>
               ),
             },
             {
               id: "cluster_pressure",
-              visible: (pressure?.items?.length ?? 0) > 0,
-              node: pressure ? (
+              node: (
                 <div className="card p-3 flex flex-col">
-                  <header className="flex items-center justify-between mb-1">
-                    <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted">
-                      {t("Cluster pressure")}
-                    </h2>
-                    <span className="text-[10px] text-muted">
-                      {t("threshold")} {pressure.threshold.toFixed(2)}
-                    </span>
+                  <header className="flex items-center justify-between mb-3">
+                    <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted">{t("Cluster pressure")}</h2>
+                    {pressure && <span className="text-[10px] text-muted">{t("threshold")} {pressure.threshold.toFixed(2)}</span>}
                   </header>
-                  <ReactECharts style={{ height: 170 }} option={buildPressureBar(pressure, (clusters?.items as Array<{ id: string; name: string }>) ?? [])}/>
+                  {pressure && pressure.items.length > 0 ? (
+                    <div className="flex flex-col gap-2.5">
+                      {pressure.items.map((it: PressureItem) => {
+                        const name = (clusters?.items as Array<{ id: string; name: string }> | undefined)
+                          ?.find((c) => c.id === it.cluster_id)?.name ?? it.cluster_id.slice(0, 8);
+                        const thr = pressure.threshold;
+                        const w = Math.min(100, Math.max(0, it.score * 100));
+                        const color = it.is_busy || it.score >= thr ? "#ef4444" : it.score >= thr * 0.75 ? "#f59e0b" : "#22c55e";
+                        return (
+                          <div key={it.cluster_id} className="flex items-center gap-2.5">
+                            <span className="text-xs text-text/80 w-20 shrink-0 truncate" title={name}>{name}</span>
+                            <div className="relative flex-1 h-2 rounded-full bg-border">
+                              <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${w}%`, background: color }}/>
+                              <span className="absolute inset-y-0 w-0.5 bg-warning" style={{ left: `${Math.min(100, thr * 100)}%` }}/>
+                            </div>
+                            <span className={`text-[11px] tabular-nums w-16 text-right shrink-0 ${it.is_busy ? "text-danger" : "text-muted"}`}>
+                              {it.score.toFixed(2)} {it.is_busy ? t("busy") : t("idle")}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="h-[170px] flex items-center justify-center text-xs text-muted border border-dashed border-border rounded-md">
+                      {t("No pressure data")}
+                    </div>
+                  )}
                 </div>
-              ) : null,
+              ),
             },
           ];
           return visualItems;
@@ -708,68 +736,6 @@ function buildNodeStats(nodesRaw: any[], mode: "node" | "rack" = "node") {
   for (const e of entries) { usedSlots += e.used; maxSlots += e.max; }
   return { entries, totalGroups: entries.length, usedSlots, maxSlots };
 }
-
-
-// Horizontal bar of per-cluster pressure scores vs. the configured
-// threshold. Tiny chart sized to fit the 4-col dashboard row.
-function buildPressureBar(p: PressureResp, clustersIdx: Array<{ id: string; name: string }>) {
-  const nameOf = (cid: string) => clustersIdx.find(c => c.id === cid)?.name || cid;
-  const items = [...p.items].sort((a, b) => b.score - a.score).slice(0, 8);
-  const data = items.map(it => ({
-    value: it.score,
-    itemStyle: {
-      color: it.is_busy ? "#ef4444" : it.score >= p.threshold * 0.7 ? "#f59e0b" : "#3b9eff",
-      borderRadius: [3, 3, 3, 3],
-    },
-  }));
-  return {
-    backgroundColor: "transparent",
-    grid: { left: 88, right: 36, top: 4, bottom: 4 },
-    tooltip: {
-      trigger: "axis", axisPointer: { type: "shadow" },
-      backgroundColor: C.tooltipBg, borderColor: C.tooltipBorder,
-      textStyle: { color: C.text, fontSize: 11 },
-      formatter: (params: any) => {
-        const it = items[params[0].dataIndex];
-        return `<b>${nameOf(it.cluster_id)}</b><br/>` +
-          `score ${it.score.toFixed(2)} / threshold ${p.threshold.toFixed(2)}` +
-          (it.is_busy ? `<br/><span style="color:#f5b06b">busy</span>` : "");
-      },
-    },
-    xAxis: {
-      type: "value", min: 0, max: Math.max(p.threshold, ...items.map(i => i.score), 1),
-      axisLabel: { color: C.textMuted, fontSize: 9 },
-      splitLine: { lineStyle: { color: C.grid } },
-    },
-    yAxis: {
-      type: "category", inverse: true,
-      data: items.map(it => nameOf(it.cluster_id)),
-      axisLabel: {
-        color: C.textMuted, fontSize: 10,
-        formatter: (v: string) => v.length > 14 ? "…" + v.slice(-13) : v,
-      },
-      axisLine: { lineStyle: { color: C.axisLine } },
-      axisTick: { show: false },
-    },
-    series: [
-      {
-        type: "bar", barMaxWidth: 14, data,
-        label: {
-          show: true, position: "right", color: C.textMuted, fontSize: 10,
-          formatter: (p: any) => p.value.toFixed(2),
-        },
-        markLine: {
-          symbol: "none",
-          lineStyle: { color: "rgba(245,176,107,0.6)", type: "dashed", width: 1 },
-          data: [{ xAxis: p.threshold }],
-          label: { show: false },
-        },
-      },
-    ],
-  };
-}
-
-
 
 
 // NodeDistBars replaces the dashboard's per-node pie chart + usage bar

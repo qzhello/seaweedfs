@@ -727,6 +727,9 @@ const ZH: Dict = {
   // ---- Dashboard ---------------------------------------------------
   "Check":                    "检查",
   "Capacity":                 "容量",
+  "idle":                     "空闲",
+  "No access data yet":       "暂无访问数据",
+  "No pressure data":         "暂无压力数据",
   "Run scoring":              "运行评分",
   "Scan selected cluster":    "深度检查",
   "Storage Tiering Overview": "存储分层总览",
