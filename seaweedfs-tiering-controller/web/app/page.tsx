@@ -4,7 +4,7 @@ import { HealthOverview } from "@/app/raft/_health-overview";
 import { useT } from "@/lib/i18n";
 import { chartColors as C, tooltipStyle, legendStyle } from "@/lib/chart-theme";
 import { bytes } from "@/lib/utils";
-import { Activity, Database, Flame, Snowflake, Zap, RefreshCw, ShieldAlert, ShieldCheck, Server, Lock, HardDrive, Play, AlertOctagon, ThermometerSnowflake, DollarSign, ArrowUpRight, ListChecks } from "lucide-react";
+import { Activity, Database, Flame, Snowflake, Zap, RefreshCw, ShieldAlert, ShieldCheck, Lock, HardDrive, ThermometerSnowflake, DollarSign, ArrowUpRight, ListChecks } from "lucide-react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useMemo, useState } from "react";
@@ -23,11 +23,6 @@ export default function Dashboard() {
   const { t } = useT();
   const { data: s, mutate } = useSummary();
   const { data: pending } = useTasks("pending");
-  // Operator pulse: running + failed task counts so the dashboard
-  // doubles as an "is anything wrong right now?" view. SWR's
-  // refreshInterval keeps these fresh without manual reload.
-  const { data: running } = useTasks("running");
-  const { data: failedAll } = useTasks("failed");
   const { data: clusters } = useClusters();
   const { data: holidays } = useHolidays();
   const { data: gate }     = useHealthGate();
@@ -82,13 +77,6 @@ export default function Dashboard() {
       .slice(0, 5),
     [tempData],
   );
-  // "Failed in the last 24h" — the global failed bucket can grow
-  // without bound, but only the very recent failures need operator
-  // attention. Older ones live in /tasks for forensic browsing.
-  const failedRecent = useMemo(() => {
-    const cutoff = Date.now() - 24 * 3600 * 1000;
-    return (failedAll?.items ?? []).filter((t: any) => new Date(t.created_at).getTime() >= cutoff);
-  }, [failedAll]);
   const [distMode, setDistMode] = useState<"node" | "rack">("node");
   const [distMetric, setDistMetric] = useState<"count" | "size" | "usage">("count");
   const nodes = useMemo(
@@ -535,142 +523,6 @@ function EnterButton({ href, label }: { href: string; label?: string }) {
       <ArrowUpRight size={14}/>
     </Link>
   );
-}
-
-// Stat card variant with a horizontal "fuel gauge" below the value. Used
-// for Total Size so the operator can see capacity headroom at a glance —
-// SeaweedFS reports per-disk slot counts (not raw byte capacity) via the
-// master topology, so we render slot utilization here as the fullness
-// proxy: it's the same number the cluster actually allocates against.
-function StatGauge({
-  icon, label, value, used, max, subLabel, href, formatUnit,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: any;
-  used: number;
-  max: number;
-  subLabel: string;
-  href?: string;
-  // Optional byte formatter — when set we render `bytes(used) / bytes(max)`
-  // instead of the raw number pair (used for the real-disk variant).
-  formatUnit?: (n: number) => string;
-}) {
-  const pct = max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0;
-  // Red ≥85%, amber ≥70%, accent blue otherwise — matches the per-node
-  // usage bar so the visual language stays consistent.
-  const tone =
-    pct >= 85 ? "bg-danger"
-    : pct >= 70 ? "bg-warning"
-    : "bg-accent";
-  const toneText =
-    pct >= 85 ? "text-danger"
-    : pct >= 70 ? "text-warning"
-    : "text-muted";
-  const body = (
-    <>
-      <div className="text-xs text-muted flex items-center gap-2 pr-6">{icon}{label}</div>
-      <div className="text-2xl font-semibold mt-1">{value}</div>
-      {max > 0 ? (
-        <div className="mt-auto pt-2 space-y-1">
-          <div className="h-1.5 rounded-full bg-panel2 overflow-hidden">
-            <div className={`h-full ${tone} transition-[width] duration-300`} style={{ width: `${pct}%` }} />
-          </div>
-          <div className={`text-[11px] flex items-center justify-between ${toneText}`}>
-            <span>
-              {formatUnit ? `${formatUnit(used)} / ${formatUnit(max)}` : `${used}/${max} ${subLabel}`}
-            </span>
-            <span className="font-mono">{pct}%</span>
-          </div>
-        </div>
-      ) : (
-        <div className="text-[11px] text-muted mt-auto pt-2">—</div>
-      )}
-    </>
-  );
-  const cls = "card p-4 h-full flex flex-col min-h-[110px] relative";
-  return (
-    <div className={cls}>
-      {body}
-      {href && <EnterButton href={href} label={label}/>}
-    </div>
-  );
-}
-
-// VolumesStat — KPI card that pairs the headline volume count with a
-// compact 3-slice donut (writable / read-only / free slots) drawn in
-// pure SVG. Slot-based breakdown so it's directly comparable to the
-// per-node usage bars at the bottom of the dashboard.
-function VolumesStat({
-  href, label, totalVolumes, readOnly, usedSlots, maxSlots, slotsLabel,
-}: {
-  href: string;
-  label: string;
-  totalVolumes: number;
-  readOnly: number;
-  usedSlots: number;
-  maxSlots: number;
-  slotsLabel: string;
-}) {
-  const writable = Math.max(0, usedSlots - readOnly);
-  const free = Math.max(0, maxSlots - usedSlots);
-  const total = writable + readOnly + free;
-  // Conic-gradient-on-circle would be one less SVG, but ECharts/SVG
-  // play nicer with our token-driven theme tints and the donut hole is
-  // straightforward this way (one circle as track, three stroked arcs
-  // colored from --c-accent / --c-warning / --c-border tokens).
-  const slices = [
-    { v: writable, color: "oklch(var(--c-accent))",  label: "writable" },
-    { v: readOnly, color: "oklch(var(--c-warning))", label: "read-only" },
-    { v: free,     color: "oklch(var(--c-border))",  label: "free" },
-  ];
-  const r = 18;
-  const circ = 2 * Math.PI * r;
-  let offset = 0;
-  const arcs = slices.map((s, i) => {
-    const len = total > 0 ? (s.v / total) * circ : 0;
-    const arc = (
-      <circle
-        key={i}
-        cx="22" cy="22" r={r}
-        fill="none"
-        stroke={s.color}
-        strokeWidth="7"
-        strokeDasharray={`${len} ${circ - len}`}
-        strokeDashoffset={-offset}
-      />
-    );
-    offset += len;
-    return arc;
-  });
-  const utilPct = maxSlots > 0 ? Math.round((usedSlots / maxSlots) * 100) : 0;
-
-  return (
-    <div className="card p-4 h-full flex flex-col min-h-[110px] relative">
-      <div className="text-xs text-muted flex items-center gap-2 pr-6">
-        <Database size={18}/>{label}
-      </div>
-      <div className="flex items-center gap-3 mt-1">
-        <div className="text-2xl font-semibold tabular-nums">{totalVolumes}</div>
-        <svg viewBox="0 0 44 44" className="w-11 h-11 -rotate-90 shrink-0" aria-hidden>
-          {/* Track sits underneath in case of rounding gaps */}
-          <circle cx="22" cy="22" r={r} fill="none" stroke="oklch(var(--c-border) / 0.4)" strokeWidth="7"/>
-          {arcs}
-        </svg>
-      </div>
-      <div className="text-[10px] text-muted mt-auto pt-2 flex items-center gap-2 flex-wrap">
-        <LegendDot color="oklch(var(--c-accent))" /> {writable}
-        {readOnly > 0 && (<><LegendDot color="oklch(var(--c-warning))" /> {readOnly} R/O</>)}
-        <LegendDot color="oklch(var(--c-border))" /> {free} {slotsLabel}
-        <span className="ml-auto font-mono tabular-nums">{utilPct}%</span>
-      </div>
-      <EnterButton href={href} label={label}/>
-    </div>
-  );
-}
-
-function LegendDot({ color }: { color: string }) {
-  return <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color }}/>;
 }
 
 // Subtle section header used to visually separate the dashboard's chart
