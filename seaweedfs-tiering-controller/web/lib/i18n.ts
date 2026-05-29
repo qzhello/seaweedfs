@@ -1574,6 +1574,15 @@ const ZH: Dict = {
   "quorum unhealthy":                       "仲裁不健康",
   "probe failed":                           "探测失败",
 
+  // Raft leadership transfer
+  "Raft leadership":                        "Raft 领导权",
+  "Transfer leader":                        "转移 leader",
+  "Auto (any eligible follower)":           "自动(任一可用 follower)",
+  "Requires cluster.raft.transfer capability": "需要 cluster.raft.transfer 权限",
+  "Gracefully move master raft leadership to another node before maintaining the current leader. Allowed during change/maintenance windows; blocked only by emergency stop.": "在维护当前 leader 前,优雅地把 master raft 领导权转移到另一台节点。变更/维护窗口期间允许;仅紧急停止会拦截。",
+  "Transfer raft leadership to another master?": "将 raft 领导权转移到另一台 master?",
+  "This triggers a brief re-election. The cluster stays available for reads during the handoff.": "这会触发一次短暂的重新选举。切换期间集群仍可读。",
+
   // Collection detail page
   "You do not have permission to view collection details.":        "您无权查看集合详情。",
   "Loading collection…":                    "正在加载集合…",
