@@ -7,6 +7,7 @@ package api
 // endpoint for raft-quorum state.
 
 import (
+	"context"
 	"net/http"
 	"sort"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/seaweed"
+	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/store"
 )
 
 type replicaIssue struct {
@@ -62,6 +64,148 @@ func decodeReplicaPlacement(code uint32) int {
 	return 1 + int(dc) + int(rack) + int(node)
 }
 
+// computeReplicationHealth performs the topology walk and counting for one
+// cluster. It is a pure function (no HTTP concerns) so the durability sampler
+// can call it without going through the gin handler.
+func computeReplicationHealth(ctx context.Context, d Deps, cl *store.Cluster) (replicationHealthResp, error) {
+	vols, err := d.Sw.ListVolumesAt(ctx, cl.MasterAddr)
+	if err != nil {
+		return replicationHealthResp{}, err
+	}
+
+	// Group topology rows by volume_id. For normal volumes the
+	// number of rows is the observed replica count; for EC volumes
+	// each row is one shard-bag on a server.
+	type group struct {
+		IsEC       bool
+		Collection string
+		Replica    uint32
+		Rows       []seaweed.VolumeInfo
+		Servers    map[string]struct{}
+		ShardCount int
+	}
+	byID := map[uint32]*group{}
+	for _, v := range vols {
+		g, ok := byID[v.ID]
+		if !ok {
+			g = &group{
+				IsEC:       v.IsEC,
+				Collection: v.Collection,
+				Replica:    v.ReplicaPlace,
+				Servers:    map[string]struct{}{},
+			}
+			byID[v.ID] = g
+		}
+		g.Rows = append(g.Rows, v)
+		g.Servers[v.Server] = struct{}{}
+		if v.IsEC {
+			g.ShardCount += len(v.Shards)
+		}
+	}
+
+	out := replicationHealthResp{ClusterID: cl.ID.String()}
+	// Initialized (not nil) so the JSON payload is always [] rather
+	// than null when the cluster is fully healthy — the frontend
+	// reads .length on both unconditionally.
+	issues := []replicaIssue{}
+	ecShards := []ecShardHealth{}
+
+	for vid, g := range byID {
+		out.TotalVolumes++
+		if g.IsEC {
+			out.ECVolumes++
+			// SeaweedFS EC default is 10+4 = 14 shards. We don't
+			// know the exact split from topology alone, but <10
+			// shards observed means data is unrecoverable; we
+			// flag <14 as a warning since parity coverage is gone.
+			if g.ShardCount < 10 {
+				out.ECPotentiallyShortShards++
+				ecShards = append(ecShards, ecShardHealth{
+					VolumeID:    vid,
+					Collection:  g.Collection,
+					ShardCount:  g.ShardCount,
+					Servers:     keysSorted(g.Servers),
+					MissingHint: true,
+				})
+			} else if g.ShardCount < 14 {
+				ecShards = append(ecShards, ecShardHealth{
+					VolumeID:    vid,
+					Collection:  g.Collection,
+					ShardCount:  g.ShardCount,
+					Servers:     keysSorted(g.Servers),
+					MissingHint: false,
+				})
+			}
+			continue
+		}
+		out.NormalVolumes++
+		expected := decodeReplicaPlacement(g.Replica)
+		observed := len(g.Servers)
+		// Any volume on a single server is a data-loss risk if that
+		// disk dies — counted regardless of whether one copy is the
+		// configured intent. SoleCopies (below) is the misconfigured
+		// subset; SingleCopyVolumes is the full exposure surface.
+		if observed == 1 {
+			out.SingleCopyVolumes++
+		}
+		if observed == expected {
+			out.HealthyVolumes++
+			continue
+		}
+		issue := replicaIssue{
+			VolumeID:         vid,
+			Collection:       g.Collection,
+			ReplicaPlacement: replicaPlacementString(g.Replica),
+			Expected:         expected,
+			Observed:         observed,
+			Servers:          keysSorted(g.Servers),
+			IsEC:             false,
+		}
+		switch {
+		case observed == 1 && expected >= 2:
+			out.SoleCopies++
+			issue.Severity = "critical"
+			issue.Reason = "sole copy: replication policy expects more"
+		case observed < expected:
+			out.UnderReplicated++
+			issue.Severity = "warning"
+			issue.Reason = "fewer replicas than configured"
+		case observed > expected:
+			out.OverReplicated++
+			issue.Severity = "info"
+			issue.Reason = "extra replicas (likely transient post-migration)"
+		}
+		issues = append(issues, issue)
+	}
+
+	// Stable, severity-first ordering: critical → warning → info,
+	// then biggest gaps first.
+	severityRank := map[string]int{"critical": 0, "warning": 1, "info": 2}
+	sort.Slice(issues, func(i, j int) bool {
+		if severityRank[issues[i].Severity] != severityRank[issues[j].Severity] {
+			return severityRank[issues[i].Severity] < severityRank[issues[j].Severity]
+		}
+		gi := abs(issues[i].Expected - issues[i].Observed)
+		gj := abs(issues[j].Expected - issues[j].Observed)
+		if gi != gj {
+			return gi > gj
+		}
+		return issues[i].VolumeID < issues[j].VolumeID
+	})
+	if len(issues) > 100 {
+		issues = issues[:100]
+	}
+	sort.Slice(ecShards, func(i, j int) bool {
+		return ecShards[i].ShardCount < ecShards[j].ShardCount
+	})
+	if len(ecShards) > 50 {
+		ecShards = ecShards[:50]
+	}
+	out.Issues = issues
+	out.ECShards = ecShards
+	return out, nil
+}
+
 func replicationHealth(d Deps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := uuid.Parse(c.Param("id"))
@@ -74,142 +218,11 @@ func replicationHealth(d Deps) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
-		vols, err := d.Sw.ListVolumesAt(c.Request.Context(), cl.MasterAddr)
+		out, err := computeReplicationHealth(c.Request.Context(), d, cl)
 		if err != nil {
 			c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 			return
 		}
-
-		// Group topology rows by volume_id. For normal volumes the
-		// number of rows is the observed replica count; for EC volumes
-		// each row is one shard-bag on a server.
-		type group struct {
-			IsEC       bool
-			Collection string
-			Replica    uint32
-			Rows       []seaweed.VolumeInfo
-			Servers    map[string]struct{}
-			ShardCount int
-		}
-		byID := map[uint32]*group{}
-		for _, v := range vols {
-			g, ok := byID[v.ID]
-			if !ok {
-				g = &group{
-					IsEC:       v.IsEC,
-					Collection: v.Collection,
-					Replica:    v.ReplicaPlace,
-					Servers:    map[string]struct{}{},
-				}
-				byID[v.ID] = g
-			}
-			g.Rows = append(g.Rows, v)
-			g.Servers[v.Server] = struct{}{}
-			if v.IsEC {
-				g.ShardCount += len(v.Shards)
-			}
-		}
-
-		out := replicationHealthResp{ClusterID: id.String()}
-		// Initialized (not nil) so the JSON payload is always [] rather
-		// than null when the cluster is fully healthy — the frontend
-		// reads .length on both unconditionally.
-		issues := []replicaIssue{}
-		ecShards := []ecShardHealth{}
-
-		for vid, g := range byID {
-			out.TotalVolumes++
-			if g.IsEC {
-				out.ECVolumes++
-				// SeaweedFS EC default is 10+4 = 14 shards. We don't
-				// know the exact split from topology alone, but <10
-				// shards observed means data is unrecoverable; we
-				// flag <14 as a warning since parity coverage is gone.
-				if g.ShardCount < 10 {
-					out.ECPotentiallyShortShards++
-					ecShards = append(ecShards, ecShardHealth{
-						VolumeID:    vid,
-						Collection:  g.Collection,
-						ShardCount:  g.ShardCount,
-						Servers:     keysSorted(g.Servers),
-						MissingHint: true,
-					})
-				} else if g.ShardCount < 14 {
-					ecShards = append(ecShards, ecShardHealth{
-						VolumeID:    vid,
-						Collection:  g.Collection,
-						ShardCount:  g.ShardCount,
-						Servers:     keysSorted(g.Servers),
-						MissingHint: false,
-					})
-				}
-				continue
-			}
-			out.NormalVolumes++
-			expected := decodeReplicaPlacement(g.Replica)
-			observed := len(g.Servers)
-			// Any volume on a single server is a data-loss risk if that
-			// disk dies — counted regardless of whether one copy is the
-			// configured intent. SoleCopies (below) is the misconfigured
-			// subset; SingleCopyVolumes is the full exposure surface.
-			if observed == 1 {
-				out.SingleCopyVolumes++
-			}
-			if observed == expected {
-				out.HealthyVolumes++
-				continue
-			}
-			issue := replicaIssue{
-				VolumeID:         vid,
-				Collection:       g.Collection,
-				ReplicaPlacement: replicaPlacementString(g.Replica),
-				Expected:         expected,
-				Observed:         observed,
-				Servers:          keysSorted(g.Servers),
-				IsEC:             false,
-			}
-			switch {
-			case observed == 1 && expected >= 2:
-				out.SoleCopies++
-				issue.Severity = "critical"
-				issue.Reason = "sole copy: replication policy expects more"
-			case observed < expected:
-				out.UnderReplicated++
-				issue.Severity = "warning"
-				issue.Reason = "fewer replicas than configured"
-			case observed > expected:
-				out.OverReplicated++
-				issue.Severity = "info"
-				issue.Reason = "extra replicas (likely transient post-migration)"
-			}
-			issues = append(issues, issue)
-		}
-
-		// Stable, severity-first ordering: critical → warning → info,
-		// then biggest gaps first.
-		severityRank := map[string]int{"critical": 0, "warning": 1, "info": 2}
-		sort.Slice(issues, func(i, j int) bool {
-			if severityRank[issues[i].Severity] != severityRank[issues[j].Severity] {
-				return severityRank[issues[i].Severity] < severityRank[issues[j].Severity]
-			}
-			gi := abs(issues[i].Expected - issues[i].Observed)
-			gj := abs(issues[j].Expected - issues[j].Observed)
-			if gi != gj {
-				return gi > gj
-			}
-			return issues[i].VolumeID < issues[j].VolumeID
-		})
-		if len(issues) > 100 {
-			issues = issues[:100]
-		}
-		sort.Slice(ecShards, func(i, j int) bool {
-			return ecShards[i].ShardCount < ecShards[j].ShardCount
-		})
-		if len(ecShards) > 50 {
-			ecShards = ecShards[:50]
-		}
-		out.Issues = issues
-		out.ECShards = ecShards
 		c.JSON(http.StatusOK, out)
 	}
 }

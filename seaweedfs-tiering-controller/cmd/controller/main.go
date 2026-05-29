@@ -16,14 +16,15 @@ import (
 
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/ai"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/aireview"
-	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/autonomy"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/alerter"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/analytics"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/api"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/auth"
+	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/autonomy"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/collector"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/config"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/crypto"
+	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/durability"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/executor"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/health"
 	"github.com/seaweedfs/seaweedfs-tiering-controller/internal/metrics"
@@ -38,6 +39,13 @@ import (
 )
 
 func main() {
+	// Admin CLI subcommands (e.g. `controller admin reset-password ...`)
+	// short-circuit before the server boot path — they only need DB
+	// access, no HTTP / collectors / scheduler.
+	if runAdminCommand() {
+		return
+	}
+
 	cfgPath := flag.String("config", "", "path to config yaml")
 	flag.Parse()
 
@@ -205,6 +213,16 @@ func main() {
 		AIReview: aiReviewSvc, Pressure: pressSnap, Crypto: cryptoEnc, DevAuth: devAuth, Log: logger,
 	}
 	router := api.Router(deps)
+
+	// Durability score sampler: computes a 0..100 data-plane durability score
+	// for every enabled cluster and persists it to cluster_score_signals.
+	// The ScoreFunc is a closure that calls api.DurabilityScore so that
+	// internal/durability does NOT need to import internal/api.
+	durSampler := durability.NewSampler(pg, snapshot, logger,
+		func(ctx context.Context, cl *store.Cluster) (float64, map[string]float64, error) {
+			return api.DurabilityScore(ctx, deps, cl)
+		})
+	go durSampler.Run(rootCtx)
 
 	// Lifecycle scan: every 6h, walk every governed bucket and refresh
 	// its "expired data" counters so the lifecycle pages stay current

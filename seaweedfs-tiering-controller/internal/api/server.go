@@ -83,7 +83,7 @@ func Router(d Deps) *gin.Engine {
 	}
 
 	r := gin.New()
-	r.Use(gin.Recovery(), zapMiddleware(d.Log), SecurityHeaders(), langMiddleware())
+	r.Use(gin.Recovery(), zapMiddleware(d.Log), SecurityHeaders(), langMiddleware(d.Snapshot), commandAuditMiddleware())
 
 	// CORS origins read from runtime snapshot if available; default to dev origins.
 	origins := []string{"http://localhost:3000", "http://127.0.0.1:3000"}
@@ -96,7 +96,7 @@ func Router(d Deps) *gin.Engine {
 		AllowOrigins:     origins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Authorization", "Content-Type", "X-Token", "X-User", "X-Tier-Lang"},
-		ExposeHeaders:    []string{"X-Trace-Id", "X-Slow-Query"},
+		ExposeHeaders:    []string{"X-Trace-Id", "X-Slow-Query", "X-Executed-Command"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
@@ -144,6 +144,17 @@ func Router(d Deps) *gin.Engine {
 		v1.POST("/auth/password", authChangePassword(d))
 		v1.GET("/permissions", auth.RequireCap(d.Caps, "permissions.write"), listPermissions(d))
 		v1.PUT("/permissions/:role", auth.RequireCap(d.Caps, "permissions.write"), setRolePermissions(d))
+
+		// User management — read is broad (operator/viewer/auditor can
+		// see who's on the platform); writes are admin-only via the
+		// wildcard cap. Token reveal endpoints return plaintext exactly
+		// once.
+		v1.GET("/users", auth.RequireCap(d.Caps, "users.read"), listUsers(d))
+		v1.POST("/users", auth.RequireCap(d.Caps, "users.write"), createUser(d))
+		v1.PATCH("/users/:id", auth.RequireCap(d.Caps, "users.write"), updateUser(d))
+		v1.POST("/users/:id/rotate-token", auth.RequireCap(d.Caps, "users.write"), rotateUserToken(d))
+		v1.POST("/users/:id/reset-password", auth.RequireCap(d.Caps, "users.write"), resetUserPassword(d))
+		v1.DELETE("/users/:id", auth.RequireCap(d.Caps, "users.write"), deleteUser(d))
 
 		v1.GET("/volumes", listVolumes(d))
 		v1.GET("/volumes/heatmap", heatmap(d))
@@ -277,14 +288,23 @@ func Router(d Deps) *gin.Engine {
 			auth.RequireCap(d.Caps, "cluster.volume-server.leave"), cancelDrain(d))
 
 		// --- S3 (Phase 4) ---
+		// GET /identities and /identities/rotation are SAFE to read with
+		// just s3.read because s3ListIdentities now redacts secret keys
+		// from the response. This lets operators/viewers see "who is
+		// bound to which bucket" via the Bound access column without
+		// granting them write access to IAM. Writes still gated on the
+		// admin-only s3.configure cap.
 		v1.GET("/clusters/:id/s3/identities",
-			auth.RequireCap(d.Caps, "s3.configure"), s3ListIdentities(d))
+			auth.RequireCap(d.Caps, "s3.read"), s3ListIdentities(d))
 		v1.PUT("/clusters/:id/s3/identities",
 			auth.RequireCap(d.Caps, "s3.configure"), s3UpsertIdentity(d))
 		v1.DELETE("/clusters/:id/s3/identities/:user",
 			auth.RequireCap(d.Caps, "s3.configure"), s3DeleteIdentity(d))
+		// Per-identity secret reveal — admin-only because it exposes SK.
+		v1.GET("/clusters/:id/s3/identities/:user/secret",
+			auth.RequireCap(d.Caps, "s3.configure"), s3GetIdentitySecret(d))
 		v1.GET("/clusters/:id/s3/identities/rotation",
-			auth.RequireCap(d.Caps, "s3.configure"), s3IdentityRotation(d))
+			auth.RequireCap(d.Caps, "s3.read"), s3IdentityRotation(d))
 		v1.POST("/clusters/:id/s3/bucket/delete",
 			auth.RequireCap(d.Caps, "s3.bucket.delete"), s3BucketDelete(d))
 		v1.POST("/clusters/:id/s3/bucket/owner",
@@ -307,6 +327,57 @@ func Router(d Deps) *gin.Engine {
 			auth.RequireCap(d.Caps, "s3.clean-uploads"), s3AbortMultipartUpload(d))
 		v1.POST("/clusters/:id/s3/nl-policy",
 			auth.RequireCap(d.Caps, "s3.configure"), s3NLPolicy(d))
+		// S3 Tables (Iceberg) — table-bucket lifecycle + resource policy.
+		// Separate cap pair from regular s3.bucket.* so admins can grant
+		// table access independently.
+		v1.GET("/clusters/:id/s3/tables/buckets",
+			auth.RequireCap(d.Caps, "s3.tables.read"), s3TableBucketsList(d))
+		v1.GET("/clusters/:id/s3/tables/buckets/:name",
+			auth.RequireCap(d.Caps, "s3.tables.read"), s3TableBucketGet(d))
+		v1.POST("/clusters/:id/s3/tables/buckets",
+			auth.RequireCap(d.Caps, "s3.tables.write"), s3TableBucketCreate(d))
+		v1.DELETE("/clusters/:id/s3/tables/buckets/:name",
+			auth.RequireCap(d.Caps, "s3.tables.write"), s3TableBucketDelete(d))
+		v1.GET("/clusters/:id/s3/tables/buckets/:name/policy",
+			auth.RequireCap(d.Caps, "s3.tables.read"), s3TableBucketGetPolicy(d))
+		v1.PUT("/clusters/:id/s3/tables/buckets/:name/policy",
+			auth.RequireCap(d.Caps, "s3.tables.write"), s3TableBucketPutPolicy(d))
+		v1.DELETE("/clusters/:id/s3/tables/buckets/:name/policy",
+			auth.RequireCap(d.Caps, "s3.tables.write"), s3TableBucketDeletePolicy(d))
+
+		// Namespaces inside a bucket.
+		v1.GET("/clusters/:id/s3/tables/namespaces",
+			auth.RequireCap(d.Caps, "s3.tables.read"), s3TableNamespacesList(d))
+		v1.GET("/clusters/:id/s3/tables/namespaces/:name",
+			auth.RequireCap(d.Caps, "s3.tables.read"), s3TableNamespaceGet(d))
+		v1.POST("/clusters/:id/s3/tables/namespaces",
+			auth.RequireCap(d.Caps, "s3.tables.write"), s3TableNamespaceCreate(d))
+		v1.DELETE("/clusters/:id/s3/tables/namespaces/:name",
+			auth.RequireCap(d.Caps, "s3.tables.write"), s3TableNamespaceDelete(d))
+
+		// Tables inside a (bucket, namespace).
+		v1.GET("/clusters/:id/s3/tables/tables",
+			auth.RequireCap(d.Caps, "s3.tables.read"), s3TablesList(d))
+		v1.GET("/clusters/:id/s3/tables/tables/:name",
+			auth.RequireCap(d.Caps, "s3.tables.read"), s3TableGet(d))
+		v1.POST("/clusters/:id/s3/tables/tables",
+			auth.RequireCap(d.Caps, "s3.tables.write"), s3TableCreate(d))
+		v1.DELETE("/clusters/:id/s3/tables/tables/:name",
+			auth.RequireCap(d.Caps, "s3.tables.write"), s3TableDelete(d))
+		v1.GET("/clusters/:id/s3/tables/tables/:name/policy",
+			auth.RequireCap(d.Caps, "s3.tables.read"), s3TableGetPolicy(d))
+		v1.PUT("/clusters/:id/s3/tables/tables/:name/policy",
+			auth.RequireCap(d.Caps, "s3.tables.write"), s3TablePutPolicy(d))
+		v1.DELETE("/clusters/:id/s3/tables/tables/:name/policy",
+			auth.RequireCap(d.Caps, "s3.tables.write"), s3TableDeletePolicy(d))
+
+		// Tags — one endpoint set across bucket/namespace/table scope.
+		v1.GET("/clusters/:id/s3/tables/tags",
+			auth.RequireCap(d.Caps, "s3.tables.read"), s3TableTagsList(d))
+		v1.PUT("/clusters/:id/s3/tables/tags",
+			auth.RequireCap(d.Caps, "s3.tables.write"), s3TableTagsPut(d))
+		v1.DELETE("/clusters/:id/s3/tables/tags",
+			auth.RequireCap(d.Caps, "s3.tables.write"), s3TableTagsDelete(d))
 		v1.GET("/volumes/:id/features", volumeFeatures(d))
 		v1.GET("/volumes/:id/features/trend", volumeFeatureTrend(d))
 		v1.GET("/volumes/features/trend/bulk", volumeFeatureTrendBulk(d))
@@ -341,6 +412,8 @@ func Router(d Deps) *gin.Engine {
 		admin.POST("/tasks/:id/retry", retryTask(d))
 
 		v1.GET("/clusters/pressure", listClusterPressure(d))
+		v1.GET("/clusters/score/history",
+			auth.RequireCap(d.Caps, "volume.read"), scoreHistory(d))
 
 		// Capacity incidents — the auto-pause closed loop. analyze/resolve
 		// are state-changing (AI spend / lifts the tiering hold) → admin.
