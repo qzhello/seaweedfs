@@ -28,6 +28,16 @@ type Verdict struct {
 	Code    string `json:"code,omitempty"` // emergency_stop | change_window | maintenance | blocklist | holiday
 }
 
+// emergencyStopVerdict is the pure decision for the emergency-stop gate,
+// extracted so it can be unit-tested without a runtime snapshot.
+func emergencyStopVerdict(stopped bool) Verdict {
+	if stopped {
+		return Verdict{Allowed: false, Code: "emergency_stop",
+			Reason: "Emergency stop is engaged. Disable it in Settings → safety.emergency_stop."}
+	}
+	return Verdict{Allowed: true}
+}
+
 type Guard struct {
 	pg       *store.PG
 	snapshot *runtime.Snapshot
@@ -37,13 +47,26 @@ func New(pg *store.PG, snap *runtime.Snapshot) *Guard {
 	return &Guard{pg: pg, snapshot: snap}
 }
 
+// emergencyStopped reads the emergency-stop flag from the config snapshot.
+func (g *Guard) emergencyStopped() bool {
+	return g.snapshot != nil && g.snapshot.Bool("safety.emergency_stop", false)
+}
+
+// AllowEmergencyOnly evaluates ONLY the emergency-stop gate, skipping the
+// change-window / maintenance / holiday gates. Use for maintenance-prep
+// actions (e.g. raft leadership transfer) that must remain available during
+// those windows but still obey a global emergency stop.
+// For the full gate chain (change window / maintenance / holiday) see Allow.
+func (g *Guard) AllowEmergencyOnly() Verdict {
+	return emergencyStopVerdict(g.emergencyStopped())
+}
+
 // Allow evaluates the global gates (everything except per-task blocklist).
 // Caller still must call BlockedBy for individual task targets.
 func (g *Guard) Allow(ctx context.Context, clusterID *uuid.UUID, now time.Time) Verdict {
 	// 1. Emergency stop
-	if g.snapshot != nil && g.snapshot.Bool("safety.emergency_stop", false) {
-		return Verdict{Allowed: false, Code: "emergency_stop",
-			Reason: "Emergency stop is engaged. Disable it in Settings → safety.emergency_stop."}
+	if v := emergencyStopVerdict(g.emergencyStopped()); !v.Allowed {
+		return v
 	}
 	// 2. Change window
 	if g.snapshot != nil {
