@@ -68,21 +68,27 @@
 
 ## 4. 第1期详细设计:总览第一行布局重排
 
-### 4.1 目标布局
+### 4.1 目标布局(已迭代:右半改为 Bento 富视觉)
+
+> **迭代记录:** 初版右半用 6 个纯数字紧凑卡,用户评价"很丑、信息太少",改为**富视觉 Bento**:
+> 容量合并成进度条、卷与只读各做成环形(展示当前/最大、只读/总的比例)。
 
 ```
 ┌──────────────────────────────┬──────────────────────────────┐
-│ 耐久性总览卡片(左半,lg 50%)  │ 6 个 KPI(右半,3 列 × 2 行)    │
-│ [状态药丸行: ✓全部正常 ⚡压力] │ ┌────┬────┬────┐               │
-│ ◯92  集群耐久性 / 健康         │ │ 卷 │总容│可用│               │
-│ /100 由 raft 仲裁与复制风险汇总 │ ├────┼────┼────┤               │
-│ (含 EnterButton → /raft)      │ │只读│待办│节省│               │
-│                               │ └────┴────┴────┘               │
+│ 耐久性总览卡片(左半,lg 50%)  │ Bento(右半)                   │
+│ [状态药丸行: ✓全部正常 ⚡压力] │ ┌──────────────────────────┐  │
+│ ◯60  集群耐久性 / 存在风险      │ │ 容量 ▓▓▓▓▓░░ 进度条        │  │ ← 总容量+可用合并
+│ /100 由 raft 仲裁与复制风险汇总 │ └──────────────────────────┘  │
+│ (含 EnterButton → /raft)      │ ┌────────────┬─────────────┐  │
+│                               │ │ ◔卷         │ ◐只读       │  │ ← 环形:当前/最大、只读/总
+│                               │ ├────────────┼─────────────┤  │
+│                               │ │ 待处理(数字) │ 月度节省(数字)│  │
+│                               │ └────────────┴─────────────┘  │
 └──────────────────────────────┴──────────────────────────────┘
 ```
 
-- 用户已选定布局**方案 A**(右半 3 列 × 2 行紧凑卡)。
-- 耐久性卡片内容不变(状态药丸已在上次改动中移入卡片顶部),仅宽度收到一半。
+- 用户已选定 **Bento(方案 A)**。
+- 耐久性卡片内容不变(状态药丸已移入卡片顶部),仅宽度收到一半。
 
 ### 4.2 改动文件
 
@@ -106,26 +112,26 @@
 </div>
 ```
 
-### 4.3 6 个 KPI 的数据来源(全部复用现有,零新增 hook/后端)
+### 4.3 Bento 的 5 张卡 + 数据来源(全部复用现有数据,零新增后端)
 
-| # | 标签 | 数据表达式(现有) | 跳转 |
-|---|------|------|------|
-| 1 | 卷 Volumes | `s?.volumes_total ?? nodes.totalVolumes` | /volumes |
-| 2 | 总容量 Total Size | `diskUsage.total_bytes`(无则 slot 估算 `total`) | /volumes |
-| 3 | 可用空间 Free headroom | `diskUsage.free_bytes` + 百分比 sub | /clusters |
-| 4 | 只读数 Read-only | `nodes.readOnly` + 占比 sub | /volumes?readonly=1 |
-| 5 | 待处理 Pending | `pending?.items?.length` + hot recs sub | /activity?tab=tasks |
-| 6 | 月度节省 Monthly savings | `costsNow.monthly_saving`(无则字节估算回退) | /costs |
-
-这些表达式直接取自现有 KPI 行(`page.tsx` 第 198–313 行),迁移即可。
+| 卡 | 视觉 | 数据 | 跳转 |
+|----|------|------|------|
+| 容量 Capacity(整行) | 水平进度条 已用/总 | `diskUsage.{used,total,free}_bytes`;无 disk 数据时回退 `nodeStats.usedSlots/maxSlots` + `bytes(total)` 标题 | /volumes |
+| 卷 Volumes(环) | 环形 当前/最大槽位 | center=`s?.volumes_total ?? nodes.totalVolumes`;arc=`nodeStats.usedSlots / nodeStats.maxSlots` | /volumes |
+| 只读 Read-only(环) | 环形 只读/总卷(warning 色) | `nodes.readOnly / nodes.totalVolumes` | /volumes?readonly=1 |
+| 待处理 Pending(数字) | 复用 `Stat` | `pending?.items?.length` + hot recs sub | /activity?tab=tasks |
+| 月度节省 Monthly savings(数字) | 复用 `Stat` | `costsNow.monthly_saving`(无则字节估算回退) | /costs |
 
 ### 4.4 KPI 卡片组件
 
-- 优先**复用现有 `Stat` 组件**(label + value + 可选 sub + icon + href)。
-- 若 `Stat` 在半宽 3 列中显得过高/过宽,提取一个更紧凑的展示变体(同文件局部组件 `KpiTile`),
-  保持与 `Stat` 一致的视觉语言(卡片底色、边框、hover)。
-- 全部 6 个统一为紧凑卡(纯数字),**固定顺序、不可拖拽**。
-- 顺序逻辑:规模(卷)→ 容量 → 空间 → 只读 → 待办 → 省钱。
+- **容量**:新增局部组件 `BarStat`(label + 标题数值 + 水平进度条 + 左右两端说明),格式化与 `t()`
+  在 Dashboard 内算好后以已翻译字符串传入。
+- **卷 / 只读**:新增局部组件 `RingStat`(SVG 环 + 中心数字 + 右侧 value/max + sub),`tone` 区分
+  accent(卷)/ warning(只读)。环用 `stroke-dasharray` 实现,复用 `HealthOverview` 里 `ScoreRing`
+  的画法,主题友好。
+- **待处理 / 月度节省**:复用现有 `Stat`。
+- 全部**固定顺序、不可拖拽**;与左侧耐久性卡视觉语言一致(`card` 底色/边框/角落 `EnterButton`)。
+- 新增 i18n 键:`"Capacity": "容量"`;其余 `used / slots / free / of fleet` 已存在,复用。
 
 ### 4.5 移除项
 

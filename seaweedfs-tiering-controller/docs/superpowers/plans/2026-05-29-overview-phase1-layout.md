@@ -304,6 +304,259 @@ cd web && npm run build 2>&1 | tail -20
 
 ---
 
+## Task 4: 右半区改为 Bento 富视觉 KPI(迭代)
+
+初版 6 个纯数字卡被评"很丑、信息太少"。改为 Bento:容量合并成进度条;卷、只读各做成环形(展示当前/最大、只读/总);待处理、月度节省保留数字。用户已选定此版式(方案 A)。
+
+**Files:**
+- Modify: `web/app/page.tsx`
+- Modify: `web/lib/i18n.ts`(新增一个键)
+
+- [ ] **Step 1: 新增 i18n 键 `Capacity`**
+
+在 `web/lib/i18n.ts` 的 Dashboard 段(`"Check": "检查",` 附近)加一行:
+```ts
+  "Capacity":                 "容量",
+```
+
+- [ ] **Step 2: 新增 `BarStat` 与 `RingStat` 两个局部组件**
+
+在 `web/app/page.tsx` 中 `function Stat(...) { ... }` 定义之后,紧接着加入这两个组件(`EnterButton`、`React` 类型均已在作用域):
+
+```tsx
+// Capacity-style KPI: headline value + horizontal progress bar + a
+// left/right caption row. Used for the merged total+free capacity card.
+// Text is pre-translated by the caller so this stays presentational.
+function BarStat({
+  icon, label, headline, headlineSub, pct, leftLabel, rightLabel, href,
+}: {
+  icon: React.ReactNode; label: string; headline: React.ReactNode; headlineSub?: string;
+  pct: number; leftLabel: string; rightLabel: string; href?: string;
+}) {
+  const w = Math.min(100, Math.max(0, pct * 100));
+  return (
+    <div className="card p-4 relative">
+      <div className="text-xs text-muted flex items-center gap-2 pr-6">{icon}{label}</div>
+      <div className="text-2xl font-semibold mt-1">
+        {headline}{headlineSub && <span className="text-xs text-muted font-normal"> {headlineSub}</span>}
+      </div>
+      <div className="mt-2 h-2.5 rounded-full bg-border overflow-hidden">
+        <div className="h-full rounded-full bg-accent transition-[width] duration-700" style={{ width: `${w}%` }}/>
+      </div>
+      <div className="flex justify-between text-xs text-muted mt-1.5">
+        <span>{leftLabel}</span><span>{rightLabel}</span>
+      </div>
+      {href && <EnterButton href={href} label={label}/>}
+    </div>
+  );
+}
+
+// Ring KPI: an SVG donut showing value/max, a headline number in the
+// center, and value/max + sub beside it. Used for volumes (used vs max
+// slots) and read-only (read-only vs total). tone picks the arc color.
+function RingStat({
+  icon, label, center, value, max, sub, tone = "accent", href,
+}: {
+  icon: React.ReactNode; label: string; center: React.ReactNode;
+  value: number; max: number; sub: string; tone?: "accent" | "warning"; href?: string;
+}) {
+  const pct = max > 0 ? Math.min(1, Math.max(0, value / max)) : 0;
+  const r = 26, circ = 2 * Math.PI * r;
+  const toneCls = tone === "warning" ? "text-warning" : "text-accent";
+  return (
+    <div className="card p-4 h-full flex flex-col min-h-[110px] relative">
+      <div className="text-xs text-muted flex items-center gap-2 pr-6">{icon}{label}</div>
+      <div className="flex items-center gap-3 mt-2">
+        <div className="relative w-[58px] h-[58px] shrink-0">
+          <svg viewBox="0 0 64 64" className="w-[58px] h-[58px] -rotate-90">
+            <circle cx="32" cy="32" r={r} fill="none" strokeWidth="6" className="stroke-border"/>
+            <circle cx="32" cy="32" r={r} fill="none" strokeWidth="6" strokeLinecap="round"
+              stroke="currentColor"
+              className={`${toneCls} transition-[stroke-dashoffset] duration-700`}
+              strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)}/>
+          </svg>
+          <div className="absolute inset-0 flex items-center justify-center text-base font-semibold tabular-nums">{center}</div>
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold tabular-nums">
+            {value}{max > 0 && <span className="text-muted font-normal"> / {max}</span>}
+          </div>
+          <div className="text-xs text-muted mt-0.5">{sub}</div>
+        </div>
+      </div>
+      {href && <EnterButton href={href} label={label}/>}
+    </div>
+  );
+}
+```
+
+- [ ] **Step 3: 用 Bento 替换右半区的 6-Stat 网格**
+
+把右半区这一整块(`<div className="grid grid-cols-2 sm:grid-cols-3 gap-3 content-start"> … </div>`,即 6 个 `<Stat>`):
+
+```tsx
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 content-start">
+          <Stat
+            href="/volumes"
+            icon={<Database size={18}/>}
+            label={t("Volumes")}
+            value={s?.volumes_total ?? nodes.totalVolumes}
+          />
+          <Stat
+            href="/volumes"
+            icon={<Activity size={18}/>}
+            label={t("Total Size")}
+            value={diskUsage && Number(diskUsage.total_bytes) > 0 ? bytes(Number(diskUsage.total_bytes)) : bytes(total)}
+          />
+          <Stat
+            href="/clusters"
+            icon={<HardDrive size={18}/>}
+            label={t("Free headroom")}
+            value={bytes(Number(diskUsage?.free_bytes) || 0)}
+            sub={diskUsage && Number(diskUsage.total_bytes) > 0
+              ? `${((Number(diskUsage.free_bytes ?? 0) / Math.max(1, Number(diskUsage.total_bytes ?? 1))) * 100).toFixed(1)}% ${t("free")}`
+              : undefined}
+          />
+          <Stat
+            href="/volumes?readonly=1"
+            icon={<Lock size={18}/>}
+            label={t("Read-only")}
+            value={nodes.readOnly}
+            sub={`${nodes.totalVolumes ? ((nodes.readOnly / nodes.totalVolumes) * 100).toFixed(1) : 0}% ${t("of fleet")}`}
+          />
+          <Stat
+            href="/activity?tab=tasks"
+            icon={<Flame size={18}/>}
+            label={t("Pending")}
+            value={pending?.items?.length ?? 0}
+            sub={`${pending?.items?.filter((p:any)=>p.score>=0.75).length ?? 0} ${t("hot recs")}`}
+          />
+          {costsNow && costsNow.monthly_saving > 0 ? (
+            <Stat
+              href="/costs"
+              icon={<DollarSign size={18}/>}
+              label={t("Monthly savings")}
+              value={`${costsNow.currency} ${costsNow.monthly_saving.toFixed(0)}`}
+              sub={t("vs. all-hot baseline")}
+            />
+          ) : (
+            <Stat
+              href="/activity?tab=executions"
+              icon={<Snowflake size={18}/>}
+              label={t("Saving est.")}
+              value={bytes(((s?.bytes_warm||0)+(s?.bytes_cold||0))*0.5)}
+              sub={t("vs. 3-replica baseline")}
+            />
+          )}
+        </div>
+```
+
+替换为 Bento(容量进度条整行 + 卷/只读环 + 待处理/月度节省):
+
+```tsx
+        <div className="flex flex-col gap-3">
+          {/* Capacity — total + free merged into one progress bar. Uses
+              real disk bytes when available, else slot-based fallback. */}
+          {(() => {
+            const hasDisk = !!(diskUsage && Number(diskUsage.total_bytes) > 0);
+            const used = hasDisk ? (Number(diskUsage?.used_bytes) || 0) : nodeStats.usedSlots;
+            const tot  = hasDisk ? (Number(diskUsage?.total_bytes) || 0) : nodeStats.maxSlots;
+            const free = hasDisk ? (Number(diskUsage?.free_bytes) || 0) : Math.max(0, nodeStats.maxSlots - nodeStats.usedSlots);
+            const pct  = tot > 0 ? used / tot : 0;
+            return (
+              <BarStat
+                href="/volumes"
+                icon={<Activity size={18}/>}
+                label={t("Capacity")}
+                headline={hasDisk ? bytes(used) : bytes(total)}
+                headlineSub={t("used")}
+                pct={pct}
+                leftLabel={`${(pct * 100).toFixed(0)}% ${t("used")}`}
+                rightLabel={hasDisk
+                  ? `${bytes(free)} ${t("free")} · ${bytes(tot)}`
+                  : `${free} ${t("free")} · ${tot} ${t("slots")}`}
+              />
+            );
+          })()}
+
+          {/* Volumes (used vs max slots) + Read-only (read-only vs total) */}
+          <div className="grid grid-cols-2 gap-3">
+            <RingStat
+              href="/volumes"
+              icon={<Database size={18}/>}
+              label={t("Volumes")}
+              center={s?.volumes_total ?? nodes.totalVolumes}
+              value={nodeStats.usedSlots || nodes.totalVolumes}
+              max={nodeStats.maxSlots}
+              sub={nodeStats.maxSlots > 0
+                ? `${((nodeStats.usedSlots / nodeStats.maxSlots) * 100).toFixed(0)}% · ${nodeStats.maxSlots} ${t("slots")}`
+                : t("slots")}
+            />
+            <RingStat
+              href="/volumes?readonly=1"
+              icon={<Lock size={18}/>}
+              label={t("Read-only")}
+              tone="warning"
+              center={nodes.readOnly}
+              value={nodes.readOnly}
+              max={nodes.totalVolumes}
+              sub={`${nodes.totalVolumes ? ((nodes.readOnly / nodes.totalVolumes) * 100).toFixed(1) : 0}% ${t("of fleet")}`}
+            />
+          </div>
+
+          {/* Pending / Monthly savings — plain number Stat cards */}
+          <div className="grid grid-cols-2 gap-3">
+            <Stat
+              href="/activity?tab=tasks"
+              icon={<Flame size={18}/>}
+              label={t("Pending")}
+              value={pending?.items?.length ?? 0}
+              sub={`${pending?.items?.filter((p:any)=>p.score>=0.75).length ?? 0} ${t("hot recs")}`}
+            />
+            {costsNow && costsNow.monthly_saving > 0 ? (
+              <Stat
+                href="/costs"
+                icon={<DollarSign size={18}/>}
+                label={t("Monthly savings")}
+                value={`${costsNow.currency} ${costsNow.monthly_saving.toFixed(0)}`}
+                sub={t("vs. all-hot baseline")}
+              />
+            ) : (
+              <Stat
+                href="/activity?tab=executions"
+                icon={<Snowflake size={18}/>}
+                label={t("Saving est.")}
+                value={bytes(((s?.bytes_warm||0)+(s?.bytes_cold||0))*0.5)}
+                sub={t("vs. 3-replica baseline")}
+              />
+            )}
+          </div>
+        </div>
+```
+
+同时把上面那段注释里 “Compact Stat cards, no drag.” 一行改为反映 Bento(可选):`Bento: capacity bar + volume/read-only rings + number cards.`
+
+- [ ] **Step 4: 类型检查无新增错误**
+```bash
+cd web && npm run typecheck 2>&1 | grep -E "app/page\.tsx|lib/i18n\.ts" | grep -v "TS1117"; echo "done"
+```
+期望:无 `app/page.tsx` 行(`lib/i18n.ts` 的 TS1117 重复键是预存,已用 `grep -v` 滤掉)。
+
+- [ ] **Step 5: lint**
+```bash
+cd web && npm run lint 2>&1 | grep -iE "app/page\.tsx|error|warning" | head -30; echo "done"
+```
+期望:`app/page.tsx` 无 unused/undefined 报错。
+
+- [ ] **Step 6: 提交**
+```bash
+cd /Users/quzhihao/GolandProjects/seaweedfs_qzh
+git add seaweedfs-tiering-controller/web/app/page.tsx seaweedfs-tiering-controller/web/lib/i18n.ts
+git commit -m "feat(overview): 右半区改为 Bento 富视觉(容量进度条 + 卷/只读环 + 数字卡)"
+```
+
+---
+
 ## Self-Review(已核对)
 
 - **Spec 覆盖**:第1期规格 4.1–4.8 全部对应到任务 —— 布局(T1S1)、6 KPI 数据映射(T1S1)、复用 Stat(T1S1)、移除旧行(T1S2)、死代码清理(T2)、响应式(T1 className + T3)、测试/验收(T3)。i18n 键全为现有,无需新增(4.7 确认)。
