@@ -13,6 +13,7 @@ import { useCaps } from "@/lib/caps-context";
 import { confirm as confirmDlg } from "@/lib/confirm";
 import { useT } from "@/lib/i18n";
 import { HealthBadge } from "@/components/health-badge";
+import { CardSkeleton, TableSkeleton } from "@/components/table-skeleton";
 import { useClusterDetail } from "../_context";
 
 type LockProbeResult = {
@@ -46,16 +47,10 @@ export default function ClusterMastersPage() {
       </div>
     );
   }
-  if (isLoading || !data) {
-    return (
-      <div className="p-6 text-sm text-muted inline-flex items-center gap-2">
-        <Loader2 size={14} className="animate-spin"/> {t("Loading masters…")}
-      </div>
-    );
-  }
-
   const canProbe = has("cluster.lock.probe");
-  const consistency = data.consistency;
+  const consistency = data?.consistency;
+  const masters = data?.masters ?? [];
+  const loadingData = isLoading && !data;
 
   async function runProbe() {
     setProbing(true);
@@ -112,9 +107,9 @@ export default function ClusterMastersPage() {
             <ShieldCheck size={16}/> {t("Masters & raft quorum")}
           </h2>
           <p className="text-xs text-muted">
-            {t("Configured master")}: <span className="font-mono text-text">{data.configured_master || "—"}</span>
+            {t("Configured master")}: <span className="font-mono text-text">{data?.configured_master || "—"}</span>
             <span className="mx-2 text-muted/40">|</span>
-            {data.masters.length} {t("discovered")}
+            {masters.length} {t("discovered")}
           </p>
         </div>
         <button
@@ -128,27 +123,31 @@ export default function ClusterMastersPage() {
         </button>
       </header>
 
-      <ConsistencyPanel consistency={consistency}/>
+      {loadingData ? <CardSkeleton lines={2}/> : (consistency && <ConsistencyPanel consistency={consistency}/>)}
 
-      <section className="card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="grid">
-            <thead><tr>
-              <th>{t("Address")}</th>
-              <th>{t("Health")}</th>
-              <th>{t("Role")}</th>
-              <th>{t("Reported leader")}</th>
-              <th>{t("Reported peers")}</th>
-              <th className="num">{t("Latency")}</th>
-              <th>{t("Lock holder")}</th>
-              <th>{t("Warnings")}</th>
-            </tr></thead>
-            <tbody>
-              {data.masters.map((row) => <MasterRow key={row.address} row={row}/>)}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {loadingData ? (
+        <TableSkeleton rows={4} headers={[t("Address"), t("Health"), t("Role"), t("Reported leader"), t("Reported peers"), t("Latency"), t("Lock holder"), t("Warnings")]}/>
+      ) : (
+        <section className="card overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="grid">
+              <thead><tr>
+                <th>{t("Address")}</th>
+                <th>{t("Health")}</th>
+                <th>{t("Role")}</th>
+                <th>{t("Reported leader")}</th>
+                <th>{t("Reported peers")}</th>
+                <th className="num">{t("Latency")}</th>
+                <th>{t("Lock holder")}</th>
+                <th>{t("Warnings")}</th>
+              </tr></thead>
+              <tbody>
+                {masters.map((row) => <MasterRow key={row.address} row={row}/>)}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <section className="card p-4 space-y-3">
         <header className="flex items-center justify-between gap-3 flex-wrap">
@@ -192,7 +191,7 @@ export default function ClusterMastersPage() {
               className="input text-xs"
             >
               <option value="">{t("Auto (any eligible follower)")}</option>
-              {(data.raft_servers ?? [])
+              {(data?.raft_servers ?? [])
                 .filter((s: RaftServerInfo) => !s.is_leader && s.suffrage === "voter")
                 .map((s: RaftServerInfo) => (
                   <option key={s.id} value={`${s.id}|${s.address}`}>
