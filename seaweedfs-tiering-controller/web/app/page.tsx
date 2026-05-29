@@ -156,7 +156,7 @@ export default function Dashboard() {
           half). The old full-width hero and the separate KPI row below
           were merged here so the operator sees vitals without scrolling.
           KPIs are a fixed, curated set: scale → capacity → space →
-          read-only → backlog → savings. Compact Stat cards, no drag. */}
+          read-only → backlog → savings. Bento: capacity bar + volume/read-only rings + number cards. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         <div className="relative">
           <HealthOverview masters={durMasters} repl={durRepl} statusSlot={hasStatus ? statusPills : undefined}/>
@@ -166,59 +166,83 @@ export default function Dashboard() {
           />
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 content-start">
-          <Stat
-            href="/volumes"
-            icon={<Database size={18}/>}
-            label={t("Volumes")}
-            value={s?.volumes_total ?? nodes.totalVolumes}
-          />
-          <Stat
-            href="/volumes"
-            icon={<Activity size={18}/>}
-            label={t("Total Size")}
-            value={diskUsage && Number(diskUsage.total_bytes) > 0 ? bytes(Number(diskUsage.total_bytes)) : bytes(total)}
-          />
-          <Stat
-            href="/clusters"
-            icon={<HardDrive size={18}/>}
-            label={t("Free headroom")}
-            value={bytes(Number(diskUsage?.free_bytes) || 0)}
-            sub={diskUsage && Number(diskUsage.total_bytes) > 0
-              ? `${((Number(diskUsage.free_bytes ?? 0) / Math.max(1, Number(diskUsage.total_bytes ?? 1))) * 100).toFixed(1)}% ${t("free")}`
-              : undefined}
-          />
-          <Stat
-            href="/volumes?readonly=1"
-            icon={<Lock size={18}/>}
-            label={t("Read-only")}
-            value={nodes.readOnly}
-            sub={`${nodes.totalVolumes ? ((nodes.readOnly / nodes.totalVolumes) * 100).toFixed(1) : 0}% ${t("of fleet")}`}
-          />
-          <Stat
-            href="/activity?tab=tasks"
-            icon={<Flame size={18}/>}
-            label={t("Pending")}
-            value={pending?.items?.length ?? 0}
-            sub={`${pending?.items?.filter((p:any)=>p.score>=0.75).length ?? 0} ${t("hot recs")}`}
-          />
-          {costsNow && costsNow.monthly_saving > 0 ? (
-            <Stat
-              href="/costs"
-              icon={<DollarSign size={18}/>}
-              label={t("Monthly savings")}
-              value={`${costsNow.currency} ${costsNow.monthly_saving.toFixed(0)}`}
-              sub={t("vs. all-hot baseline")}
+        <div className="flex flex-col gap-3">
+          {/* Capacity — total + free merged into one progress bar. Uses
+              real disk bytes when available, else slot-based fallback. */}
+          {(() => {
+            const hasDisk = !!(diskUsage && Number(diskUsage.total_bytes) > 0);
+            const used = hasDisk ? (Number(diskUsage?.used_bytes) || 0) : nodeStats.usedSlots;
+            const tot  = hasDisk ? (Number(diskUsage?.total_bytes) || 0) : nodeStats.maxSlots;
+            const free = hasDisk ? (Number(diskUsage?.free_bytes) || 0) : Math.max(0, nodeStats.maxSlots - nodeStats.usedSlots);
+            const pct  = tot > 0 ? used / tot : 0;
+            return (
+              <BarStat
+                href="/volumes"
+                icon={<Activity size={18}/>}
+                label={t("Capacity")}
+                headline={hasDisk ? bytes(used) : `${used} / ${tot}`}
+                headlineSub={hasDisk ? t("used") : t("slots")}
+                pct={pct}
+                leftLabel={`${(pct * 100).toFixed(0)}% ${t("used")}`}
+                rightLabel={hasDisk
+                  ? `${bytes(free)} ${t("free")} · ${bytes(tot)}`
+                  : `${free} ${t("free")} · ${tot} ${t("slots")}`}
+              />
+            );
+          })()}
+
+          {/* Volumes (used vs max slots) + Read-only (read-only vs total) */}
+          <div className="grid grid-cols-2 gap-3">
+            <RingStat
+              href="/volumes"
+              icon={<Database size={18}/>}
+              label={t("Volumes")}
+              center={s?.volumes_total ?? nodes.totalVolumes}
+              value={nodeStats.usedSlots}
+              max={nodeStats.maxSlots}
+              sub={nodeStats.maxSlots > 0
+                ? `${((nodeStats.usedSlots / nodeStats.maxSlots) * 100).toFixed(0)}% · ${nodeStats.maxSlots} ${t("slots")}`
+                : t("slots")}
             />
-          ) : (
-            <Stat
-              href="/activity?tab=executions"
-              icon={<Snowflake size={18}/>}
-              label={t("Saving est.")}
-              value={bytes(((s?.bytes_warm||0)+(s?.bytes_cold||0))*0.5)}
-              sub={t("vs. 3-replica baseline")}
+            <RingStat
+              href="/volumes?readonly=1"
+              icon={<Lock size={18}/>}
+              label={t("Read-only")}
+              tone="warning"
+              center={nodes.readOnly}
+              value={nodes.readOnly}
+              max={nodes.totalVolumes}
+              sub={`${nodes.totalVolumes ? ((nodes.readOnly / nodes.totalVolumes) * 100).toFixed(1) : 0}% ${t("of fleet")}`}
             />
-          )}
+          </div>
+
+          {/* Pending / Monthly savings — plain number Stat cards */}
+          <div className="grid grid-cols-2 gap-3">
+            <Stat
+              href="/activity?tab=tasks"
+              icon={<Flame size={18}/>}
+              label={t("Pending")}
+              value={pending?.items?.length ?? 0}
+              sub={`${pending?.items?.filter((p:any)=>p.score>=0.75).length ?? 0} ${t("hot recs")}`}
+            />
+            {costsNow && costsNow.monthly_saving > 0 ? (
+              <Stat
+                href="/costs"
+                icon={<DollarSign size={18}/>}
+                label={t("Monthly savings")}
+                value={`${costsNow.currency} ${costsNow.monthly_saving.toFixed(0)}`}
+                sub={t("vs. all-hot baseline")}
+              />
+            ) : (
+              <Stat
+                href="/activity?tab=executions"
+                icon={<Snowflake size={18}/>}
+                label={t("Saving est.")}
+                value={bytes(((s?.bytes_warm||0)+(s?.bytes_cold||0))*0.5)}
+                sub={t("vs. 3-replica baseline")}
+              />
+            )}
+          </div>
         </div>
       </div>
 
@@ -502,6 +526,71 @@ function Stat({ icon, label, value, sub, href }: { icon: React.ReactNode; label:
   return (
     <div className={cls}>
       {body}
+      {href && <EnterButton href={href} label={label}/>}
+    </div>
+  );
+}
+
+// Capacity-style KPI: headline value + horizontal progress bar + a
+// left/right caption row. Used for the merged total+free capacity card.
+// Text is pre-translated by the caller so this stays presentational.
+function BarStat({
+  icon, label, headline, headlineSub, pct, leftLabel, rightLabel, href,
+}: {
+  icon: React.ReactNode; label: string; headline: React.ReactNode; headlineSub?: string;
+  pct: number; leftLabel: string; rightLabel: string; href?: string;
+}) {
+  const w = Math.min(100, Math.max(0, pct * 100));
+  return (
+    <div className="card p-4 relative">
+      <div className="text-xs text-muted flex items-center gap-2 pr-6">{icon}{label}</div>
+      <div className="text-2xl font-semibold mt-1">
+        {headline}{headlineSub && <span className="text-xs text-muted font-normal"> {headlineSub}</span>}
+      </div>
+      <div className="mt-2 h-2.5 rounded-full bg-border overflow-hidden">
+        <div className="h-full rounded-full bg-accent transition-[width] duration-700" style={{ width: `${w}%` }}/>
+      </div>
+      <div className="flex justify-between text-xs text-muted mt-1.5">
+        <span>{leftLabel}</span><span>{rightLabel}</span>
+      </div>
+      {href && <EnterButton href={href} label={label}/>}
+    </div>
+  );
+}
+
+// Ring KPI: an SVG donut showing value/max, a headline number in the
+// center, and value/max + sub beside it. Used for volumes (used vs max
+// slots) and read-only (read-only vs total). tone picks the arc color.
+function RingStat({
+  icon, label, center, value, max, sub, tone = "accent", href,
+}: {
+  icon: React.ReactNode; label: string; center: React.ReactNode;
+  value: number; max: number; sub: string; tone?: "accent" | "warning"; href?: string;
+}) {
+  const pct = max > 0 ? Math.min(1, Math.max(0, value / max)) : 0;
+  const r = 26, circ = 2 * Math.PI * r;
+  const toneCls = tone === "warning" ? "text-warning" : "text-accent";
+  return (
+    <div className="card p-4 h-full flex flex-col min-h-[110px] relative">
+      <div className="text-xs text-muted flex items-center gap-2 pr-6">{icon}{label}</div>
+      <div className="flex items-center gap-3 mt-2">
+        <div className="relative w-[58px] h-[58px] shrink-0">
+          <svg viewBox="0 0 64 64" className="w-[58px] h-[58px] -rotate-90">
+            <circle cx="32" cy="32" r={r} fill="none" strokeWidth="6" className="stroke-border"/>
+            <circle cx="32" cy="32" r={r} fill="none" strokeWidth="6" strokeLinecap="round"
+              stroke="currentColor"
+              className={`${toneCls} transition-[stroke-dashoffset] duration-700`}
+              strokeDasharray={circ} strokeDashoffset={circ * (1 - pct)}/>
+          </svg>
+          <div className="absolute inset-0 flex items-center justify-center text-base font-semibold tabular-nums">{center}</div>
+        </div>
+        <div className="min-w-0">
+          <div className="text-sm font-semibold tabular-nums">
+            {value}{max > 0 && <span className="text-muted font-normal"> / {max}</span>}
+          </div>
+          <div className="text-xs text-muted mt-0.5">{sub}</div>
+        </div>
+      </div>
       {href && <EnterButton href={href} label={label}/>}
     </div>
   );

@@ -62,8 +62,92 @@ const ZH: Dict = {
   "Cluster Ops":             "集群运维",
   S3:                        "S3",
   Identities:                "身份",
-  "Circuit breaker":         "熔断器",
-  "Clean uploads":           "清理 uploads",
+  "Circuit breaker":         "限流防护",
+  "Clean uploads":           "分片上传清理",
+  // S3 tab group labels — operator-friendly grouping over the flat 5-tab strip.
+  // "Resources" already defined elsewhere; reusing that translation.
+  "Access control":          "访问控制",
+  "Platform ops":            "平台运维",
+  // Admin tab group labels — "Configure"/"AI"/"Review" + "Role"/"Status"/
+  // "Active"/"Enabled"/"Disabled"/"Disable"/"Done"/"Display name" already
+  // defined elsewhere in this file; we reuse those translations.
+  "Configure":               "配置",
+  // Platform users panel — distinct from S3 identities.
+  "Platform users":          "平台用户",
+  "People who can log in to the controller. Roles map to capabilities — see the Permissions tab.":
+                             "可以登录控制台的用户。角色映射到能力(详见「权限」标签)。",
+  "New user":                "新建用户",
+  "No users yet.":           "暂无用户。",
+  "Optional. Shown in audit log entries and identity pickers.":
+                             "可选。会出现在审计日志和身份选择器里。",
+  "Used to log in and as the canonical identifier across audit logs.":
+                             "用作登录账号,以及审计日志里的规范标识。",
+  "Email":                   "邮箱",
+  "User":                    "用户",
+  "Last login":              "最近登录",
+  "Rotate API token":        "轮换 API 令牌",
+  "Role updated":            "角色已更新",
+  "Update failed":           "更新失败",
+  "Rotate failed":           "轮换失败",
+  "Rotate token for {n}?":   "为 {n} 轮换令牌?",
+  "The current token will stop working immediately. Active sessions using it will be logged out. The new token is shown ONCE — you must save it somewhere safe before closing the dialog.":
+                             "当前令牌会立刻失效,使用它的活跃会话将被踢出。新令牌只显示一次 —— 关闭对话框前必须妥善保存。",
+  "Delete user {n}?":        "删除用户 {n}?",
+  "This is permanent. The user's audit trail is preserved, but their row is removed. Disable instead if you may need to restore access.":
+                             "此操作不可撤销。该用户的审计记录保留,但用户行被删除。如果未来可能恢复访问,请改用「禁用」。",
+  "Create user":             "创建用户",
+  "User created — copy credentials NOW": "用户已创建 —— 请立即复制凭据",
+  "Token rotated — copy the new one NOW": "令牌已轮换 —— 请立即复制新令牌",
+  "Password reset — copy the new one NOW": "密码已重置 —— 请立即复制新密码",
+  "These credentials for {n} will only be shown once. The password is for the /login form; the API token is for SDK/CI clients.":
+                             "{n} 的这些凭据只显示一次。密码用于 /login 登录页;API 令牌用于 SDK / CI 客户端。",
+  "The old API token for {n} has been invalidated. Share this new token now — there is no second chance.":
+                             "{n} 的旧 API 令牌已失效。请立即分享新令牌 —— 不会再有第二次机会。",
+  "The old password for {n} stops working immediately. They will be forced to set a new one on first login. Share this temporary password through a secure channel.":
+                             "{n} 的旧密码已立刻失效,下次登录会被强制改密。请通过安全渠道分享这个临时密码。",
+  "Initial password (use at /login)": "初始密码(用于 /login 登录)",
+  "API token (for SDK / CI)":        "API 令牌(给 SDK / CI 用)",
+  "I have saved these credentials. I understand they cannot be recovered if lost.":
+                             "我已保存这些凭据,理解一旦丢失无法恢复。",
+  "Reset password":          "重置密码",
+  "Reset failed":            "重置失败",
+  "Reset password for {n}?": "为 {n} 重置密码?",
+  "A fresh initial password will be generated. The user's existing password stops working immediately, and they will be forced to set a new one on first login. Their API token is NOT affected — rotate it separately if needed.":
+                             "会生成一个新的初始密码。该用户的旧密码立即失效,下次登录强制改密。API 令牌不受影响 —— 如需轮换请单独操作。",
+  // "Done": already translated elsewhere as "完成" — reuse.
+  "A fresh API token will be generated and shown ONCE. Save it somewhere safe before closing the dialog — there is no read-back.":
+                             "系统会生成一个新的 API 令牌,仅显示一次。请在关闭对话框前妥善保存 —— 之后无法找回。",
+  "An initial password (for the /login form) and an API token (for SDK/CI clients) will be generated and shown ONCE. The user will be forced to change the password on first login.":
+                             "会生成一个初始密码(用于 /login 登录页)和一个 API 令牌(给 SDK / CI 客户端),只显示一次。该用户下次登录时会被强制改密。",
+  // Role descriptions for the role picker grid.
+  "Full access — manage users, permissions, and every cluster operation.":
+                             "完全权限 —— 管理用户、权限,以及所有集群操作。",
+  "Day-to-day operations — buckets, volumes, S3, maintenance. No user management.":
+                             "日常运维 —— 桶、卷、S3、维护。无用户管理权限。",
+  "Read-only with audit-log access. Cannot mutate anything.":
+                             "只读 + 查看审计日志,不能修改任何内容。",
+  "Read-only dashboards. Cannot see audit logs.":
+                             "只读看板,不能查看审计日志。",
+  // Renamed tab labels (the old keys above stay for legacy callers).
+  "Rate limiting":           "限流防护",
+  "Stale upload cleanup":    "分片上传清理",
+  // Buckets unified panel — segmented control between regular S3 and Tables.
+  "General":                 "通用",
+  "Tables":                  "表桶",
+  "Standard S3 buckets":     "标准 S3 桶",
+  "Iceberg / S3 Tables":     "Iceberg / S3 Tables",
+  // Identity ↔ bucket cross-linking — "Reach" column on identities and
+  // click-jump from bucket bindings back to the identity row.
+  "Reach":                   "可达桶",
+  "All buckets":             "全部桶",
+  "{n} buckets":             "{n} 个桶",
+  "Reachable buckets":       "可达桶",
+  "Open identity":           "打开身份",
+  "Open bucket":             "打开桶",
+  "This identity has unscoped verbs ({v}) and can act on every bucket.":
+                             "该身份有不限定桶名的权限({v}),可以操作所有桶。",
+  "\"{n}\" already exists as a regular S3 bucket. Table buckets share the same global namespace, so this name will be rejected on submit. Pick a different name.":
+                             "「{n}」已被一个普通 S3 桶占用。表桶与普通桶共享全局命名空间,此名字提交时会被拒绝。请换一个名字。",
   "S3 Identities":           "S3 身份管理",
   "Access keys and per-bucket permissions. Backed by weed shell s3.configure.": "访问密钥与桶级权限。底层通过 weed shell s3.configure。",
   "New identity":            "新增身份",
@@ -161,7 +245,8 @@ const ZH: Dict = {
   Policy:       "策略",
   Execution:    "执行",
   Operations:   "运维",
-  "Ops Console": "运维台",
+  "Ops Console": "运维命令",
+  "Ops Commands": "运维命令",
   "Run any weed shell command against a cluster with guided forms and audit.":
                 "用引导式表单对集群执行任意 weed shell 命令,操作全程审计。",
   "Search commands…":             "搜索命令…",
@@ -200,7 +285,7 @@ const ZH: Dict = {
   Templates:                      "模板",
   "Save and reuse multi-step weed shell playbooks. AI can draft one from a description.":
                                   "保存并复用多步骤的 weed shell 运维剧本。可用 AI 自动起草。",
-  "Single-command console":       "单命令控制台",
+  "Single-command console":       "单条命令",
   "Generate with AI":             "用 AI 生成",
   "New template":                 "新建模板",
   "Run against:":                 "执行目标:",
@@ -269,6 +354,42 @@ const ZH: Dict = {
   "No recorded runs yet for this template.": "该模板还没有运行记录。",
   "Show output":                  "查看输出",
   "(legacy)":                     "(早期记录)",
+  "Total steps":                  "总步骤数",
+  "Enable alerts":                "启用告警",
+  "Add analyzer":                 "添加分析脚本",
+  "Insert a Python analyzer step that post-processes a prior step's stdout.":
+                                  "插入一个 Python 分析步骤,用于处理上一步的 stdout 输出。",
+  "Fire on":                      "触发时机",
+  "Severity override":            "严重级别覆盖",
+  "Analyzer step":                "分析步骤",
+  "Input from step":              "输入来自步骤",
+  "(empty = use last completed dependency)": "(留空 = 使用最近完成的依赖步骤)",
+  "How to use the result":        "如何使用结果",
+  "Downstream steps can reference the JSON via": "下游步骤可通过以下方式引用 JSON:",
+  "Top-level object keys are exposed individually, e.g.":
+                                  "顶层对象的键会被单独暴露,例如:",
+  "Add a Capture below to pull regex matches out of the JSON the same way as shell output.":
+                                  "可在下方添加抓取规则,通过正则从 JSON 中提取数据,用法与 shell 输出相同。",
+  "Channel disabled":             "通道已禁用",
+  "Run start":                    "运行开始",
+  "Awaiting approval":            "等待审批",
+  "Send alerts when this flow runs":  "运行此流程时发送告警",
+  "No channels configured. Visit": "尚未配置通道。前往",
+  "to add a WeCom / DingTalk / Feishu / webhook destination first.":
+                                  "添加企业微信 / 钉钉 / 飞书 / Webhook 目标。",
+  "(default — auto-formatted)":   "(默认 —— 自动格式化)",
+  "(per-event default)":          "(按事件默认)",
+  Success:                        "成功",
+  Failure:                        "失败",
+  "Close (Esc)":                  "关闭 (Esc)",
+  "Analyzer Scripts":             "分析脚本",
+  "No analyzer scripts are available. Visit": "暂无可用的分析脚本。前往",
+  "to author one — or run the seed migration to load the system library.":
+                                  "编写一个 —— 或运行 seed 迁移加载系统库。",
+  Script:                         "脚本",
+  "— pick a script —":            "— 选择脚本 —",
+  auto:                           "自动",
+  Params:                         "参数",
   "Search…":                      "搜索…",
   "Search navigation":            "搜索导航",
   "Clear search":                 "清除搜索",
@@ -356,7 +477,11 @@ const ZH: Dict = {
   Activity:                         "动态",
   Monitoring:                       "监控",
   Buckets:                          "S3 桶",
-  Collections:                      "Collections",
+  // "Collections" translation moved to its dedicated block further
+  // down (Collections page section). Removed the English placeholder
+  // here because duplicate keys in object literals cause Turbopack's
+  // dev SSR cache to lock onto the first value and trigger
+  // server/client hydration mismatch.
   // Buckets page
   "S3 buckets via weed shell s3.bucket.list. Row actions call s3.bucket.* commands.":
                                     "通过 weed shell s3.bucket.list 获取,行操作调用 s3.bucket.* 命令。",
@@ -600,6 +725,8 @@ const ZH: Dict = {
   "Skip to raw JSON →":  "跳到原始 JSON →",
 
   // ---- Dashboard ---------------------------------------------------
+  "Check":                    "检查",
+  "Capacity":                 "容量",
   "Run scoring":              "运行评分",
   "Scan selected cluster":    "深度检查",
   "Storage Tiering Overview": "存储分层总览",
@@ -1619,6 +1746,17 @@ const ZH: Dict = {
 
   // Today's attention dashboard panel
   "Today's attention":                      "今日关注",
+  "Hide for today":                         "今日忽略",
+  // Distinct key from the existing "Restore" (which is "回滚" / rollback
+  // for migrations and executions) — semantics here are "un-dismiss".
+  "Show hidden":                            "显示已忽略",
+  "{n} hidden for today":                   "已忽略 {n} 条",
+  // Per-signal time chip — "Since" uses server-side truth (e.g. alert
+  // created_at); "First seen at" is the client-side fallback for signals
+  // the API doesn't timestamp (Raft consistency, EC degradation).
+  "Since":                                  "起始",
+  "First seen at":                          "本机首次发现",
+  "(may have started earlier)":             "(实际开始时间可能更早)",
   "Signals that warrant operator action":   "需要运维关注的信号",
   "Pending task approvals":                 "待审批任务",
   "waiting for review":                     "条等待审核",
@@ -1650,6 +1788,116 @@ const ZH: Dict = {
   "Ignored":                                "已忽略",
   "critical":                               "严重",
   "warning":                                "警告",
+
+  // ---- Sidebar nav items missing translations ----
+  "Dashboard":                              "总览",
+  "Backends":                               "存储后端",
+  "Cohort":                                 "同业横比",
+  "Policies":                               "迁移策略",
+  "Skills":                                 "技能(SOP)",
+  "Holidays":                               "节假日",
+  "EC":                                     "EC",
+
+  // ---- Skills page extras ----
+  "High risk":                              "高风险",
+  "Custom":                                 "自定义",
+  "All":                                    "全部",
+  "All categories":                         "全部分类",
+  "Any risk":                               "全部风险等级",
+  "Enabled only":                           "仅显示已启用",
+  "Reset":                                  "重置",
+
+  // ---- Admin tabs ----
+  "Admin":                                  "管理后台",
+  "Configure":                              "配置",
+  "Review":                                 "复核",
+  "Settings":                               "设置",
+  "Permissions":                            "权限",
+  "Audit":                                  "审计",
+
+  // ---- Admin tabs + config groups ----
+  "Users":                                  "用户",
+  "Autonomy":                               "自动化等级",
+  "Pressure":                               "压力",
+  "Server":                                 "服务",
+
+  // ---- Policies + Lifecycle pages ----
+  "Live":                                   "运行中",
+  "Dry-run":                                "演练",
+  "Lifecycle":                              "生命周期",
+  "Data lifecycle":                         "数据生命周期",
+  "Buckets w/ retention":                   "已设保留期的桶",
+  "Expired data":                           "已过期数据",
+  "No buckets have a retention rule yet":   "尚无桶配置了保留规则",
+  "Open the Buckets page, edit a bucket's governance, and set a retention period.": "前往「桶」页面，编辑桶的治理设置并设定保留期。",
+
+  // ---- Cluster maintenance tabs ----
+  "Drain history":                          "下线历史",
+
+  // ---- Tools: ops templates + scripts ----
+  "Categories":                             "分类",
+  "Scripts":                                "脚本",
+  "System":                                 "系统",
+  "User":                                   "用户",
+
+  // ---- Cohort / temperature pages ----
+  "Cohorts":                                "同业组",
+  "Anomalies":                              "异常",
+  "Collection":                             "集合",
+  "flat":                                   "平稳",
+
+  // ---- Backends page ----
+  "Last test OK":                           "上次测试通过",
+  "Last test failed":                       "上次测试失败",
+
+  // ---- S3 page ----
+  "Past retention":                         "已过保留",
+  "With quota":                             "已设配额",
+  "How does access control work?":          "访问控制如何工作？",
+
+  // ---- Collections page ----
+  "Collections":                            "集合",
+  "Volumes":                                "卷",
+  "Total size":                             "总大小",
+  "total":                                  "总计",
+
+  // ---- Cluster list page (app/clusters/page.tsx) ----
+  "Registered":                             "已注册",
+  "Enabled":                                "已启用",
+  "Disabled":                               "已禁用",
+  "New cluster":                            "新建集群",
+  "Clusters":                               "集群",
+
+  // ---- Activity / tasks panel empty states + filters ----
+  "More":                                   "更多",
+  "No tasks":                               "无任务",
+  "No pending tasks":                       "无待处理任务",
+  "No approved tasks":                      "无已批准任务",
+  "No running tasks":                       "无运行中任务",
+  "No failed tasks":                        "无失败任务",
+  "No scheduled tasks":                     "无定时任务",
+  "No succeeded tasks":                     "无已完成任务",
+  "No rolled_back tasks":                   "无已回滚任务",
+  "No cancelled tasks":                     "无已取消任务",
+  "Tasks land here after Dashboard \"Run scoring\" or when policies trigger.": "运行评分或策略触发后，任务会出现在这里。",
+  "Approve a pending task above to move it here.": "批准上方的待处理任务后会移到这里。",
+  "Tasks appear once you click Run on an approved task.": "点击已批准任务上的「运行」后会出现在这里。",
+  "Nothing is on fire — failed tasks would show here with a retry button.": "一切正常 —— 出现失败时会显示在这里并附带重试按钮。",
+  "Tasks appear after Dashboard \"Run scoring\" or as policies trigger.": "评分运行或策略触发后任务会出现在这里。",
+  "{n} tasks":                              "{n} 个任务",
+  "Run failed":                             "运行失败",
+
+  // ---- Capacity forecast panel (components/capacity-forecast.tsx) ----
+  "Capacity forecast":                      "容量预测",
+  "{n} critical":                           "{n} 个严重",
+  "no data":                                "无数据",
+  "stable":                                 "稳定",
+  "full":                                   "已写满",
+  "full in >10y":                           ">10 年后写满",
+  "full in ~{n}d":                          "约 {n} 天后写满",
+  "day":                                    "天",
+  "confidence":                             "置信度",
+
   "No enabled clusters":                    "没有启用中的集群",
   "Add a cluster in /clusters to start monitoring.": "请前往 /clusters 添加集群以开始监控。",
   "All clear":                              "一切正常",
@@ -1885,7 +2133,7 @@ const ZH: Dict = {
   "low":                                    "低",
   "medium":                                 "中",
   "high":                                   "高",
-  "Open in Ops console":                    "在 Ops 控制台打开",
+  "Open in Ops console":                    "在运维命令页打开",
   "Save as template":                       "保存为模板",
   "No volumes to price yet":                "尚无可计价的卷",
   "Once the cluster has volumes, this dashboard fills in. Make sure pricing is configured in /pricing.":
@@ -2485,6 +2733,431 @@ const ZH: Dict = {
   "S3":                           "S3",
   "S3 gateway management: buckets, identities, circuit breaker, and stale-upload cleanup.":
                                   "S3 网关管理:Bucket、身份、熔断器、过期 upload 清理。",
+  "S3 gateway management: buckets, table buckets (Iceberg), identities, circuit breaker, and stale-upload cleanup.":
+                                  "S3 网关管理:对象桶、表桶(Iceberg)、身份与密钥、限流防护、分片上传清理。",
+  // ---- S3 Tables (table buckets / Iceberg) ----
+  "Table buckets":                "表桶(Tables)",
+  "S3 Tables (Iceberg)":          "S3 Tables(Iceberg 表桶)",
+  "scoped by owner account ID":   "按所属账号 ID 隔离",
+  "Owner account ID":             "所属账号 ID",
+  "Required. AWS-style 12-digit ID or any identifier configured on the cluster.":
+                                  "必填。AWS 风格的 12 位数字,或集群里配置的任意账号标识。",
+  "Name prefix filter":           "名称前缀过滤",
+  "Optional. Leave blank to list all buckets in the account.":
+                                  "可选。留空则列出该账号下所有表桶。",
+  "New table bucket":             "新建表桶",
+  "Enter an owner account ID above to load table buckets.":
+                                  "请在上方输入所属账号 ID 以加载表桶列表。",
+  "No table buckets in this account.": "该账号下还没有表桶。",
+  "Click 'New table bucket' to create one.": "点击\"新建表桶\"创建一个。",
+  "ARN":                          "ARN(资源 ID)",
+  "Copy ARN":                     "复制 ARN",
+  "Bucket policy":                "授权策略",
+  "Delete table bucket {n}?":     "删除表桶 {n}?",
+  "This removes the table bucket and is not reversible. Namespaces and tables under it must already be deleted.":
+                                  "此操作不可恢复。删除前请先删掉表桶下的命名空间和表。",
+  "More buckets exist. Pagination not yet wired — narrow with a prefix filter for now.":
+                                  "还有更多表桶。分页暂未接入,请用名称前缀过滤来缩小范围。",
+  "Could not parse shell output.": "无法解析 shell 输出。",
+  "Name must be 3-63 lowercase alphanumerics and hyphens, no leading/trailing hyphen.":
+                                  "名称长度 3-63 位,仅允许小写字母、数字和中划线,且不能以中划线开头或结尾。",
+  "3-63 chars, lowercase + digits + hyphen. Cannot collide with a regular S3 bucket name.":
+                                  "3-63 位,小写字母 + 数字 + 中划线。不能和普通对象桶重名。",
+  "Tags":                         "标签",
+  "Optional. Comma-separated key=value pairs, e.g. env=prod,team=analytics.":
+                                  "可选。逗号分隔的 key=value 列表,例如 env=prod,team=analytics。",
+  "Resource policy":              "资源策略",
+  "Delete policy on {n}?":        "删除 {n} 的资源策略?",
+  "Removes the resource policy. Default access rules will apply afterwards.":
+                                  "删除资源策略后,将回退到默认访问规则。",
+  "Paste an IAM-style JSON policy here. Leave blank to keep no policy attached.":
+                                  "粘贴 IAM 风格的 JSON 授权策略。留空表示不附加任何策略。",
+  "Invalid JSON: ":               "JSON 格式有误:",
+  "Policy must be valid JSON: ":  "策略必须是合法 JSON:",
+  "Delete policy":                "删除策略",
+  "Apply policy":                 "应用",
+  // ---- Inline explainers for ARN / resource policy ----
+  "What is this?":                "这是什么?",
+  "ARN = the bucket's globally unique resource ID (\"arn:aws:s3tables:…:bucket/<name>\"). Used by Iceberg engines and IAM policies. For everyday use you only need the name.":
+                                  "ARN = 表桶在整个集群里的唯一资源 ID(形如 arn:aws:s3tables:…:bucket/<名称>)。Iceberg 引擎和 IAM 策略需要它。日常使用只看名字即可。",
+  "A resource policy is an optional JSON rule attached to this bucket that says \"who can do what\" on it. Most buckets don't need one — leave it empty unless you need cross-account sharing or principal-specific permissions.":
+                                  "资源策略是挂在这个表桶上的可选 JSON 规则,用来定义\"谁能对它做什么\"。大多数桶不需要 —— 除非你要做跨账号共享或单独给某个 principal 开权限,否则留空即可。",
+  "Show example":                 "查看示例",
+  "Hide example":                 "收起示例",
+  "Use this as a starting point": "用这个作为起点",
+  "Table bucket created":         "表桶已创建",
+  "Policy applied":               "策略已应用",
+  "Policy deleted":               "策略已删除",
+  "Create failed":                "创建失败",
+  "Apply policy failed":          "应用失败",
+  // ---- Bind credentials dialog (bucket → identity AK/SK) ----
+  "Bind credentials (AK/SK)":     "绑定凭据 (AK/SK)",
+  "Bind credentials to bucket":   "为桶绑定凭据 (AK/SK)",
+  "AK/SK belong to an identity, not a bucket. We'll grant the chosen identity scoped permissions on this bucket (e.g. Read:{n}, Write:{n}). The identity's existing access keys stay unchanged.":
+                                  "AK/SK 是挂在 identity(身份)上的,不是挂在桶上的。这里会给选中的 identity 加上对该桶的权限(例如 Read:{n}、Write:{n})。它原有的 AK/SK 不会变。",
+  "Loading identities…":          "加载身份列表中…",
+  "Use existing identity":        "使用已有身份",
+  "Create new identity":          "新建身份",
+  "Existing access keys for this identity remain unchanged. Only the action list is updated.":
+                                  "该身份原有的 AK/SK 不会改动,只更新权限(actions)列表。",
+  "Access key (AK)":              "Access Key (AK)",
+  "Secret key (SK)":              "Secret Key (SK)",
+  "Permissions on this bucket":   "对该桶的权限",
+  "These will be appended to the identity's actions list. Read = GET/HEAD, Write = PUT/POST/DELETE, List = ListBucket, Tagging = read+write tags.":
+                                  "这些会追加到身份的 actions 列表里。Read=读取对象、Write=写入/删除、List=列桶、Tagging=读写标签。",
+  "Final action list (preview)":  "保存后该身份的完整 actions 列表(预览)",
+  "(empty — pick at least one permission)": "(空 —— 至少勾选一种权限)",
+  "Create & bind":                "创建并绑定",
+  "Grant access":                 "授予访问权限",
+  "Identity created and bound":   "身份已创建并绑定",
+  "Bucket access granted":        "桶访问权限已授予",
+  "Bind failed":                  "绑定失败",
+  // ---- Owner field help (Change owner dialog) ----
+  "Owner is a metadata label only. Access is controlled by the identity's actions (e.g. Read:<bucket>), not by who owns the bucket.":
+                                  "所有者只是一个元数据标记。真正控制访问的是该身份的 actions(例如 Read:<bucket>),而不是谁\"拥有\"这个桶。",
+  "Could not load options":       "无法加载选项",
+  "Pick one…":                    "请选择…",
+  // ---- Bucket panel: model explainer + Bound access column ----
+  "How does access control work? (read me first)": "S3 桶的访问控制是怎么工作的?(强烈建议先看)",
+  "SeaweedFS S3 is identity-centric. Access keys and permissions live on identities, not on buckets.":
+                                  "SeaweedFS S3 是以身份(identity)为核心的:AK/SK 和权限都挂在身份上,不在桶上。",
+  "Bound access":                 "可访问凭据",
+  "identities whose actions include Read:<bucket> / Write:<bucket>. This is what actually controls who can read/write.":
+                                  "actions 里写了 Read:<bucket> / Write:<bucket> 的那些身份。这才是真正决定谁能读写的东西。",
+  "a metadata label naming a single identity as the bucket's nominal owner. Affects ListAllMyBuckets and default ACL only — it does NOT grant access by itself.":
+                                  "只是一个名称标签,指向一个\"名义所有者\"身份。只影响 ListAllMyBuckets 和默认 ACL,本身不授予任何访问权限。",
+  "(metadata)":                   "(仅元数据)",
+  "Identities whose actions list grants access on this bucket. This is the real authorization signal.":
+                                  "actions 里授予了对此桶访问权限的身份。这才是真正的授权信号。",
+  "Metadata label only — does not grant access. Real access is in 'Bound access'.":
+                                  "仅元数据,不授予访问权限。真正的访问权限看\"可访问凭据\"列。",
+  "No identity currently has access to this bucket.": "目前没有任何身份能访问这个桶。",
+  "Bind…":                        "绑定…",
+  "no key":                       "无 AK",
+  "Hide access key":              "隐藏 AK",
+  "Show access key":              "显示 AK",
+  "These identities have bare verbs (no bucket scope) — they apply to every bucket. Tighten with Read:<bucket> if not intended.":
+                                  "这些身份的 actions 是裸的(没有指定 bucket),会对所有桶生效。如非本意,请改成 Read:<bucket> 等带桶名的写法。",
+  "+{n} with global access":      "另有 {n} 个身份拥有全局权限",
+  // ---- Global-access NoticeChip (panel-level summary) ----
+  "{n} identity has access to all buckets":
+                                  "{n} 个身份可以访问所有桶",
+  "Identities with cluster-wide access":
+                                  "对全集群有访问权限的身份",
+  "These identities have unscoped verbs (e.g. \"Read\" instead of \"Read:my-bucket\"), which means they can act on every bucket in the cluster. This may be intentional (admin / service account) or accidental (a bucket-scope was forgotten).":
+                                  "这些身份的动作没有限定到桶(例如 \"Read\" 而不是 \"Read:my-bucket\"),意味着它们对集群里**每个**桶都生效。可能是有意的(管理员 / 服务账号),也可能是忘了加 bucket 限定。",
+  "To tighten: edit the identity and replace bare verbs with scoped form like \"Read:<bucket>\".":
+                                  "如要收紧:编辑该身份,把无限定的动作改成 \"Read:<bucket>\" 这种形式。",
+  "Copy access key":              "复制访问密钥",
+  "Copy secret key":              "复制保密密钥",
+  "Create":                       "创建",
+  // ---- Inline name validation hints (S3 / S3 Tables) ----
+  "Name must be at least 3 characters.":   "名称至少 3 个字符。",
+  "Name must be at most 63 characters.":   "名称最多 63 个字符。",
+  "Underscores aren't allowed in bucket names — use hyphens instead, e.g. \"iceberg-catalog\".":
+                                  "桶名不能包含下划线 _,改用短横线 - ,例如 \"iceberg-catalog\"。",
+  "Bucket names must be all lowercase.":   "桶名必须全部小写。",
+  "Only lowercase letters, digits, and hyphens are allowed.":
+                                  "只允许小写字母、数字和短横线。",
+  "Only lowercase letters, digits, hyphens and dots are allowed.":
+                                  "只允许小写字母、数字、短横线和点号。",
+  "Name can't start or end with a hyphen.":
+                                  "名称不能以短横线开头或结尾。",
+  // ---- AccountBar popover ----
+  "No accounts used yet. Type one below.":
+                                  "还没用过任何账号,从下方输入一个。",
+  "Add new":                      "添加新账号",
+  "Use":                          "使用",
+  "{u} can now {v} on {b}. Look for it in the 'Bound access' column.":
+                                  "{u} 现在可以对 {b} 执行 {v}。请查看\"可访问凭据\"列。",
+  // ---- Identity dialog: silent-drop fix ----
+  "\"{x}\" is not added yet — press Enter or click Add. We'll auto-add it on Save.":
+                                  "\"{x}\" 还没有加入列表 —— 按回车或点 Add。保存时会自动帮你加上。",
+  "Secret key is required when setting a new access key.": "设置新 AK 时必须同时填 SK。",
+  "{n} action(s): {a}":           "{n} 条权限:{a}",
+  "No actions — this identity cannot access any bucket yet.": "无权限 —— 这个身份目前还不能访问任何桶。",
+  // ---- AI policy assistant (popover form) — most keys reuse the
+  // pre-existing AI panel translations defined later in this file. ----
+  "AI assist":                    "AI 助手",
+  "AI policy assistant — describe access in plain English and review a proposed identity.":
+                                  "AI 策略助手 —— 用大白话描述访问意图,AI 会给你一份建议的身份配置等你审核。",
+  "Describe your access goal in plain English. The AI will propose a minimal IAM policy — you must review and approve before it is applied.":
+                                  "用大白话描述你的访问意图。AI 会给你一份最小化的 IAM 策略 —— 你必须先审核确认才会落库。",
+  "read-only access to logs-* buckets, no delete":
+                                  "对 logs-* 系列桶只读,不允许删除",
+  "Approve & create":             "采纳并创建",
+  "Just bound":                   "刚刚绑定",
+  "Just bound \"{u}\" but not visible yet — try Refresh.":
+                                  "刚刚绑定了 \"{u}\",但列表还没看到 —— 试试点 Refresh 刷新。",
+  // ---- BoundAccessCell redesign (AK/SK + verb tags) ----
+  "Reveal secret key":            "显示 Secret Key",
+  "Hide secret key":              "隐藏 Secret Key",
+  "Need s3.configure (admin) to view secret keys.":
+                                  "查看 Secret Key 需要 s3.configure(管理员)权限。",
+  "Secret key not found for this AK on the cluster.":
+                                  "在集群上找不到该 AK 对应的 Secret Key。",
+  "no access key":                "无 Access Key",
+  "Show {n} more":                "再展开 {n} 条",
+  // ---- Policy editor (dual-mode visual/JSON) ----
+  "Visual":                       "可视化",
+  "Uses features not shown here": "包含可视化无法展示的字段",
+  "This policy uses features the visual editor can't display.":
+                                  "这条策略包含可视化编辑器无法展示的字段",
+  "Examples: Condition blocks, NotAction/NotResource, Service principals, or array Resources. Switch to JSON tab to edit, or delete it and rebuild here.":
+                                  "比如 Condition 条件、NotAction/NotResource、Service 主体、或数组形式的 Resource。请切到 JSON 标签编辑,或者清空策略后在这里重建。",
+  "No policy attached. Most buckets don't need one.":
+                                  "没有附加策略,大多数桶都不需要。",
+  "Add a rule":                   "添加一条规则",
+  "Add another rule":             "再加一条规则",
+  "Rule {n} of {total}":          "规则 {n} / {total}",
+  "Remove rule":                  "删除该规则",
+  "Effect":                       "效果",
+  "Allow":                        "允许",
+  "Deny":                         "拒绝",
+  "Who":                          "授权对象",
+  "AWS account ID, IAM user ARN, or * for everyone":
+                                  "AWS 账号 ID、IAM 用户 ARN,或 * 表示所有人",
+  "Examples: 123456789012 (whole account) · arn:aws:iam::123456789012:user/analyst · *":
+                                  "举例:123456789012(整个账号)· arn:aws:iam::123456789012:user/analyst · *",
+  "Advanced (resource scope, custom actions)":
+                                  "高级(自定义资源范围 / 额外动作)",
+  "Resource ARN":                 "资源 ARN",
+  "Extra actions (comma separated)":
+                                  "额外动作(逗号分隔)",
+  "Use this for permissions not covered by the checkboxes above.":
+                                  "上面没列出的细粒度权限可以填在这里。",
+  "List & browse":                "浏览(List)",
+  "See namespaces and tables in this bucket":
+                                  "查看桶里的 namespace 和表",
+  "Read data":                    "读取数据(Read)",
+  "Query table contents and metadata":
+                                  "查询表数据和元数据",
+  "Write data":                   "写入数据(Write)",
+  "Create namespaces/tables, append rows, update metadata":
+                                  "创建 namespace/表、写入数据、更新元数据",
+  "Drop tables or whole namespaces — destructive":
+                                  "删除表或整个 namespace —— 不可恢复",
+  "Manage this policy":           "管理本策略",
+  "Edit or remove the resource policy itself":
+                                  "修改或删除本资源策略本身",
+  "Paste an IAM-style JSON policy here. Leave blank to detach.":
+                                  "粘贴 IAM 风格的 JSON 策略,留空则解除绑定",
+  "Bucket permissions":           "桶访问授权",
+  "Optional. Use this to let other AWS accounts or specific IAM users access this table bucket. Leave empty if only the owner account needs access — that's the default.":
+                                  "可选。用来让别的 AWS 账号或具体的 IAM 用户访问这个 Table 桶。如果只有本账号需要用,留空即可(默认就是这样)。",
+  "No policy to delete":          "当前没有策略可删",
+  // ---- Identities panel: batch ops + compact toolbar ----
+  "identities":                   "个身份",
+  "Filter by name…":              "按名称过滤…",
+  "No identities match the filter.": "没有符合条件的身份。",
+  "{n} selected":                 "已选 {n} 项",
+  "Deleting {cur}/{total}: {name}": "正在删除 {cur}/{total}:{name}",
+  "Delete {n}":                   "删除 {n} 项",
+  "Select all":                   "全选",
+  "Select {n}":                   "选中 {n}",
+  "Delete {n} identity?":         "确认删除 {n} 个身份吗?",
+  "This permanently removes the identities and all their access keys. Anyone using those AK/SK pairs will be immediately denied.":
+                                  "这将永久删除这些身份和它们的全部 AK/SK。正在用这些凭据的客户端会立刻被拒绝访问。",
+  "Identities ({n})":             "身份 ({n})",
+  "Delete {n} identity":          "删除 {n} 个身份",
+  "Deleted {n} identity":         "已删除 {n} 个身份",
+  "Failed to delete any identity":"全部删除失败",
+  "Deleted {ok} identity, {fail} failed":
+                                  "成功删除 {ok} 个,{fail} 个失败",
+  // ---- NoticeChip summaries (collapsed warning banners) ----
+  "{n} stale":                    "{n} 个过期",
+  "{n} unknown":                  "{n} 个未知",
+  "Parse warning":                "解析告警",
+  "Could not parse identities":   "无法解析身份列表",
+  "The shell returned output that didn't fit the expected schema. Showing an empty list. Raw error:":
+                                  "shell 返回的输出不符合预期格式,列表已置空。原始错误:",
+  "Bindings unreadable":          "无法读取绑定",
+  "Scan failed":                  "扫描失败",
+  "Lifecycle scan error":         "生命周期扫描错误",
+  // ---- S3 Tables drill-down (buckets / namespaces / tables / tags) ----
+  "Account":                      "账号",
+  "name prefix filter…":          "按前缀过滤…",
+  "Danger":                       "危险操作",
+  "Table bucket · {a}":           "Table 桶 · {a}",
+  "Namespace in":                 "命名空间属于",
+  "namespaces in {b}":            "{b} 下的命名空间",
+  "tables in {ns}":               "{ns} 下的表",
+  "New namespace":                "新建 Namespace",
+  "New table":                    "新建表",
+  "Inside bucket":                "所属 bucket",
+  "Owner account":                "所属账号",
+  "Version token":                "版本令牌",
+  "Format":                       "格式",
+  "Tags (optional)":              "标签(可选)",
+  "Tag key cannot be empty.":     "标签 key 不能为空。",
+  "Tag keys/values cannot contain ',' or '='.":
+                                  "标签 key/value 不能包含 ',' 或 '='。",
+  "Tags saved":                   "标签已保存",
+  "Tags are AWS-style key=value labels. Use them for billing, ownership tracking, or to drive automation. They don't grant access.":
+                                  "标签是 AWS 风格的 key=value 标识。用于计费归属、权属跟踪、自动化触发。它本身不授予任何权限。",
+  "No tags yet.":                 "暂无标签。",
+  "Add tag":                      "新增标签",
+  "Add another":                  "再加一条",
+  "Remove tag":                   "删除标签",
+  "Save tags":                    "保存标签",
+  "key":                          "键",
+  "value":                        "值",
+  "Delete namespace {n}?":        "确认删除 namespace {n} 吗?",
+  "All tables in this namespace must already be deleted. This action is not reversible.":
+                                  "该 namespace 下必须没有 table。本操作不可恢复。",
+  "Delete namespace":             "删除 namespace",
+  "Namespace created":            "Namespace 已创建",
+  "New namespace in {b}":         "在 {b} 下新建 namespace",
+  "Alphanumerics, hyphens and underscores. 1-255 chars.":
+                                  "字母数字、连字符、下划线,1-255 字符。",
+  "No namespaces in this bucket yet.":
+                                  "这个 bucket 还没有 namespace。",
+  "Delete table {n}?":            "确认删除表 {n} 吗?",
+  "All data and metadata for this table will be removed. This is not reversible.":
+                                  "该表的所有数据和元数据都会被清除,不可恢复。",
+  "Delete table":                 "删除表",
+  "Table created":                "表已创建",
+  "New table in {ns}":            "在 {ns} 下新建表",
+  "No tables in this namespace yet.":
+                                  "这个 namespace 还没有表。",
+  "Destructive actions":          "危险操作",
+  "Permanent. Cannot be undone.": "永久操作,不可恢复。",
+  "Delete bucket {n}?":           "确认删除 bucket {n} 吗?",
+  "All namespaces and tables under this bucket must already be deleted. This is not reversible.":
+                                  "该 bucket 下的所有 namespace 和 table 必须已被删除,操作不可恢复。",
+  "Remove policy?":               "确认移除该策略?",
+  // ---- S3 Tables tree-layout refresh ----
+  "Start with an owner account":  "先填一个所属账号",
+  "S3 Tables groups every bucket / namespace / table under an \"owner account\" — usually an AWS-style 12-digit ID. The shell commands require it for every action, so we ask once upfront. The browser remembers it for next time.":
+                                  "S3 Tables 把所有 bucket / namespace / table 都挂在一个\"所属账号\"下,通常是 AWS 风格的 12 位 ID。shell 命令每次都要,所以先问一次。浏览器会记住,下次不用再填。",
+  "Continue":                     "继续",
+  "Recent":                       "最近",
+  "More create options":          "更多创建选项",
+  "Click to change account":      "点击切换账号",
+  "Viewing account":              "查看账号",
+  "not set — click to pick one":  "未设置 — 点击选择",
+  "Click to switch the viewing account. This doesn't move data — it just changes which account's resources are listed.":
+                                  "点击切换查看账号 —— 不会移动任何数据,只是切换列出哪个账号的资源。",
+  "This is a viewing filter — it tells the panel which account's resources to load. You can also pick an account directly when creating a bucket.":
+                                  "这只是一个查看过滤器 —— 决定加载哪个账号的资源。创建 bucket 时也可以单独指定账号。",
+  "No viewing account picked yet.": "尚未选择查看账号。",
+  "Click \"+ New bucket\" on the right to create one — you'll set its account in that dialog.":
+                                  "点右上角 \"+ 新建桶\" 创建一个 —— 在对话框里指定它的账号。",
+  "Owner account is required.":   "所属账号必填。",
+  "Permanent. The bucket's owner cannot be changed after creation.":
+                                  "永久属性。bucket 的所属账号在创建后无法更改。",
+  "This account becomes the bucket's permanent owner — moving a bucket between accounts is not supported.":
+                                  "这个账号将成为 bucket 的永久所属账号 —— 不支持把 bucket 转移到其他账号。",
+  "Bucket names cannot be changed after creation.": "bucket 名称创建后不可更改。",
+  "A bucket's owner is set at creation and cannot be changed. To move data, create a new bucket under the new account and copy the contents.":
+                                  "bucket 的所属账号在创建时确定,之后无法更改。如需迁移数据,请在新账号下创建一个新 bucket 并复制内容过去。",
+  "ARN is derived from owner + name. Both are immutable, so ARN is too.":
+                                  "ARN 由 owner + name 推导而来。两者都不可变,所以 ARN 也不可变。",
+  "Namespace names cannot be changed after creation.":
+                                  "namespace 名称创建后不可更改。",
+  "Inherited from the parent bucket; can't be changed independently.":
+                                  "继承自父 bucket,无法独立更改。",
+  "A namespace cannot be moved between buckets.":
+                                  "namespace 无法在 bucket 之间迁移。",
+  "Table names cannot be changed after creation.":
+                                  "表名创建后不可更改。",
+  "Tables cannot be moved between namespaces.":
+                                  "表无法在 namespace 之间迁移。",
+  "Inherited from the bucket; can't be changed independently.":
+                                  "继承自 bucket,无法独立更改。",
+  "\"{n}\" is already taken by a regular S3 bucket. Table buckets share the global S3 namespace — pick a different name.":
+                                  "\"{n}\" 已被一个普通 S3 桶占用。Table 桶和普通桶共用全局命名空间 —— 换一个名字试试。",
+  "\"{n}\" already exists in this account. Pick a different name.":
+                                  "\"{n}\" 在该账号下已存在,请换一个名字。",
+  "\"{n}\" already exists in this bucket. Pick a different name.":
+                                  "\"{n}\" 在这个 bucket 下已存在,请换一个名字。",
+  "\"{n}\" already exists in this namespace. Pick a different name.":
+                                  "\"{n}\" 在这个 namespace 下已存在,请换一个名字。",
+  // ---- Combined create-bucket-with-access wizard ----
+  "DNS-compatible: lowercase + digits + . - · 3-63 chars.":
+                                  "DNS 兼容:小写字母 + 数字 + . - · 3-63 字符。",
+  "Optional. Leave blank for no quota.": "可选,留空表示不限。",
+  "Grant access (optional)":      "授权访问(可选)",
+  "create new identity":          "新建身份",
+  "use existing identity":        "选择已有身份",
+  "Without this, the bucket has no AK/SK pair attached — only the admin (root) can access it. Most operators want at least one identity bound at create time.":
+                                  "不勾选则桶不绑定任何 AK/SK —— 只有 admin (root) 能访问。一般建议至少绑一个身份。",
+  "Use existing":                 "选已有",
+  "Skip":                         "跳过",
+  "New actions will be appended to this identity's existing list.":
+                                  "新动作会追加到这个身份原有的动作列表里。",
+  "Regenerate AK/SK":             "重新生成 AK/SK",
+  "Copy SK":                      "复制 SK",
+  "Copy this Secret Key now — it's only fully visible right after creation.":
+                                  "立刻复制 SK —— 只在创建后这一次完整显示。",
+  "Scoped to bucket {b}: e.g. Read:{b}, Write:{b}.":
+                                  "限定到桶 {b}:形如 Read:{b}、Write:{b}。",
+  "Pick an identity from the list.": "请从列表选择一个身份。",
+  "Identity name: 1-64 chars, alphanumerics + . _ -":
+                                  "身份名:1-64 字符,字母数字 + . _ -",
+  "Access key required.":         "访问密钥必填。",
+  "Secret key required.":         "保密密钥必填。",
+  "Pick at least one permission to grant.":
+                                  "至少选一个要授予的权限。",
+  "Equivalent commands (Apply)":  "对应命令(执行)",
+  "Bucket created":               "桶已创建",
+  "{u} can now {v} on {b}.":      "{u} 现在可以 {v} 桶 {b} 了。",
+  "Granted {v} on {b} to {u}.":   "已把桶 {b} 的 {v} 权限授予 {u}。",
+  "Bucket \"{n}\" already exists. Pick a different name.":
+                                  "桶 \"{n}\" 已存在,请换一个名字。",
+  "Bucket was created OK, but binding credentials failed: {e}":
+                                  "桶已创建成功,但绑定凭据失败:{e}",
+  "New bucket via wizard":        "通过向导新建桶",
+  "Creating bucket…":             "创建桶中…",
+  "Binding identity…":            "绑定身份中…",
+  "Select a resource from the tree": "在左侧树形选择一个资源",
+  "Pick a bucket, namespace, or table from the tree to see its details.":
+                                  "在左侧选一个 bucket / namespace / table 查看详情。",
+  "Or click \"+ New\" to create one.": "或点 \"+ New\" 新建。",
+  "Default access rules will apply afterwards.":
+                                  "移除后会回退到默认访问规则。",
+  // ---- CommandPreview component (audit transparency) ----
+  "Equivalent command":           "对应命令",
+  "Equivalent command (dry-run)": "对应命令(预演,不会真执行)",
+  "Equivalent command (Apply)":   "对应命令(执行)",
+  "Copy to clipboard":            "复制到剪贴板",
+  // ---- CommandAuditToast (auto post-action display) ----
+  "Executed":                     "已执行",
+  "Copy all commands":            "复制全部命令",
+  // ---- Bind credentials diagnostics ----
+  "You don't have permission to manage identities (s3.configure). Ask an admin to grant the s3.configure capability or to run the bind themselves.":
+                                  "你没有管理身份的权限(s3.configure)。请管理员授予 s3.configure 权限,或让管理员代为绑定。",
+  "The identity name is empty. Pick an existing identity or fill in a name in 'Create new identity'.":
+                                  "身份名为空。请在上方选择已有身份,或切到\"新建身份\"并填入名字。",
+  "Setting a new access key requires the matching secret key.":
+                                  "设置新 AK 时必须同时填对应的 SK。",
+  "Save is disabled:":            "保存按钮不可点的原因:",
+  "identities still loading":     "身份列表还在加载",
+  "name required (letters, digits, . _ -)": "名字必填(字母、数字、点、下划线、中划线)",
+  "pick an identity":             "请选择一个身份",
+  "pick at least one permission": "至少勾选一种权限",
+  "AK required":                  "需要填 AK",
+  "SK required":                  "需要填 SK",
+  "Fill in all required fields first": "请先填好所有必填字段",
+  "Cannot read identity bindings": "无法读取身份绑定信息",
+  "The 'Bound access' column will be empty until this is fixed. Most common cause: your role lacks s3.read on this cluster.":
+                                  "\"可访问凭据\"列在此问题修复前会一直空着。最常见的原因:你的角色在该集群上没有 s3.read 权限。",
+  "Could not load existing identities — your role may lack s3.read on this cluster. You can still create a new identity below.":
+                                  "无法加载已有身份 —— 你的角色可能没有 s3.read 权限。可以继续在下方新建身份。",
+  "Equivalent command: s3.configure -user={n} -delete -apply":
+                                  "对应命令: s3.configure -user={n} -delete -apply",
+  "Equivalent command: s3tables.bucket -delete -name={n} -account={a}":
+                                  "对应命令: s3tables.bucket -delete -name={n} -account={a}",
+  "Equivalent command: s3tables.bucket -delete-policy -name={n} -account={a}":
+                                  "对应命令: s3tables.bucket -delete-policy -name={n} -account={a}",
+  "This kicks off a multi-step drain job. Each step runs a separate weed shell command (volume.fix.replication / volumeServer.leave); they will appear in the bottom-right command audit toast as they execute. You can also follow them on the drain detail page.":
+                                  "这会启动一个多步骤的排空任务。每一步都会单独执行一条 weed shell 命令(volume.fix.replication / volumeServer.leave),执行时会在右下角的命令审计提示中陆续显示;也可以在排空详情页跟踪进度。",
+  "Equivalent command: weed shell -- \"s3.configure -user={n} -delete -apply\"":
+                                  "对应命令:weed shell -- \"s3.configure -user={n} -delete -apply\"",
+  "Equivalent command: weed shell -- \"s3tables.bucket -delete -name={n} -account={a}\"":
+                                  "对应命令:weed shell -- \"s3tables.bucket -delete -name={n} -account={a}\"",
+  "Equivalent command: weed shell -- \"s3tables.bucket -delete-policy -name={n} -account={a}\"":
+                                  "对应命令:weed shell -- \"s3tables.bucket -delete-policy -name={n} -account={a}\"",
   // ---- AI policy assistant (Tier 1.2) ----
   "AI policy assistant":          "AI 策略助手",
   // ---- Circuit-breaker AI limit advisor (Tier 2.4) ----
@@ -2694,7 +3367,8 @@ const ZH: Dict = {
   "Approved or edited proposals out of total":
                                   "已批准或编辑的建议数 / 总数",
   "Accept rate":                  "采纳率",
-  "Open":                         "未决",
+  "Open":                         "查看",
+  "Open proposals":               "未处理建议",
   "Saving recorded":              "已记录节省",
 
   // --- Alert AI triage ---
