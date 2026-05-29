@@ -1,10 +1,11 @@
 "use client";
 
-import { Loader2, Database, RefreshCw, AlertTriangle } from "lucide-react";
+import { Database, RefreshCw, AlertTriangle } from "lucide-react";
 import { useClusterFilers, type ClusterFilerRow } from "@/lib/api";
 import { useCaps } from "@/lib/caps-context";
 import { useT } from "@/lib/i18n";
 import { HealthBadge } from "@/components/health-badge";
+import { TableSkeleton } from "@/components/table-skeleton";
 import { useClusterDetail } from "../_context";
 
 export default function ClusterFilersPage() {
@@ -24,16 +25,11 @@ export default function ClusterFilersPage() {
       </div>
     );
   }
-  if (isLoading || !data) {
-    return (
-      <div className="p-6 text-sm text-muted inline-flex items-center gap-2">
-        <Loader2 size={14} className="animate-spin"/> {t("Loading filers…")}
-      </div>
-    );
-  }
 
-  const masterCount = data.filers.filter((f) => f.source !== "config").length;
-  const configOnlyCount = data.filers.filter((f) => f.source === "config").length;
+  const rows = data?.filers ?? [];
+  const loadingData = isLoading && !data;
+  const masterCount = rows.filter((f) => f.source !== "config").length;
+  const configOnlyCount = rows.filter((f) => f.source === "config").length;
 
   return (
     <div className="space-y-5">
@@ -59,7 +55,7 @@ export default function ClusterFilersPage() {
         </button>
       </header>
 
-      {data.master_list_error && (
+      {data?.master_list_error && (
         <div className="card p-3 border-danger/40 bg-danger/10 text-danger text-xs space-y-1">
           <div className="inline-flex items-center gap-1.5 font-semibold">
             <AlertTriangle size={12}/> {t("Master did not return a filer list")}
@@ -82,29 +78,33 @@ export default function ClusterFilersPage() {
         </div>
       )}
 
-      <section className="card overflow-hidden">
-        {data.filers.length === 0 ? (
-          <div className="p-6 text-sm text-muted text-center">{t("No filers registered with this cluster.")}</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="grid">
-              <thead><tr>
-                <th>{t("Address")}</th>
-                <th>{t("Source")}</th>
-                <th>{t("Health")}</th>
-                <th>{t("Version")}</th>
-                <th>{t("Data center")}</th>
-                <th>{t("Rack")}</th>
-                <th className="num">{t("Latency")}</th>
-                <th>{t("Registered at")}</th>
-              </tr></thead>
-              <tbody>
-                {data.filers.map((row) => <FilerRow key={row.address} row={row}/>)}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+      {loadingData ? (
+        <TableSkeleton rows={5} headers={[t("Address"), t("Source"), t("Health"), t("Version"), t("Data center"), t("Rack"), t("Latency"), t("Registered at")]}/>
+      ) : (
+        <section className="card overflow-hidden">
+          {rows.length === 0 ? (
+            <div className="p-6 text-sm text-muted text-center">{t("No filers registered with this cluster.")}</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="grid">
+                <thead><tr>
+                  <th>{t("Address")}</th>
+                  <th>{t("Source")}</th>
+                  <th>{t("Health")}</th>
+                  <th>{t("Version")}</th>
+                  <th>{t("Data center")}</th>
+                  <th>{t("Rack")}</th>
+                  <th className="num">{t("Latency")}</th>
+                  <th>{t("Registered at")}</th>
+                </tr></thead>
+                <tbody>
+                  {rows.map((row) => <FilerRow key={row.address} row={row}/>)}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
