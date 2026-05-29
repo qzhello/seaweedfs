@@ -1,19 +1,21 @@
 "use client";
-import { useSummary, useTasks, useTrend, useTrendByDomain, useClusters, useHolidays, useHealthGate, useSafetyStatus, useClusterPressure, useVolumes, useClusterDisk, useCollectionTemperatures, useCurrentCosts } from "@/lib/api";
+import { useSummary, useTasks, useTrend, useTrendByDomain, useClusters, useHolidays, useHealthGate, useSafetyStatus, useClusterPressure, useVolumes, useClusterDisk, useCollectionTemperatures, useCurrentCosts, useClusterMasters, useReplicationHealth, useCapacityForecast } from "@/lib/api";
+import { HealthOverview } from "@/app/raft/_health-overview";
 import { useT } from "@/lib/i18n";
 import { chartColors as C, tooltipStyle, legendStyle } from "@/lib/chart-theme";
 import { bytes } from "@/lib/utils";
-import { Activity, Database, Flame, Snowflake, Zap, RefreshCw, ShieldAlert, ShieldCheck, Server, Lock, HardDrive, Layout, Play, AlertOctagon, ThermometerSnowflake, DollarSign } from "lucide-react";
+import { Activity, Database, Flame, Snowflake, Zap, RefreshCw, ShieldAlert, ShieldCheck, Server, Lock, HardDrive, Play, AlertOctagon, ThermometerSnowflake, DollarSign, ArrowUpRight, ListChecks } from "lucide-react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { TrendChart } from "@/components/trend-chart";
 import { SortableRow, type SortableItem } from "@/components/sortable-row";
-import { resetAllOrders } from "@/lib/dashboard-layout";
 import { DeepCheckModal } from "@/components/deep-check-modal";
 import { TodaysAttention } from "@/components/dashboard/todays-attention";
 import { CapacityIncidentsBanner } from "@/components/capacity-incidents";
 import { CapacityForecastPanel } from "@/components/capacity-forecast";
+import { PageHeader } from "@/components/page-header";
+import { useCluster } from "@/lib/cluster-context";
 
 const ReactECharts = dynamic(() => import("echarts-for-react"), { ssr: false });
 
@@ -35,23 +37,11 @@ export default function Dashboard() {
   const { data: trend } = useTrend(range);
   const { data: trendDomain } = useTrendByDomain(range);
   const [deepCheckOpen, setDeepCheckOpen] = useState(false);
-  // "" = all clusters; otherwise cluster.id. Persisted in localStorage so
-  // the operator's pick survives reloads without server state.
-  //
-  // SSR note: we MUST start as "" on both server and first client render to
-  // avoid React hydration mismatch — the Run-scoring button label, the
-  // <select> value, and several other strings depend on this state. Once
-  // hydration finishes, useEffect reads the persisted value.
-  const [scopeCluster, setScopeCluster] = useState<string>("");
-  useEffect(() => {
-    const v = localStorage.getItem("tier.scoring.cluster");
-    if (v) setScopeCluster(v);
-  }, []);
-  const onScopeChange = (v: string) => {
-    setScopeCluster(v);
-    if (v) localStorage.setItem("tier.scoring.cluster", v);
-    else localStorage.removeItem("tier.scoring.cluster");
-  };
+  // "" = all clusters; otherwise cluster.id. Driven by the global topbar
+  // ClusterSwitcher (ClusterProvider) so the dashboard scope follows the
+  // same source of truth as every resource page — no second, page-local
+  // cluster picker. Empty string means "all clusters".
+  const { clusterID: scopeCluster } = useCluster();
 
   const total = s?.bytes_total || 0;
   const tiers = [
@@ -73,6 +63,18 @@ export default function Dashboard() {
   // empty cluster doesn't paint zeros on the dashboard.
   const { data: tempData } = useCollectionTemperatures();
   const { data: costsNow } = useCurrentCosts(scopeCluster || undefined);
+  // Durability rollup — masters raft + replication health → 0-100 score.
+  // Lives on the dashboard so the operator sees control/data-plane risk
+  // in the same view as the rest of the overview. /raft remains the
+  // deep-dive page (per-master + per-volume tables).
+  const { data: durMasters } = useClusterMasters(scopeCluster || undefined);
+  const { data: durRepl }    = useReplicationHealth(scopeCluster || undefined);
+  // CapacityForecastPanel runs the same hook internally; SWR dedupes,
+  // so reading it here is free. We need it to decide whether to add the
+  // forecast card to the chart row at all — a row with a hidden card
+  // would leave a gap.
+  const { data: capForecast } = useCapacityForecast();
+  const hasForecast = (capForecast?.items ?? []).some((i) => i.status !== "no_data");
   const coldCollections = useMemo(
     () => (tempData?.items ?? [])
       .filter((c: any) => (c.cold_n ?? 0) + (c.frozen_n ?? 0) > 0)
@@ -98,226 +100,158 @@ export default function Dashboard() {
     [volumesData, distMode],
   );
 
+  // Status pills (safety / gate / pressure / holiday freeze) live inside
+  // the durability hero card (top row), not the topbar. hasStatus gates
+  // the slot: when there's no signal at all (no gate data, not all-clear,
+  // no pressure, no freeze) the row is omitted rather than rendered empty.
+  // An all-clear cluster still shows the single green badge, as before.
+  const hasStatus = Boolean(
+    safety?.safety_code === "emergency_stop" ||
+    (gate && !gate.ok) ||
+    (gate?.ok && safety?.overall_allowed) ||
+    (pressure?.items?.length ?? 0) > 0 ||
+    holidays?.freeze_active,
+  );
+  const statusPills = (
+    <>
+      {safety?.safety_code === "emergency_stop" && (
+        <Link href="/reliability?tab=safety" className="badge border-danger/40 text-danger animate-pulse">
+          <Lock size={12}/> {t("EMERGENCY STOP")}
+        </Link>
+      )}
+      {gate && !gate.ok && (
+        <Link href="/reliability?tab=health" className="badge border-danger/40 text-danger" title={gate.reason}>
+          <ShieldAlert size={12}/> {t("Gate CLOSED")}
+        </Link>
+      )}
+      {gate?.ok && safety?.overall_allowed && (
+        <span className="badge border-success/40 text-success">
+          <ShieldCheck size={12}/> {t("all-clear")}
+        </span>
+      )}
+      {(pressure?.items?.length ?? 0) > 0 && (
+        <PressurePill data={pressure}/>
+      )}
+      {holidays?.freeze_active && (
+        <div className="badge border-warning/40 text-warning">
+          <ShieldAlert size={12}/> {t("Freeze:")} {holidays.freeze_holiday}
+        </div>
+      )}
+    </>
+  );
+
+  const headerActions = (
+    <>
+      <div className="flex gap-1">
+        {(["1d","7d","30d"] as const).map(r => (
+          <button key={r} className={`btn ${range===r?"btn-primary":""}`} onClick={() => setRange(r)}>{r}</button>
+        ))}
+      </div>
+      <button
+        className="btn btn-primary inline-flex items-center gap-1"
+        onClick={() => setDeepCheckOpen(true)}>
+        <RefreshCw size={14}/>
+        {t("Check")}
+      </button>
+    </>
+  );
+
   return (
     <div className="space-y-6">
-      <header className="flex items-center justify-between">
-        <div>
-          <h1 className="text-base font-semibold tracking-tight">{t("Storage Tiering Overview")}</h1>
-          <p className="text-sm text-muted">
-            {t("AI provider:")} <span className="text-accent">{s?.ai_provider ?? "—"}</span>
-            {" · "}{clusters?.items?.length ?? 0} {t("clusters_lc")}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {safety?.safety_code === "emergency_stop" && (
-            <Link href="/reliability?tab=safety" className="badge border-danger/40 text-danger animate-pulse">
-              <Lock size={12}/> {t("EMERGENCY STOP")}
-            </Link>
-          )}
-          {gate && !gate.ok && (
-            <Link href="/reliability?tab=health" className="badge border-danger/40 text-danger" title={gate.reason}>
-              <ShieldAlert size={12}/> {t("Gate CLOSED")}
-            </Link>
-          )}
-          {gate?.ok && safety?.overall_allowed && (
-            <span className="badge border-success/40 text-success">
-              <ShieldCheck size={12}/> {t("all-clear")}
-            </span>
-          )}
-          {(pressure?.items?.length ?? 0) > 0 && (
-            <PressurePill data={pressure}/>
-          )}
-          {holidays?.freeze_active && (
-            <div className="badge border-warning/40 text-warning">
-              <ShieldAlert size={12}/> {t("Freeze:")} {holidays.freeze_holiday}
-            </div>
-          )}
-          <div className="flex gap-1">
-            {(["1d","7d","30d"] as const).map(r => (
-              <button key={r} className={`btn ${range===r?"btn-primary":""}`} onClick={() => setRange(r)}>{r}</button>
-            ))}
-          </div>
-          <select
-            value={scopeCluster}
-            onChange={(e) => onScopeChange(e.target.value)}
-            className="select w-auto px-2 py-1.5 text-xs"
-            title="Pick a cluster to scope scoring; defaults to all">
-            <option value="">{t("All clusters")}</option>
-            {(clusters?.items ?? []).map((c: { id: string; name: string; business_domain?: string; enabled?: boolean }) => (
-              <option key={c.id} value={c.id} disabled={c.enabled === false}>
-                {c.name}{c.business_domain ? ` · ${c.business_domain}` : ""}{c.enabled === false ? " (disabled)" : ""}
-              </option>
-            ))}
-          </select>
-          <button
-            className="btn inline-flex items-center gap-1 text-muted hover:text-text"
-            title={t("Reset layout")}
-            onClick={() => {
-              resetAllOrders();
-              // Quick way to re-mount the rows so they pick up the cleared
-              // localStorage — bump the dashboard layout version.
-              window.location.reload();
-            }}>
-            <Layout size={13}/>
-          </button>
-          <button
-            className="btn btn-primary inline-flex items-center gap-1"
-            onClick={() => setDeepCheckOpen(true)}>
-            <RefreshCw size={14}/>
-            {scopeCluster ? t("Scan selected cluster") : t("Run scoring")}
-          </button>
-        </div>
-      </header>
+      <PageHeader title={t("Storage Tiering Overview")} actions={headerActions}/>
 
       {/* Capacity incidents — auto-paused clusters. Sits above everything
           else: a held cluster is the most urgent thing on the page. */}
       <CapacityIncidentsBanner/>
 
-      {/* Today's attention — aggregated diagnostic panel that surfaces
-          signals across clusters (raft quorum, EC shard health, admin
-          lock holders, pending tasks, gate, safety, alerts) so the
-          operator sees the punchlist before the charts. */}
+      {/* First row — durability hero (left half) + 6 core KPIs (right
+          half). The old full-width hero and the separate KPI row below
+          were merged here so the operator sees vitals without scrolling.
+          KPIs are a fixed, curated set: scale → capacity → space →
+          read-only → backlog → savings. Compact Stat cards, no drag. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <div className="relative">
+          <HealthOverview masters={durMasters} repl={durRepl} statusSlot={hasStatus ? statusPills : undefined}/>
+          <EnterButton
+            href={`/raft${scopeCluster ? `?cluster=${scopeCluster}` : ""}`}
+            label={t("Cluster durability")}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 content-start">
+          <Stat
+            href="/volumes"
+            icon={<Database size={18}/>}
+            label={t("Volumes")}
+            value={s?.volumes_total ?? nodes.totalVolumes}
+          />
+          <Stat
+            href="/volumes"
+            icon={<Activity size={18}/>}
+            label={t("Total Size")}
+            value={diskUsage && Number(diskUsage.total_bytes) > 0 ? bytes(Number(diskUsage.total_bytes)) : bytes(total)}
+          />
+          <Stat
+            href="/clusters"
+            icon={<HardDrive size={18}/>}
+            label={t("Free headroom")}
+            value={bytes(Number(diskUsage?.free_bytes) || 0)}
+            sub={diskUsage && Number(diskUsage.total_bytes) > 0
+              ? `${((Number(diskUsage.free_bytes ?? 0) / Math.max(1, Number(diskUsage.total_bytes ?? 1))) * 100).toFixed(1)}% ${t("free")}`
+              : undefined}
+          />
+          <Stat
+            href="/volumes?readonly=1"
+            icon={<Lock size={18}/>}
+            label={t("Read-only")}
+            value={nodes.readOnly}
+            sub={`${nodes.totalVolumes ? ((nodes.readOnly / nodes.totalVolumes) * 100).toFixed(1) : 0}% ${t("of fleet")}`}
+          />
+          <Stat
+            href="/activity?tab=tasks"
+            icon={<Flame size={18}/>}
+            label={t("Pending")}
+            value={pending?.items?.length ?? 0}
+            sub={`${pending?.items?.filter((p:any)=>p.score>=0.75).length ?? 0} ${t("hot recs")}`}
+          />
+          {costsNow && costsNow.monthly_saving > 0 ? (
+            <Stat
+              href="/costs"
+              icon={<DollarSign size={18}/>}
+              label={t("Monthly savings")}
+              value={`${costsNow.currency} ${costsNow.monthly_saving.toFixed(0)}`}
+              sub={t("vs. all-hot baseline")}
+            />
+          ) : (
+            <Stat
+              href="/activity?tab=executions"
+              icon={<Snowflake size={18}/>}
+              label={t("Saving est.")}
+              value={bytes(((s?.bytes_warm||0)+(s?.bytes_cold||0))*0.5)}
+              sub={t("vs. 3-replica baseline")}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Today's attention — aggregated signal panel. Lives on its own
+          row right under the score because it answers the next operator
+          question ("what should I act on?") and doesn't fit cleanly
+          beside the durability card visually. */}
       <TodaysAttention/>
 
-      {/* Capacity forecast — proactive "full in ~N days" per cluster,
-          the forward-looking twin of the capacity-incident banner. */}
-      <CapacityForecastPanel/>
+      {/* Charts and lists are split into two rows so visual chart cards
+          (donuts, sparklines, bars) and textual list cards (forecast,
+          coldest, recommendations) don't fight each other side-by-side.
+          Mixing them on one row made the visual language inconsistent. */}
 
-      {/* KPI cards — each item carries a stable id so the operator's
-          drag-and-drop order survives reloads. `visible` toggles a card
-          off without touching the saved order, so the layout returns
-          intact when the condition flips back. */}
+      {/* ── Monitoring charts — all visual (ECharts / TrendChart) ── */}
+      <SectionLabel icon={<Activity size={12}/>} text={t("Monitoring charts")}/>
       <SortableRow
-        rowKey="kpis"
-        className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3"
+        rowKey="charts_visual"
+        className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"
         items={(() => {
-          const kpiItems: SortableItem[] = [
-            {
-              id: "clusters",
-              visible: !scopeCluster,
-              node: <Stat href="/clusters" icon={<Server size={18}/>} label={t("Clusters")} value={clusters?.items?.length ?? 0}/>,
-            },
-            {
-              id: "volumes",
-              node: nodeStats.maxSlots > 0 ? (
-                <StatGauge
-                  href="/volumes"
-                  icon={<Database size={18} />}
-                  label={t("Volumes")}
-                  value={s?.volumes_total ?? nodeStats.usedSlots}
-                  used={Number(s?.volumes_total ?? nodeStats.usedSlots) || 0}
-                  max={nodeStats.maxSlots}
-                  subLabel={t("slots")}
-                />
-              ) : (
-                <Stat href="/volumes" icon={<Database size={18} />} label={t("Volumes")} value={s?.volumes_total ?? "—"} />
-              ),
-            },
-            {
-              id: "total_size",
-              node: diskUsage && Number(diskUsage.total_bytes) > 0 ? (
-                <StatGauge
-                  href="/volumes"
-                  icon={<Activity size={18} />}
-                  label={t("Total Size")}
-                  value={bytes(Number(diskUsage.used_bytes) || 0)}
-                  used={Number(diskUsage.used_bytes) || 0}
-                  max={Number(diskUsage.total_bytes) || 0}
-                  subLabel=""
-                  formatUnit={bytes}
-                />
-              ) : (
-                <StatGauge
-                  href="/volumes"
-                  icon={<Activity size={18} />}
-                  label={t("Total Size")}
-                  value={bytes(total)}
-                  used={nodeStats.usedSlots}
-                  max={nodeStats.maxSlots}
-                  subLabel={t("slots")}
-                />
-              ),
-            },
-            {
-              id: "free_headroom",
-              visible: !!(diskUsage && Number(diskUsage.total_bytes) > 0),
-              node: (
-                <Stat
-                  href="/clusters"
-                  icon={<HardDrive size={18}/>}
-                  label={t("Free headroom")}
-                  value={bytes(Number(diskUsage?.free_bytes) || 0)}
-                  sub={`${((Number(diskUsage?.free_bytes ?? 0) / Math.max(1, Number(diskUsage?.total_bytes ?? 1))) * 100).toFixed(1)}% ${t("free")}`}
-                />
-              ),
-            },
-            {
-              id: "readonly",
-              visible: nodes.readOnly > 0,
-              node: (
-                <Stat
-                  href="/volumes?readonly=1"
-                  icon={<Lock size={18}/>}
-                  label={t("Read-only")}
-                  value={nodes.readOnly}
-                  sub={`${nodes.totalVolumes ? ((nodes.readOnly / nodes.totalVolumes) * 100).toFixed(1) : 0}% ${t("of fleet")}`}
-                />
-              ),
-            },
-            {
-              id: "pending",
-              node: (
-                <Stat href="/activity?tab=tasks" icon={<Flame size={18} />} label={t("Pending")}
-                      value={pending?.items?.length ?? 0}
-                      sub={`${pending?.items?.filter((p:any)=>p.score>=0.75).length ?? 0} ${t("hot recs")}`}/>
-              ),
-            },
-            {
-              id: "running",
-              visible: (running?.items?.length ?? 0) > 0,
-              node: (
-                <Stat href="/tasks?status=running" icon={<Play size={18} />} label={t("Running")}
-                      value={running?.items?.length ?? 0}
-                      sub={t("in flight")}/>
-              ),
-            },
-            {
-              id: "failed_24h",
-              visible: failedRecent.length > 0,
-              node: (
-                <Stat href="/tasks?status=failed" icon={<AlertOctagon size={18} />} label={t("Failed (24h)")}
-                      value={failedRecent.length}
-                      sub={`${failedRecent.filter((x:any)=>x.failure_reason==="transient").length} ${t("auto-retrying")}`}/>
-              ),
-            },
-            {
-              id: "saving",
-              // Prefer real cost numbers when a cluster is picked + pricing
-              // is configured. Falls back to the legacy byte-based estimate
-              // (warm+cold halved against 3-replica baseline) so the tile
-              // still says something useful in the bare-bones install.
-              node: costsNow && costsNow.monthly_saving > 0 ? (
-                <Stat href="/costs" icon={<DollarSign size={18}/>} label={t("Monthly savings")}
-                      value={`${costsNow.currency} ${costsNow.monthly_saving.toFixed(0)}`}
-                      sub={t("vs. all-hot baseline")} />
-              ) : (
-                <Stat href="/activity?tab=executions" icon={<Snowflake size={18}/>} label={t("Saving est.")}
-                      value={bytes(((s?.bytes_warm||0)+(s?.bytes_cold||0))*0.5)} sub={t("vs. 3-replica baseline")} />
-              ),
-            },
-          ];
-          return kpiItems;
-        })()}
-      />
-
-      {/* Compact 4-column chart row — same drag-and-drop machinery as the
-          KPI row above. Items follow the same `id / visible / node`
-          shape so reordering and persistence are uniform. */}
-      <SortableRow
-        rowKey="charts"
-        className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3"
-        items={(() => {
-          const chartItems: SortableItem[] = [
+          const visualItems: SortableItem[] = [
             {
               id: "tier_distribution",
               node: (
@@ -345,47 +279,11 @@ export default function Dashboard() {
               ),
             },
             {
-              id: "top_recommendations",
-              node: (
-                <div className="card p-3 flex flex-col">
-                  <header className="flex items-center justify-between mb-1">
-                    <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted inline-flex items-center gap-1">
-                      <Zap size={10}/> {t("Top recommendations")}
-                    </h2>
-                    {pending?.items?.length ? (
-                      <a href="/activity?tab=tasks" className="text-[10px] text-muted hover:text-accent">{t("Details")}</a>
-                    ) : null}
-                  </header>
-                  {/* Fixed-height body so this panel lines up with the
-                      sibling chart cards (all 170px tall). Scrolls when
-                      there are more recs than fit; centers the empty-state
-                      message so the card never collapses. */}
-                  <div className="overflow-y-auto" style={{ height: 170 }}>
-                    {pending?.items?.length ? (
-                      <div className="space-y-0.5">
-                        {pending.items.slice(0, 6).map((rec: any) => (
-                          <a key={rec.id} href="/activity?tab=tasks"
-                            className="flex items-center gap-2 px-1.5 py-1 rounded text-[11px] hover:bg-panel2 transition-colors"
-                            title={rec.explanation}>
-                            <span className="font-mono text-text shrink-0">v{rec.volume_id}</span>
-                            <span className="badge text-[9px] shrink-0">{rec.action}</span>
-                            <span className="flex-1 min-w-0">
-                              <ScoreBar v={rec.score}/>
-                            </span>
-                          </a>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="h-full flex items-center justify-center text-[11px] text-muted">
-                        {t("No pending recommendations.")}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ),
-            },
-            {
               id: "access_trend",
+              // Hide when the trend chart has nothing meaningful to plot.
+              // A flat-zero line next to real data reads as broken telemetry,
+              // not "quiet system".
+              visible: (trend?.points?.length ?? 0) > 0,
               node: (
                 <div className="card p-3 flex flex-col">
                   <header className="flex items-center justify-between mb-1">
@@ -395,6 +293,44 @@ export default function Dashboard() {
                     <span className="text-[10px] text-muted">{range}</span>
                   </header>
                   <TrendChart points={trend?.points || []} height={170} title=""/>
+                </div>
+              ),
+            },
+            {
+              id: "cluster_pressure",
+              visible: (pressure?.items?.length ?? 0) > 0,
+              node: pressure ? (
+                <div className="card p-3 flex flex-col">
+                  <header className="flex items-center justify-between mb-1">
+                    <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted">
+                      {t("Cluster pressure")}
+                    </h2>
+                    <span className="text-[10px] text-muted">
+                      {t("threshold")} {pressure.threshold.toFixed(2)}
+                    </span>
+                  </header>
+                  <ReactECharts style={{ height: 170 }} option={buildPressureBar(pressure, (clusters?.items as Array<{ id: string; name: string }>) ?? [])}/>
+                </div>
+              ) : null,
+            },
+          ];
+          return visualItems;
+        })()}
+      />
+
+      {/* ── Data lists — all textual rows (forecast / coldest / recs) ── */}
+      <SectionLabel icon={<ListChecks size={12}/>} text={t("Data lists")}/>
+      <SortableRow
+        rowKey="lists"
+        className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3"
+        items={(() => {
+          const listItems: SortableItem[] = [
+            {
+              id: "capacity_forecast",
+              visible: hasForecast,
+              node: (
+                <div className="h-full [&>section]:h-full [&>section]:flex [&>section]:flex-col">
+                  <CapacityForecastPanel/>
                 </div>
               ),
             },
@@ -431,24 +367,36 @@ export default function Dashboard() {
               ),
             },
             {
-              id: "cluster_pressure",
-              visible: (pressure?.items?.length ?? 0) > 0,
-              node: pressure ? (
+              id: "top_recommendations",
+              visible: (pending?.items?.length ?? 0) > 0,
+              node: (
                 <div className="card p-3 flex flex-col">
                   <header className="flex items-center justify-between mb-1">
-                    <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted">
-                      {t("Cluster pressure")}
+                    <h2 className="text-[11px] font-medium uppercase tracking-wider text-muted inline-flex items-center gap-1">
+                      <Zap size={10}/> {t("Top recommendations")}
                     </h2>
-                    <span className="text-[10px] text-muted">
-                      {t("threshold")} {pressure.threshold.toFixed(2)}
-                    </span>
+                    <a href="/activity?tab=tasks" className="text-[10px] text-muted hover:text-accent">{t("Details")}</a>
                   </header>
-                  <ReactECharts style={{ height: 170 }} option={buildPressureBar(pressure, (clusters?.items as Array<{ id: string; name: string }>) ?? [])}/>
+                  <div className="overflow-y-auto" style={{ height: 170 }}>
+                    <div className="space-y-0.5">
+                      {(pending?.items ?? []).slice(0, 6).map((rec: any) => (
+                        <a key={rec.id} href="/activity?tab=tasks"
+                          className="flex items-center gap-2 px-1.5 py-1 rounded text-[11px] hover:bg-panel2 transition-colors"
+                          title={rec.explanation}>
+                          <span className="font-mono text-text shrink-0">v{rec.volume_id}</span>
+                          <span className="badge text-[9px] shrink-0">{rec.action}</span>
+                          <span className="flex-1 min-w-0">
+                            <ScoreBar v={rec.score}/>
+                          </span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              ) : null,
+              ),
             },
           ];
-          return chartItems;
+          return listItems;
         })()}
       />
 
@@ -557,14 +505,36 @@ function Stat({ icon, label, value, sub, href }: { icon: React.ReactNode; label:
   // it to the bottom so plain Stat and StatGauge align row-by-row.
   const body = (
     <>
-      <div className="text-xs text-muted flex items-center gap-2">{icon}{label}</div>
+      <div className="text-xs text-muted flex items-center gap-2 pr-6">{icon}{label}</div>
       <div className="text-2xl font-semibold mt-1">{value}</div>
       <div className="text-xs text-muted mt-auto pt-2">{sub ?? " "}</div>
     </>
   );
-  const cls = "card p-4 h-full flex flex-col min-h-[110px] hover:border-accent/50 hover:bg-panel2/40 transition-colors";
-  if (href) return <Link href={href} className={cls}>{body}</Link>;
-  return <div className={cls}>{body}</div>;
+  const cls = "card p-4 h-full flex flex-col min-h-[110px] relative";
+  return (
+    <div className={cls}>
+      {body}
+      {href && <EnterButton href={href} label={label}/>}
+    </div>
+  );
+}
+
+// Small corner navigation button used by all dashboard cards. The card
+// itself is no longer a giant click target — the user asked for an
+// explicit "open detail" button up in the corner, so reading or
+// drag-reordering a card never bounces to the detail page.
+function EnterButton({ href, label }: { href: string; label?: string }) {
+  return (
+    <Link
+      href={href}
+      aria-label={label ?? "Open"}
+      title={label}
+      className="absolute top-2 right-2 p-1 rounded-md text-muted hover:text-accent hover:bg-panel2/60 transition-colors z-10"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <ArrowUpRight size={14}/>
+    </Link>
+  );
 }
 
 // Stat card variant with a horizontal "fuel gauge" below the value. Used
@@ -599,7 +569,7 @@ function StatGauge({
     : "text-muted";
   const body = (
     <>
-      <div className="text-xs text-muted flex items-center gap-2">{icon}{label}</div>
+      <div className="text-xs text-muted flex items-center gap-2 pr-6">{icon}{label}</div>
       <div className="text-2xl font-semibold mt-1">{value}</div>
       {max > 0 ? (
         <div className="mt-auto pt-2 space-y-1">
@@ -618,9 +588,104 @@ function StatGauge({
       )}
     </>
   );
-  const cls = "card p-4 h-full flex flex-col min-h-[110px] hover:border-accent/50 hover:bg-panel2/40 transition-colors";
-  if (href) return <Link href={href} className={cls}>{body}</Link>;
-  return <div className={cls}>{body}</div>;
+  const cls = "card p-4 h-full flex flex-col min-h-[110px] relative";
+  return (
+    <div className={cls}>
+      {body}
+      {href && <EnterButton href={href} label={label}/>}
+    </div>
+  );
+}
+
+// VolumesStat — KPI card that pairs the headline volume count with a
+// compact 3-slice donut (writable / read-only / free slots) drawn in
+// pure SVG. Slot-based breakdown so it's directly comparable to the
+// per-node usage bars at the bottom of the dashboard.
+function VolumesStat({
+  href, label, totalVolumes, readOnly, usedSlots, maxSlots, slotsLabel,
+}: {
+  href: string;
+  label: string;
+  totalVolumes: number;
+  readOnly: number;
+  usedSlots: number;
+  maxSlots: number;
+  slotsLabel: string;
+}) {
+  const writable = Math.max(0, usedSlots - readOnly);
+  const free = Math.max(0, maxSlots - usedSlots);
+  const total = writable + readOnly + free;
+  // Conic-gradient-on-circle would be one less SVG, but ECharts/SVG
+  // play nicer with our token-driven theme tints and the donut hole is
+  // straightforward this way (one circle as track, three stroked arcs
+  // colored from --c-accent / --c-warning / --c-border tokens).
+  const slices = [
+    { v: writable, color: "oklch(var(--c-accent))",  label: "writable" },
+    { v: readOnly, color: "oklch(var(--c-warning))", label: "read-only" },
+    { v: free,     color: "oklch(var(--c-border))",  label: "free" },
+  ];
+  const r = 18;
+  const circ = 2 * Math.PI * r;
+  let offset = 0;
+  const arcs = slices.map((s, i) => {
+    const len = total > 0 ? (s.v / total) * circ : 0;
+    const arc = (
+      <circle
+        key={i}
+        cx="22" cy="22" r={r}
+        fill="none"
+        stroke={s.color}
+        strokeWidth="7"
+        strokeDasharray={`${len} ${circ - len}`}
+        strokeDashoffset={-offset}
+      />
+    );
+    offset += len;
+    return arc;
+  });
+  const utilPct = maxSlots > 0 ? Math.round((usedSlots / maxSlots) * 100) : 0;
+
+  return (
+    <div className="card p-4 h-full flex flex-col min-h-[110px] relative">
+      <div className="text-xs text-muted flex items-center gap-2 pr-6">
+        <Database size={18}/>{label}
+      </div>
+      <div className="flex items-center gap-3 mt-1">
+        <div className="text-2xl font-semibold tabular-nums">{totalVolumes}</div>
+        <svg viewBox="0 0 44 44" className="w-11 h-11 -rotate-90 shrink-0" aria-hidden>
+          {/* Track sits underneath in case of rounding gaps */}
+          <circle cx="22" cy="22" r={r} fill="none" stroke="oklch(var(--c-border) / 0.4)" strokeWidth="7"/>
+          {arcs}
+        </svg>
+      </div>
+      <div className="text-[10px] text-muted mt-auto pt-2 flex items-center gap-2 flex-wrap">
+        <LegendDot color="oklch(var(--c-accent))" /> {writable}
+        {readOnly > 0 && (<><LegendDot color="oklch(var(--c-warning))" /> {readOnly} R/O</>)}
+        <LegendDot color="oklch(var(--c-border))" /> {free} {slotsLabel}
+        <span className="ml-auto font-mono tabular-nums">{utilPct}%</span>
+      </div>
+      <EnterButton href={href} label={label}/>
+    </div>
+  );
+}
+
+function LegendDot({ color }: { color: string }) {
+  return <span className="inline-block w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color }}/>;
+}
+
+// Subtle section header used to visually separate the dashboard's chart
+// row from its list row — without a label they read as "two unrelated
+// rows of cards", which was the friction the user flagged. Tiny
+// uppercase text + a thin underline keeps it from competing with the
+// data cards beneath.
+function SectionLabel({ icon, text }: { icon: React.ReactNode; text: string }) {
+  return (
+    <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted/80 pt-2 -mb-1">
+      <span className="text-muted/60">{icon}</span>
+      <span>{text}</span>
+      <span className="flex-1 h-px bg-border/40 ml-1"/>
+    </div>
+  );
 }
 
 function ScoreBar({ v }: { v: number }) {
@@ -783,7 +848,7 @@ function NodeDistBars({
   if (metric === "usage") {
     const max = usage.reduce((m, e) => Math.max(m, e.max), 0);
     return (
-      <ul className="max-h-[320px] overflow-y-auto pr-1 space-y-0.5">
+      <ul className="max-h-[240px] overflow-y-auto pr-1 space-y-0.5">
         {usage.map((e) => {
           const usedPct = max > 0 ? (e.used / max) * 100 : 0;
           const maxPct  = max > 0 ? (e.max  / max) * 100 : 0;
@@ -828,7 +893,7 @@ function NodeDistBars({
   const sorted = [...bars].sort((a, b) => valueOf(b) - valueOf(a));
   const max = sorted.reduce((m, b) => Math.max(m, valueOf(b)), 0);
   return (
-    <ul className="max-h-[320px] overflow-y-auto pr-1 space-y-0.5">
+    <ul className="max-h-[240px] overflow-y-auto pr-1 space-y-0.5">
       {sorted.map((b) => {
         const total = b.writable + b.readonly;
         const value = valueOf(b);
