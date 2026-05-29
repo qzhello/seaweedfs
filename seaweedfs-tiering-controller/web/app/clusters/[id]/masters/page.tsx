@@ -1,14 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, ShieldCheck, AlertTriangle, RefreshCw } from "lucide-react";
+import { Loader2, ShieldCheck, AlertTriangle, RefreshCw, Crown } from "lucide-react";
 import {
   api,
   useClusterMasters,
   type ClusterMasterRow,
   type MasterConsistency,
+  type RaftServerInfo,
 } from "@/lib/api";
 import { useCaps } from "@/lib/caps-context";
+import { confirm as confirmDlg } from "@/lib/confirm";
 import { useT } from "@/lib/i18n";
 import { HealthBadge } from "@/components/health-badge";
 import { useClusterDetail } from "../_context";
@@ -29,6 +31,9 @@ export default function ClusterMastersPage() {
   const { data, isLoading, isValidating, mutate, error } = useClusterMasters(id);
   const [probe, setProbe] = useState<LockProbeResult | null>(null);
   const [probing, setProbing] = useState(false);
+  const [target, setTarget] = useState(""); // "" = auto; else "id|grpcAddr"
+  const [transferring, setTransferring] = useState(false);
+  const [transferResult, setTransferResult] = useState<string | null>(null);
 
   if (capsLoading) return null;
   if (!has("cluster.read")) {
@@ -66,6 +71,36 @@ export default function ClusterMastersPage() {
       });
     } finally {
       setProbing(false);
+    }
+  }
+
+  const canTransfer = has("cluster.raft.transfer");
+
+  async function runTransfer() {
+    if (!(await confirmDlg.warning({
+      title: t("Transfer raft leadership to another master?"),
+      body: t("This triggers a brief re-election. The cluster stays available for reads during the handoff."),
+    }))) {
+      return;
+    }
+    setTransferring(true);
+    setTransferResult(null);
+    try {
+      let body: { target_id: string; target_address: string } | undefined;
+      if (target) {
+        const parts = target.split("|");
+        if (parts.length === 2) {
+          body = { target_id: parts[0], target_address: parts[1] };
+        }
+      }
+      const res = await api.transferLeader(id, body);
+      setTransferResult(res.output);
+      setTarget("");
+      mutate();
+    } catch (e) {
+      setTransferResult(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTransferring(false);
     }
   }
 
@@ -136,6 +171,51 @@ export default function ClusterMastersPage() {
           </button>
         </header>
         <LockProbeResult result={probe}/>
+      </section>
+
+      <section className="card p-4 space-y-3">
+        <header className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="text-sm font-semibold inline-flex items-center gap-2">
+              <Crown size={14}/> {t("Raft leadership")}
+            </h3>
+            <p className="text-xs text-muted">
+              {t("Gracefully move master raft leadership to another node before maintaining the current leader. Allowed during change/maintenance windows; blocked only by emergency stop.")}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              disabled={!canTransfer || transferring}
+              aria-label={t("Target node")}
+              className="input text-xs"
+            >
+              <option value="">{t("Auto (any eligible follower)")}</option>
+              {(data.raft_servers ?? [])
+                .filter((s: RaftServerInfo) => !s.is_leader && s.suffrage === "voter")
+                .map((s: RaftServerInfo) => (
+                  <option key={s.id} value={`${s.id}|${s.address}`}>
+                    {s.id} — {s.address}
+                  </option>
+                ))}
+            </select>
+            <button
+              onClick={runTransfer}
+              disabled={!canTransfer || transferring}
+              title={canTransfer ? t("Transfer leader") : t("Requires cluster.raft.transfer capability")}
+              className="btn btn-primary inline-flex items-center gap-1"
+            >
+              {transferring ? <Loader2 size={12} className="animate-spin"/> : <Crown size={12}/>}
+              {t("Transfer leader")}
+            </button>
+          </div>
+        </header>
+        {transferResult !== null && (
+          <pre className="font-mono text-[11px] bg-bg/60 border border-border rounded p-3 whitespace-pre-wrap max-h-60 overflow-auto">
+            {transferResult}
+          </pre>
+        )}
       </section>
     </div>
   );
