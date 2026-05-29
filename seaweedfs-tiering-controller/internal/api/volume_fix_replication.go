@@ -301,6 +301,13 @@ func volumeFixReplicationHandler(d Deps) gin.HandlerFunc {
 		}
 		args := buildVolumeFixReplicationArgs(body)
 
+		// Only the apply path mutates; gate it through the safety Guard
+		// while leaving dry-run planning open. Must run before SSE headers
+		// so the 423 body is well-formed JSON.
+		if body.Apply && !guardAllow(d, c, &id) {
+			return
+		}
+
 		// SSE headers + start marker.
 		c.Writer.Header().Set("Content-Type", "text/event-stream")
 		c.Writer.Header().Set("Cache-Control", "no-cache")

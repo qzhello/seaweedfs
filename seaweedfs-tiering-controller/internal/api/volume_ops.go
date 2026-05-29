@@ -193,6 +193,13 @@ func volumeBalanceStream(d Deps) gin.HandlerFunc {
 		}
 		args := buildVolumeBalanceArgs(body)
 
+		// Only the apply path mutates; gate it through the safety Guard
+		// while leaving dry-run planning available during a freeze. Must
+		// run before SSE headers so the 423 body is well-formed JSON.
+		if body.Apply && !guardAllow(d, c, &id) {
+			return
+		}
+
 		c.Writer.Header().Set("Content-Type", "text/event-stream")
 		c.Writer.Header().Set("Cache-Control", "no-cache")
 		c.Writer.Header().Set("Connection", "keep-alive")

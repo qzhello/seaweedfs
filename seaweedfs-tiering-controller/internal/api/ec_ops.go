@@ -66,8 +66,8 @@ func streamWithHeartbeat(c *gin.Context, started time.Time, inner func(emit func
 	close(hbDone)
 }
 
-func uitoa(n uint64) string  { return strconv.FormatUint(n, 10) }
-func ftoa(f float64) string  { return strconv.FormatFloat(f, 'f', -1, 64) }
+func uitoa(n uint64) string { return strconv.FormatUint(n, 10) }
+func ftoa(f float64) string { return strconv.FormatFloat(f, 'f', -1, 64) }
 
 // ecRebuildBody mirrors the `weed shell ec.rebuild` flag set.
 type ecRebuildBody struct {
@@ -124,6 +124,10 @@ func ecRebuildPlan(d Deps) gin.HandlerFunc {
 		// Apply path requires `volume.ec.rebuild` — gated separately at the
 		// route. Dry-run is gated by `volume.read`.
 		if body.Apply {
+			// Mutating apply must clear the safety Guard; dry-run stays open.
+			if !guardAllow(d, c, &id) {
+				return
+			}
 			streamECShell(c, d, cl.MasterAddr, cl.WeedBinPath, "ec.rebuild", args, id.String(), 2*time.Hour, gin.H{
 				"collection": body.Collection,
 				"disk_type":  body.DiskType,
@@ -217,6 +221,10 @@ func ecBalancePlan(d Deps) gin.HandlerFunc {
 		args := buildECBalanceArgs(body)
 
 		if body.Apply {
+			// Mutating apply must clear the safety Guard; dry-run stays open.
+			if !guardAllow(d, c, &id) {
+				return
+			}
 			streamECShell(c, d, cl.MasterAddr, cl.WeedBinPath, "ec.balance", args, id.String(), 2*time.Hour, gin.H{
 				"collection":              body.Collection,
 				"data_center":             body.DataCenter,
@@ -310,8 +318,8 @@ func streamECShell(c *gin.Context, d Deps, master, binPath, name string, args []
 //
 //  1. Volume IDs:  body.VolumeIDs = [7, 8]   → encodes those specific volumes
 //  2. Collection:  body.Collection = "x"     → encodes every cold volume in
-//                                              the collection that meets
-//                                              fullPercent + quietFor + size
+//     the collection that meets
+//     fullPercent + quietFor + size
 //
 // Encoding is destructive in the sense that the source .dat is deleted after
 // the 14 shards land on their target nodes. Per the runbook: source node
@@ -363,6 +371,12 @@ func ecEncode(d Deps) gin.HandlerFunc {
 		cl, err := d.PG.GetCluster(c.Request.Context(), id)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+
+		// ec.encode is always mutating (deletes source .dat after sharding);
+		// gate through the safety Guard before any work begins.
+		if !guardAllow(d, c, &id) {
 			return
 		}
 
@@ -430,6 +444,11 @@ func ecDecode(d Deps) gin.HandlerFunc {
 		cl, err := d.PG.GetCluster(c.Request.Context(), id)
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+
+		// ec.decode rejoins shards and rewrites a .dat — mutating; gate it.
+		if !guardAllow(d, c, &id) {
 			return
 		}
 
@@ -645,6 +664,12 @@ func ecEncodeStream(d Deps) gin.HandlerFunc {
 			return
 		}
 
+		// ec.encode is always mutating; gate before SSE headers so the 423
+		// body stays well-formed JSON.
+		if !guardAllow(d, c, &id) {
+			return
+		}
+
 		// SSE headers + start marker.
 		c.Writer.Header().Set("Content-Type", "text/event-stream")
 		c.Writer.Header().Set("Cache-Control", "no-cache")
@@ -732,6 +757,12 @@ func ecDecodeStream(d Deps) gin.HandlerFunc {
 			return
 		}
 
+		// ec.decode is always mutating; gate before SSE headers so the 423
+		// body stays well-formed JSON.
+		if !guardAllow(d, c, &id) {
+			return
+		}
+
 		// SSE headers.
 		c.Writer.Header().Set("Content-Type", "text/event-stream")
 		c.Writer.Header().Set("Cache-Control", "no-cache")
@@ -795,7 +826,6 @@ func ecDecodeStream(d Deps) gin.HandlerFunc {
 	}
 }
 
-
 // sendSSE writes one event in the wire format
 //
 //	event: <name>
@@ -849,10 +879,10 @@ type ECDegradedVolume struct {
 // `ec.rebuild` lines we care about (the command's exact prose varies
 // across weed versions, so we match a few shapes):
 //
-//   "volume 7 has missing shards: [4 11]"
-//   "volume 7 collection mybucket has missing shards: [4 11]"
-//   "rebuilding volume 7 with shards [..] missing [4 11]"
-//   "volume 7 cannot be rebuilt, only 8 shards present"
+//	"volume 7 has missing shards: [4 11]"
+//	"volume 7 collection mybucket has missing shards: [4 11]"
+//	"rebuilding volume 7 with shards [..] missing [4 11]"
+//	"volume 7 cannot be rebuilt, only 8 shards present"
 var reMissingShards = regexp.MustCompile(`volume\s+(\d+)(?:\s+collection\s+(\S+))?\s+has\s+missing\s+shards?:\s*\[([\d\s]*)\]`)
 var reCannotRebuild = regexp.MustCompile(`volume\s+(\d+).*cannot\s+be\s+rebuilt`)
 var reRebuilding = regexp.MustCompile(`(?:rebuilding|would\s+rebuild)\s+volume\s+(\d+)`)

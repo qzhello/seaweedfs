@@ -215,6 +215,12 @@ func createDrain(d Deps) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
+		// Draining a server mutates placement (moves every volume off the
+		// node); gate it through the safety Guard before queueing the job.
+		if !guardAllow(d, c, &id) {
+			return
+		}
+
 		// Snapshot the current footprint so the dashboard can show
 		// "% drained" as the count walks down. Best-effort: if the
 		// topology call fails we still create the job, the runner
