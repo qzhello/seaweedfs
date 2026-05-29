@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CardSkeleton } from "@/components/table-skeleton";
+import { SkeletonBar } from "@/components/table-skeleton";
 import { useParams, usePathname } from "next/navigation";
 import { Breadcrumb } from "@/components/breadcrumb";
 import { useClusterTopology } from "@/lib/api";
@@ -50,16 +50,16 @@ export default function ClusterDetailLayout({ children }: { children: React.Reac
   const shouldFetchTopology = !capsLoading && ((isReadSurface && canReadCluster) || (isShellRoute && canUseShell));
   const { data, error } = useClusterTopology(shouldFetchTopology ? id : undefined);
 
-  if (!data && !error) {
-    if (capsLoading) return null;
-    if (isReadSurface && !canReadCluster) {
-      return <div className="card p-6 text-sm text-muted">{t("You do not have permission to view this cluster.")}</div>;
-    }
-    if (isShellRoute && !canUseShell) {
-      return <div className="card p-6 text-sm text-muted">{t("You do not have permission to use this shell console.")}</div>;
-    }
-    return <CardSkeleton lines={3} title={false}/>;
+  // capsLoading gates tab visibility (TABS use `loading`), so wait for caps
+  // but NOT for topology — chrome must render immediately.
+  if (capsLoading) return null;
+  if (isReadSurface && !canReadCluster) {
+    return <div className="card p-6 text-sm text-muted">{t("You do not have permission to view this cluster.")}</div>;
   }
+  if (isShellRoute && !canUseShell) {
+    return <div className="card p-6 text-sm text-muted">{t("You do not have permission to use this shell console.")}</div>;
+  }
+  const topologyPending = !data && !error;
 
   const cluster = data?.cluster || null;
   const topology = data?.topology || null;
@@ -71,13 +71,14 @@ export default function ClusterDetailLayout({ children }: { children: React.Reac
 
   return (
     <ClusterDetailContext.Provider value={{ id, cluster, topology, topologyError: error ? String(error) : null }}>
-      <div className="space-y-6">
-        <Breadcrumb items={[{ label: "Clusters", href: "/clusters" }, { label: cluster?.name || id }]}/>
-        <header className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-base font-semibold tracking-tight">{cluster?.name || id}</h1>
-            <p className="text-sm text-muted font-mono">{cluster?.master_addr || "master unavailable"}</p>
-          </div>
+      <div className="space-y-4">
+        <Breadcrumb items={[{ label: t("Clusters"), href: "/clusters" }, { label: cluster?.name || id }]}/>
+        {/* Sub-header: master endpoint + metadata badges. Title moved
+            to the breadcrumb (last segment); no need to repeat it here. */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <p className="text-xs text-muted font-mono">
+            {topologyPending ? <SkeletonBar w="12rem"/> : (cluster?.master_addr || "master unavailable")}
+          </p>
           {cluster && (
             <div className="flex items-center gap-2">
               <span className="badge">{cluster.business_domain}</span>
@@ -86,7 +87,7 @@ export default function ClusterDetailLayout({ children }: { children: React.Reac
               </span>
             </div>
           )}
-        </header>
+        </div>
 
         <nav className="border-b border-border/60">
           <div className="flex items-center gap-2 overflow-x-auto pb-2">
