@@ -16,6 +16,8 @@ func TestValidateTransferTarget(t *testing.T) {
 		{name: "both set", id: "m2", addr: "10.0.0.2:19333", wantErr: false},
 		{name: "id only", id: "m2", addr: "", wantErr: true},
 		{name: "addr only", id: "", addr: "10.0.0.2:19333", wantErr: true},
+		{name: "id with space", id: "m 2", addr: "10.0.0.2:19333", wantErr: true},
+		{name: "address with space", id: "m2", addr: "10.0.0.2:19333 -force", wantErr: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -23,6 +23,9 @@ func validateTransferTarget(targetID, targetAddress string) error {
 	if (targetID == "") != (targetAddress == "") {
 		return fmt.Errorf("target_id and target_address must be provided together")
 	}
+	if strings.ContainsAny(targetID, " \t\n") || strings.ContainsAny(targetAddress, " \t\n") {
+		return fmt.Errorf("target_id and target_address must not contain whitespace")
+	}
 	return nil
 }
 
