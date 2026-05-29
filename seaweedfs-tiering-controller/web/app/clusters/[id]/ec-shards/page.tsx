@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Loader2, Grid3X3, RefreshCw, Wrench, Server } from "lucide-react";
+import { Grid3X3, RefreshCw, Wrench, Server } from "lucide-react";
 import { useClusterECShards, type ECVolumeMatrixRow } from "@/lib/api";
 import { useCaps } from "@/lib/caps-context";
 import { useT } from "@/lib/i18n";
@@ -10,6 +10,7 @@ import { bytes } from "@/lib/utils";
 import { HealthBadge } from "@/components/health-badge";
 import { ECPlanDialog } from "@/components/ec/plan-dialog";
 import { ECByServerMatrix } from "@/components/ec/by-server-matrix";
+import { TableSkeleton } from "@/components/table-skeleton";
 import { useClusterDetail } from "../_context";
 
 type View = "by_volume" | "by_server";
@@ -49,20 +50,15 @@ export default function ECShardsPage() {
       </div>
     );
   }
-  if (isLoading || !data) {
-    return (
-      <div className="p-6 text-sm text-muted inline-flex items-center gap-2">
-        <Loader2 size={14} className="animate-spin"/> {t("Loading EC shards…")}
-      </div>
-    );
-  }
 
-  const unhealthy = data.volumes.filter((v) => !v.healthy).length;
-  const totalShards = data.total_shards;
+  const loadingData = isLoading && !data;
+
+  const unhealthy = data?.volumes.filter((v) => !v.healthy).length ?? 0;
+  const totalShards = data?.total_shards ?? 14;
   // Distinct collections that have at least one unhealthy volume — used
   // to offer a "Rebuild all" affordance per collection.
   const unhealthyCollections = Array.from(
-    new Set(data.volumes.filter((v) => !v.healthy).map((v) => v.collection))
+    new Set((data?.volumes ?? []).filter((v) => !v.healthy).map((v) => v.collection))
   );
 
   return (
@@ -73,11 +69,11 @@ export default function ECShardsPage() {
             <Grid3X3 size={16}/> {t("EC shard layout")}
           </h2>
           <p className="text-xs text-muted">
-            {data.volumes.length} {t("EC volumes")}
+            {data?.volumes.length ?? "—"} {t("EC volumes")}
             <span className="mx-2 text-muted/40">|</span>
-            {unhealthy > 0
+            {!loadingData && (unhealthy > 0
               ? <span className="text-danger">{unhealthy} {t("with missing shards")}</span>
-              : <span className="text-success">{t("all volumes complete")}</span>}
+              : <span className="text-success">{t("all volumes complete")}</span>)}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -122,12 +118,14 @@ export default function ECShardsPage() {
         </div>
       </header>
 
-      {view === "by_server" && <ECByServerMatrix volumes={data.volumes} clusterID={id}/>}
+      {view === "by_server" && !loadingData && data && (
+        <ECByServerMatrix volumes={data.volumes} clusterID={id}/>
+      )}
 
       {/* Repair affordance — one button per collection with degraded
           volumes, so the operator can fire ec.rebuild without having
           to drill into each volume first. */}
-      {view === "by_volume" && canRebuild && unhealthyCollections.length > 0 && (
+      {view === "by_volume" && !loadingData && canRebuild && unhealthyCollections.length > 0 && (
         <div className="card p-3 border-warning/40 bg-warning/10 text-xs flex flex-wrap items-center gap-2">
           <span className="text-warning font-semibold inline-flex items-center gap-1.5">
             <Wrench size={12}/> {t("Rebuild degraded volumes")}:
@@ -147,40 +145,46 @@ export default function ECShardsPage() {
       )}
 
       {view === "by_volume" && (
-      <section className="card overflow-hidden">
-        {filtered.length === 0 ? (
-          <div className="p-6 text-sm text-muted text-center">
-            {data.volumes.length === 0
-              ? t("This cluster has no EC volumes yet. Run ec.encode to convert volumes.")
-              : t("No EC volumes match the filter.")}
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="grid">
-              <thead><tr>
-                <th className="num">{t("Volume")}</th>
-                <th>{t("Collection")}</th>
-                <th>{t("Health")}</th>
-                <th className="num">{t("Size")}</th>
-                <th style={{ minWidth: 14 * 22 }}>{t("Shard 0–13")}</th>
-                {canRebuild && <th>{t("Action")}</th>}
-              </tr></thead>
-              <tbody>
-                {filtered.map((row) => (
-                  <ECRow
-                    key={row.id}
-                    row={row}
-                    clusterId={id}
-                    totalShards={totalShards}
-                    canRebuild={canRebuild}
-                    onRebuild={() => setRebuildCollection(row.collection)}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
+        <section className="card overflow-hidden">
+          {loadingData ? (
+            <TableSkeleton rows={5} headers={[t("Volume"), t("Collection"), t("Health"), t("Size"), t("Shard 0–13")]}/>
+          ) : (
+            <>
+              {filtered.length === 0 ? (
+                <div className="p-6 text-sm text-muted text-center">
+                  {(data?.volumes.length ?? 0) === 0
+                    ? t("This cluster has no EC volumes yet. Run ec.encode to convert volumes.")
+                    : t("No EC volumes match the filter.")}
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="grid">
+                    <thead><tr>
+                      <th className="num">{t("Volume")}</th>
+                      <th>{t("Collection")}</th>
+                      <th>{t("Health")}</th>
+                      <th className="num">{t("Size")}</th>
+                      <th style={{ minWidth: 14 * 22 }}>{t("Shard 0–13")}</th>
+                      {canRebuild && <th>{t("Action")}</th>}
+                    </tr></thead>
+                    <tbody>
+                      {filtered.map((row) => (
+                        <ECRow
+                          key={row.id}
+                          row={row}
+                          clusterId={id}
+                          totalShards={totalShards}
+                          canRebuild={canRebuild}
+                          onRebuild={() => setRebuildCollection(row.collection)}
+                        />
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </section>
       )}
 
       {rebuildCollection !== null && (
