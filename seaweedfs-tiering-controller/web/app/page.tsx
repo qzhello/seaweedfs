@@ -10,6 +10,7 @@ import { TrendChart } from "@/components/trend-chart";
 import { SortableRow, type SortableItem } from "@/components/sortable-row";
 import { DeepCheckModal } from "@/components/deep-check-modal";
 import { TodaysAttention } from "@/components/dashboard/todays-attention";
+import { ScoreSparkline } from "@/components/dashboard/score-sparkline";
 import { CapacityIncidentsBanner } from "@/components/capacity-incidents";
 import { CapacityForecastPanel } from "@/components/capacity-forecast";
 import { PageHeader } from "@/components/page-header";
@@ -152,7 +153,14 @@ export default function Dashboard() {
             today's attention filling the space below as a scrollable list. */}
         <div className="flex flex-col gap-6">
           <div className="relative">
-            <HealthOverview masters={durMasters} repl={durRepl} statusSlot={hasStatus ? statusPills : undefined}/>
+            <HealthOverview
+              masters={durMasters}
+              repl={durRepl}
+              statusSlot={hasStatus ? statusPills : undefined}
+              compact
+              detailHref={`/raft${scopeCluster ? `?cluster=${scopeCluster}` : ""}`}
+              chart={<ScoreSparkline clusterID={scopeCluster || undefined}/>}
+            />
             <button
               type="button"
               onClick={() => setDeepCheckOpen(true)}

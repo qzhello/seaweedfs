@@ -2253,6 +2253,8 @@ const ZH: Dict = {
   "Rolled up from raft quorum and volume replication risk.":
     "综合 Raft 仲裁与卷副本风险汇总得出。",
   "All durability checks passed.":          "所有持久性检查均通过。",
+  "Score (1d)":                             "分数(1天)",
+  "Score history collecting…":              "分数历史采集中",
   // "Healthy" / "Degraded" grade labels reuse the existing keys above.
   "At risk":                                "存在风险",
   "Critical":                               "严重",

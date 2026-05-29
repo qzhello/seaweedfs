@@ -12,7 +12,9 @@
 // loss — count against the score. That keeps the number meaning "how far
 // is the cluster from the state you asked for".
 
+import type { ReactNode } from "react";
 import { CheckCircle2 } from "lucide-react";
+import Link from "next/link";
 import type { ClusterMastersResponse, ReplicationHealthResp } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 
@@ -148,21 +150,115 @@ function ScoreRing({ score, tone }: { score: number; tone: string }) {
 export function HealthOverview({
   masters,
   repl,
+  statusSlot,
+  compact,
+  chart,
+  detailHref,
 }: {
   masters: ClusterMastersResponse | undefined;
   repl: ReplicationHealthResp | undefined;
+  // Optional row of status pills rendered inside the card, above the
+  // score. The dashboard passes its safety/gate/pressure/freeze pills
+  // here; /raft omits it so the slot stays empty there.
+  statusSlot?: ReactNode;
+  // compact=true: renders the 3-zone row (ring | deductions | chart) and
+  // hides the label/grade/description text block. Used by the dashboard
+  // hero card. /raft omits it to keep the fuller look.
+  compact?: boolean;
+  // When provided (compact mode), renders as the RIGHT zone.
+  chart?: ReactNode;
+  // When provided, wraps the deductions middle zone in a <Link>.
+  detailHref?: string;
 }) {
   const { t } = useT();
   const health = computeClusterHealth(masters, repl);
   if (!health) {
+    // Skeleton that mirrors the loaded layout — ring on the left,
+    // deduction list on the right. Keeps the hero slot the same height
+    // before and after data arrives so the row below doesn't pop.
     return (
-      <section className="card p-4 text-sm text-muted">{t("Loading durability score…")}</section>
+      <section className="card p-4 flex flex-col gap-4">
+        {statusSlot && (
+          <div className="flex flex-wrap items-center gap-1.5">{statusSlot}</div>
+        )}
+        <div className="flex flex-col md:flex-row gap-5 md:items-center animate-pulse">
+          <div className="flex items-center gap-4">
+            <div className="w-28 h-28 rounded-full border-[9px] border-border/40 shrink-0"/>
+            <div className="space-y-2">
+              <div className="h-2 w-24 bg-border/60 rounded"/>
+              <div className="h-4 w-32 bg-border/80 rounded"/>
+              <div className="h-2 w-40 bg-border/40 rounded"/>
+            </div>
+          </div>
+          <div className="flex-1 min-w-0 w-full md:border-l md:border-border md:pl-5 space-y-2">
+            <div className="h-2 w-3/4 bg-border/40 rounded"/>
+            <div className="h-2 w-2/3 bg-border/40 rounded"/>
+            <div className="h-2 w-1/2 bg-border/40 rounded"/>
+            <div className="pt-2 text-[11px] text-muted">{t("Loading durability score…")}</div>
+          </div>
+        </div>
+      </section>
     );
   }
   const meta = GRADE_META[health.grade];
 
+  // Shared deductions block — used in both compact and default layouts.
+  const deductionsBlock = health.deductions.length === 0 ? (
+    <div className="inline-flex items-center gap-2 text-sm text-success">
+      <CheckCircle2 size={14} /> {t("All durability checks passed.")}
+    </div>
+  ) : (
+    <ul className="space-y-1.5">
+      {health.deductions.map((d, i) => (
+        <li key={i} className="flex items-center gap-2 text-xs">
+          <span
+            className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+              d.domain === "quorum" ? "bg-accent" : "bg-warning"
+            }`}
+            title={d.domain === "quorum" ? t("Quorum") : t("Durability")}
+          />
+          <span className="flex-1 min-w-0 truncate">
+            {t(d.key).replace("{n}", String(d.n ?? ""))}
+          </span>
+          <span className="font-mono text-danger shrink-0">−{d.points}</span>
+        </li>
+      ))}
+    </ul>
+  );
+
+  // Compact layout: 3-zone row (ring | deductions | sparkline).
+  // Used by the dashboard hero card; /raft uses the default layout.
+  if (compact) {
+    const middleZone = (
+      <div className="flex-1 min-w-0">{deductionsBlock}</div>
+    );
+    return (
+      <section className="card p-4 flex flex-col gap-4">
+        {statusSlot && (
+          <div className="flex flex-wrap items-center gap-1.5">{statusSlot}</div>
+        )}
+        <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
+          <ScoreRing score={health.score} tone={meta.tone} />
+          {detailHref ? (
+            <Link href={detailHref} className="flex-1 min-w-0 hover:opacity-80 transition-opacity">
+              {middleZone}
+            </Link>
+          ) : middleZone}
+          {chart && (
+            <div className="w-full sm:w-[160px] shrink-0">{chart}</div>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  // Default (full) layout — used by /raft. Unchanged from before.
   return (
-    <section className="card p-4 flex flex-col md:flex-row gap-5 md:items-center">
+    <section className="card p-4 flex flex-col gap-4">
+      {statusSlot && (
+        <div className="flex flex-wrap items-center gap-1.5">{statusSlot}</div>
+      )}
+      <div className="flex flex-col md:flex-row gap-5 md:items-center">
       <div className="flex items-center gap-4">
         <ScoreRing score={health.score} tone={meta.tone} />
         <div>
@@ -177,28 +273,8 @@ export function HealthOverview({
       </div>
 
       <div className="flex-1 min-w-0 w-full md:border-l md:border-border md:pl-5">
-        {health.deductions.length === 0 ? (
-          <div className="inline-flex items-center gap-2 text-sm text-success">
-            <CheckCircle2 size={14} /> {t("All durability checks passed.")}
-          </div>
-        ) : (
-          <ul className="space-y-1.5">
-            {health.deductions.map((d, i) => (
-              <li key={i} className="flex items-center gap-2 text-xs">
-                <span
-                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                    d.domain === "quorum" ? "bg-accent" : "bg-warning"
-                  }`}
-                  title={d.domain === "quorum" ? t("Quorum") : t("Durability")}
-                />
-                <span className="flex-1 min-w-0 truncate">
-                  {t(d.key).replace("{n}", String(d.n ?? ""))}
-                </span>
-                <span className="font-mono text-danger shrink-0">−{d.points}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+        {deductionsBlock}
+      </div>
       </div>
     </section>
   );

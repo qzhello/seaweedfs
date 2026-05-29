@@ -52,7 +52,7 @@ const fetcher = async (url: string) => {
   return r.json();
 };
 
-async function jpost(url: string, body?: unknown, method: "POST" | "PUT" | "DELETE" = "POST") {
+async function jpost(url: string, body?: unknown, method: "POST" | "PUT" | "PATCH" | "DELETE" = "POST") {
   const r = await fetch(url, {
     method,
     headers: { "Content-Type": "application/json", ...authHeaders() },
@@ -1273,6 +1273,19 @@ export function useOpsTemplates() {
   return useSWR<{ items: OpsTemplate[] }>(`${BASE}/ops/templates`, fetcher);
 }
 
+// Platform user (operator/admin/etc.) — distinct from S3 identities.
+// Tokens are never carried on this shape; CreateUser / RotateUserToken
+// return them inline once.
+export interface UserRow {
+  id: string;
+  email: string;
+  display: string;
+  role: string;
+  enabled: boolean;
+  created_at: string;
+  last_login?: string;
+}
+
 export interface BucketRow {
   name: string;
   size: number;
@@ -1388,6 +1401,11 @@ export function useClusterMasters(clusterID?: string) {
     clusterID ? `${BASE}/clusters/${clusterID}/masters` : null,
     fetcher,
   );
+}
+
+export function useScoreHistory(clusterID?: string, range: "1d" | "7d" | "30d" = "1d") {
+  const q = `range=${range}${clusterID ? `&cluster=${clusterID}` : ""}`;
+  return useSWR<{ points: { ts: string; score: number }[] }>(`${BASE}/clusters/score/history?${q}`, fetcher, { refreshInterval: 60_000 });
 }
 
 export interface ClusterFilerRow {
@@ -1670,6 +1688,31 @@ export const api = {
   setRolePermissions: (role: string, caps: string[]) =>
     jpost(`${BASE}/permissions/${encodeURIComponent(role)}`, { capabilities: caps }, "PUT"),
 
+  // --- User management ---
+  // Token-bearing responses (create / rotate) are the only place the
+  // plaintext API token is ever readable. Callers must show it once and
+  // never persist beyond what the operator copies — there is no read-back.
+  listUsers: async () => {
+    const r = await fetch(`${BASE}/users`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    return r.json() as Promise<{ users: UserRow[] }>;
+  },
+  createUser: (b: { email: string; display: string; role: string }) =>
+    jpost(`${BASE}/users`, b) as Promise<{ user: UserRow; password: string; api_token: string }>,
+  updateUser: (id: string, b: { display?: string; role?: string; enabled?: boolean }) =>
+    jpost(`${BASE}/users/${encodeURIComponent(id)}`, b, "PATCH") as Promise<{ user: UserRow }>,
+  rotateUserToken: (id: string) =>
+    jpost(`${BASE}/users/${encodeURIComponent(id)}/rotate-token`, undefined, "POST") as Promise<{ api_token: string }>,
+  resetUserPassword: (id: string) =>
+    jpost(`${BASE}/users/${encodeURIComponent(id)}/reset-password`, undefined, "POST") as Promise<{ password: string }>,
+  deleteUser: async (id: string) => {
+    const r = await fetch(`${BASE}/users/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (!r.ok && r.status !== 204) throw new Error(`${r.status} ${await r.text()}`);
+  },
+
   // --- Volume operations (Phase 2) ---
   balancePlan: (clusterID: string, b: { collection?: string; data_center?: string; rack?: string }) =>
     jpost(`${BASE}/clusters/${clusterID}/volume/balance/plan`, b) as Promise<{
@@ -1840,6 +1883,13 @@ export const api = {
     jpost(`${BASE}/clusters/${clusterID}/s3/identities`, b, "PUT") as Promise<{ output: string }>,
   s3DeleteIdentity: (clusterID: string, user: string) =>
     jpost(`${BASE}/clusters/${clusterID}/s3/identities/${encodeURIComponent(user)}`, undefined, "DELETE") as Promise<{ output: string }>,
+  // Per-identity secret reveal. Admin-only; non-admins get 403 which the
+  // caller surfaces as a tooltip. Costs a shell call — fine for rare clicks.
+  s3GetIdentitySecret: async (clusterID: string, user: string) => {
+    const r = await fetch(`${BASE}/clusters/${clusterID}/s3/identities/${encodeURIComponent(user)}/secret`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+    return r.json() as Promise<{ name: string; credentials: { accessKey: string; secretKey: string }[] }>;
+  },
   s3IdentityRotation: async (clusterID: string, thresholdDays = 180) => {
     const r = await fetch(`${BASE}/clusters/${clusterID}/s3/identities/rotation?threshold=${thresholdDays}`, { headers: authHeaders() });
     if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
@@ -1876,6 +1926,139 @@ export const api = {
     if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
     return r.json() as Promise<{ ok: boolean; bucket: string; upload_id: string }>;
   },
+  // --- S3 Tables (Iceberg table-buckets) ---
+  // A table bucket is a separate top-level resource from a regular S3
+  // bucket — it lives under its own ARN namespace and holds namespaces
+  // + Iceberg tables. The shell command is `s3tables.bucket`.
+  s3TableBucketsList: async (clusterID: string, opts: { account: string; prefix?: string; continuation?: string; limit?: number }) => {
+    const p = new URLSearchParams({ account: opts.account });
+    if (opts.prefix)       p.set("prefix", opts.prefix);
+    if (opts.continuation) p.set("continuation", opts.continuation);
+    if (opts.limit)        p.set("limit", String(opts.limit));
+    const r = await fetch(`${BASE}/clusters/${clusterID}/s3/tables/buckets?${p.toString()}`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    return r.json() as Promise<{
+      buckets: { name: string; arn: string; created_at?: string }[];
+      continuation_token?: string;
+      raw?: string;
+      parse_error?: string;
+    }>;
+  },
+  s3TableBucketGet: async (clusterID: string, name: string, account: string) => {
+    const r = await fetch(`${BASE}/clusters/${clusterID}/s3/tables/buckets/${encodeURIComponent(name)}?account=${encodeURIComponent(account)}`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    return r.json() as Promise<{
+      name: string;
+      arn?: string;
+      created_at?: string;
+      owner_account_id?: string;
+    }>;
+  },
+  s3TableBucketCreate: (clusterID: string, b: { name: string; account: string; tags?: string }) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/tables/buckets`, b) as Promise<{ output: string }>,
+  s3TableBucketDelete: (clusterID: string, name: string, account: string) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/tables/buckets/${encodeURIComponent(name)}?account=${encodeURIComponent(account)}`, undefined, "DELETE") as Promise<{ output: string }>,
+  s3TableBucketGetPolicy: async (clusterID: string, name: string, account: string) => {
+    const r = await fetch(
+      `${BASE}/clusters/${clusterID}/s3/tables/buckets/${encodeURIComponent(name)}/policy?account=${encodeURIComponent(account)}`,
+      { headers: authHeaders() }
+    );
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    return r.json() as Promise<{ policy: string }>;
+  },
+  s3TableBucketPutPolicy: (clusterID: string, name: string, b: { account: string; policy: string }) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/tables/buckets/${encodeURIComponent(name)}/policy`, b, "PUT") as Promise<{ output: string }>,
+  s3TableBucketDeletePolicy: (clusterID: string, name: string, account: string) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/tables/buckets/${encodeURIComponent(name)}/policy?account=${encodeURIComponent(account)}`, undefined, "DELETE") as Promise<{ output: string }>,
+
+  // --- S3 Tables namespaces (inside a bucket) ---
+  s3TableNamespacesList: async (clusterID: string, opts: { account: string; bucket: string; prefix?: string; continuation?: string; limit?: number }) => {
+    const p = new URLSearchParams({ account: opts.account, bucket: opts.bucket });
+    if (opts.prefix)       p.set("prefix", opts.prefix);
+    if (opts.continuation) p.set("continuation", opts.continuation);
+    if (opts.limit)        p.set("limit", String(opts.limit));
+    const r = await fetch(`${BASE}/clusters/${clusterID}/s3/tables/namespaces?${p.toString()}`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    return r.json() as Promise<{
+      namespaces: { name: string; owner_account_id?: string; created_at?: string }[];
+      continuation_token?: string;
+      raw?: string;
+      parse_error?: string;
+    }>;
+  },
+  s3TableNamespaceGet: async (clusterID: string, name: string, opts: { account: string; bucket: string }) => {
+    const p = new URLSearchParams({ account: opts.account, bucket: opts.bucket });
+    const r = await fetch(`${BASE}/clusters/${clusterID}/s3/tables/namespaces/${encodeURIComponent(name)}?${p.toString()}`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    return r.json() as Promise<{ name: string; owner_account_id?: string; created_at?: string }>;
+  },
+  s3TableNamespaceCreate: (clusterID: string, b: { account: string; bucket: string; name: string }) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/tables/namespaces`, b) as Promise<{ output: string }>,
+  s3TableNamespaceDelete: (clusterID: string, name: string, opts: { account: string; bucket: string }) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/tables/namespaces/${encodeURIComponent(name)}?account=${encodeURIComponent(opts.account)}&bucket=${encodeURIComponent(opts.bucket)}`, undefined, "DELETE") as Promise<{ output: string }>,
+
+  // --- S3 Tables tables (inside a namespace) ---
+  s3TablesList: async (clusterID: string, opts: { account: string; bucket: string; namespace: string; prefix?: string; continuation?: string; limit?: number }) => {
+    const p = new URLSearchParams({ account: opts.account, bucket: opts.bucket, namespace: opts.namespace });
+    if (opts.prefix)       p.set("prefix", opts.prefix);
+    if (opts.continuation) p.set("continuation", opts.continuation);
+    if (opts.limit)        p.set("limit", String(opts.limit));
+    const r = await fetch(`${BASE}/clusters/${clusterID}/s3/tables/tables?${p.toString()}`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    return r.json() as Promise<{
+      tables: { name: string; table_arn?: string; namespace?: string; created_at?: string; modified_at?: string }[];
+      continuation_token?: string;
+      raw?: string;
+      parse_error?: string;
+    }>;
+  },
+  s3TableGet: async (clusterID: string, name: string, opts: { account: string; bucket: string; namespace: string }) => {
+    const p = new URLSearchParams({ account: opts.account, bucket: opts.bucket, namespace: opts.namespace });
+    const r = await fetch(`${BASE}/clusters/${clusterID}/s3/tables/tables/${encodeURIComponent(name)}?${p.toString()}`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    return r.json() as Promise<{
+      name: string;
+      table_arn?: string;
+      namespace?: string;
+      owner_account_id?: string;
+      created_at?: string;
+      modified_at?: string;
+      version_token?: string;
+    }>;
+  },
+  s3TableCreate: (clusterID: string, b: { account: string; bucket: string; namespace: string; name: string; format?: string; tags?: string }) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/tables/tables`, b) as Promise<{ output: string }>,
+  s3TableDelete: (clusterID: string, name: string, opts: { account: string; bucket: string; namespace: string }) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/tables/tables/${encodeURIComponent(name)}?account=${encodeURIComponent(opts.account)}&bucket=${encodeURIComponent(opts.bucket)}&namespace=${encodeURIComponent(opts.namespace)}`, undefined, "DELETE") as Promise<{ output: string }>,
+  s3TableGetPolicy: async (clusterID: string, name: string, opts: { account: string; bucket: string; namespace: string }) => {
+    const p = new URLSearchParams({ account: opts.account, bucket: opts.bucket, namespace: opts.namespace });
+    const r = await fetch(`${BASE}/clusters/${clusterID}/s3/tables/tables/${encodeURIComponent(name)}/policy?${p.toString()}`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    return r.json() as Promise<{ policy: string }>;
+  },
+  s3TablePutPolicy: (clusterID: string, name: string, b: { account: string; bucket: string; namespace: string; policy: string }) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/tables/tables/${encodeURIComponent(name)}/policy`, b, "PUT") as Promise<{ output: string }>,
+  s3TableDeletePolicy: (clusterID: string, name: string, opts: { account: string; bucket: string; namespace: string }) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/tables/tables/${encodeURIComponent(name)}/policy?account=${encodeURIComponent(opts.account)}&bucket=${encodeURIComponent(opts.bucket)}&namespace=${encodeURIComponent(opts.namespace)}`, undefined, "DELETE") as Promise<{ output: string }>,
+
+  // --- S3 Tables tags (works on bucket | namespace | table by what's set) ---
+  s3TableTagsList: async (clusterID: string, opts: { account: string; bucket: string; namespace?: string; name?: string }) => {
+    const p = new URLSearchParams({ account: opts.account, bucket: opts.bucket });
+    if (opts.namespace) p.set("namespace", opts.namespace);
+    if (opts.name)      p.set("name", opts.name);
+    const r = await fetch(`${BASE}/clusters/${clusterID}/s3/tables/tags?${p.toString()}`, { headers: authHeaders() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+    return r.json() as Promise<{ tags: Record<string, string> }>;
+  },
+  s3TableTagsPut: (clusterID: string, b: { account: string; bucket: string; namespace?: string; name?: string; tags: Record<string, string> }) =>
+    jpost(`${BASE}/clusters/${clusterID}/s3/tables/tags`, b, "PUT") as Promise<{ output: string }>,
+  s3TableTagsDelete: (clusterID: string, opts: { account: string; bucket: string; namespace?: string; name?: string; keys: string[] }) => {
+    const p = new URLSearchParams({ account: opts.account, bucket: opts.bucket, keys: opts.keys.join(",") });
+    if (opts.namespace) p.set("namespace", opts.namespace);
+    if (opts.name)      p.set("name", opts.name);
+    return jpost(`${BASE}/clusters/${clusterID}/s3/tables/tags?${p.toString()}`, undefined, "DELETE") as Promise<{ output: string }>;
+  },
+
   s3NLPolicy: (clusterID: string, body: { prompt: string; scope_hint?: string }) =>
     jpost(`${BASE}/clusters/${clusterID}/s3/nl-policy`, body) as Promise<{
       ok: boolean;
