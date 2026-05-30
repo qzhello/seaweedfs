@@ -256,6 +256,10 @@ func Router(d Deps) *gin.Engine {
 			auth.RequireCap(d.Caps, "volume.ec.encode"), ecEncodeStream(d))
 		v1.POST("/clusters/:id/ec/decode/stream",
 			auth.RequireCap(d.Caps, "volume.ec.decode"), ecDecodeStream(d))
+		// On-demand EC integrity scrub (read-only). Streams per-node
+		// progress; the done event carries the broken-shard summary.
+		v1.POST("/clusters/:id/ec/scrub",
+			auth.RequireCap(d.Caps, "volume.read"), ecScrubStream(d))
 
 		// --- Cluster operations (Phase 3) ---
 		// Manual fleet-wide health probe: fan out a tiered reachability +
