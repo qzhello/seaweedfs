@@ -3621,6 +3621,19 @@ const ZH: Dict = {
   "Check all":                    "检查全部",
   "down":                         "异常",
   "All signals OK":               "所有信号正常",
+  // EC integrity scrub
+  "EC scrub":                      "EC 巡检",
+  "EC integrity scrub":           "EC 完整性巡检",
+  "Start scrub":                  "开始巡检",
+  "Scrub mode":                   "巡检模式",
+  "index only (fastest)":         "仅索引(最快)",
+  "needle data (default)":        "needle 数据(默认)",
+  "deep file contents (slow)":    "深度文件内容(慢)",
+  "All EC shards intact":         "所有 EC 分片完好",
+  "broken EC volumes":            "损坏 EC 卷",
+  "broken shards":                "损坏分片",
+  "Affected shards":              "受影响分片",
+  "Actively read and verify EC shard contents to catch silent corruption. Holds the cluster shell lock while running; full mode reads every file and can be slow.": "主动读取并校验 EC 分片内容以发现静默损坏。运行期间占用集群 shell 锁;full 模式读取每个文件,可能较慢。",
 };
 
 const DICTS: Record<Lang, Dict> = {
