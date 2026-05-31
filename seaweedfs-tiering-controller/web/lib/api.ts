@@ -1596,6 +1596,13 @@ export function useECVolumeDetail(clusterID?: string, vid?: number | string) {
   );
 }
 
+export interface ECScrubSummary {
+  broken_volumes: number;
+  broken_shards: number;
+  affected_volumes: string[];
+  affected_shards: string[];
+}
+
 export interface DiskSummary {
   disk_type: string;
   volume_count: number;
