@@ -1,0 +1,11 @@
+seaweedfs-tiering-controller/internal/api/cluster_ec_scrub.go
+  ai_agent 64-73
+seaweedfs-tiering-controller/internal/api/cluster_ec_scrub_test.go
+  ai_agent 70-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b13754cb43769141934ed9f44f2c8129ed5e196d",
+  "prompts": {}
+}
