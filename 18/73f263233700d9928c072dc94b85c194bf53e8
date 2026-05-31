@@ -1,0 +1,9 @@
+seaweedfs-tiering-controller/web/components/ec/scrub-panel.tsx
+  ai_agent 28-141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1873f263233700d9928c072dc94b85c194bf53e8",
+  "prompts": {}
+}
