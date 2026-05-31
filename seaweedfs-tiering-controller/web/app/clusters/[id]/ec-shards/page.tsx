@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { Grid3X3, RefreshCw, Wrench, Server } from "lucide-react";
+import { Grid3X3, RefreshCw, Wrench, Server, ShieldCheck } from "lucide-react";
 import { useClusterECShards, type ECVolumeMatrixRow } from "@/lib/api";
 import { useCaps } from "@/lib/caps-context";
 import { useT } from "@/lib/i18n";
@@ -12,6 +12,7 @@ import { ECPlanDialog } from "@/components/ec/plan-dialog";
 import { ECByServerMatrix } from "@/components/ec/by-server-matrix";
 import { TableSkeleton } from "@/components/table-skeleton";
 import { useClusterDetail } from "../_context";
+import { ECScrubPanel } from "@/components/ec/scrub-panel";
 
 type View = "by_volume" | "by_server";
 
@@ -28,6 +29,8 @@ export default function ECShardsPage() {
   // version of the button.
   const [rebuildCollection, setRebuildCollection] = useState<string | null>(null);
   const [view, setView] = useState<View>("by_volume");
+  const [scrubMode, setScrubMode] = useState<"index" | "local" | "full">("local");
+  const [scrubKey, setScrubKey] = useState<number | null>(null); // null = no run; number = active run + remount key
   const canRebuild = has("volume.write");
 
   const filtered = useMemo(() => {
@@ -117,6 +120,43 @@ export default function ECShardsPage() {
           </button>
         </div>
       </header>
+
+      <section className="card p-4 space-y-3">
+        <header className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="text-sm font-semibold inline-flex items-center gap-2">
+              <ShieldCheck size={14}/> {t("EC integrity scrub")}
+            </h3>
+            <p className="text-xs text-muted">
+              {t("Actively read and verify EC shard contents to catch silent corruption. Holds the cluster shell lock while running; full mode reads every file and can be slow.")}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <select
+              aria-label={t("Scrub mode")}
+              value={scrubMode}
+              onChange={(e) => setScrubMode(e.target.value as "index" | "local" | "full")}
+              disabled={scrubKey !== null}
+              className="input text-xs"
+            >
+              <option value="index">index — {t("index only (fastest)")}</option>
+              <option value="local">local — {t("needle data (default)")}</option>
+              <option value="full">full — {t("deep file contents (slow)")}</option>
+            </select>
+            <button
+              type="button"
+              className="btn btn-primary inline-flex items-center gap-1"
+              onClick={() => setScrubKey(Date.now())}
+              disabled={scrubKey !== null}
+            >
+              <ShieldCheck size={12}/> {t("Start scrub")}
+            </button>
+          </div>
+        </header>
+        {scrubKey !== null && (
+          <ECScrubPanel key={scrubKey} clusterID={id} mode={scrubMode} onClose={() => setScrubKey(null)}/>
+        )}
+      </section>
 
       {view === "by_server" && !loadingData && data && (
         <ECByServerMatrix volumes={data.volumes} clusterID={id}/>
