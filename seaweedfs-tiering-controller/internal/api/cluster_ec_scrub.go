@@ -61,6 +61,16 @@ func parseECScrubOutput(raw string) ecScrubSummary {
 	if m := scrubShardsRe.FindStringSubmatch(raw); m != nil {
 		s.AffectedShards = splitScrubList(m[1])
 	}
+	// Never return nil slices: they marshal to JSON `null`, but the frontend
+	// types these as string[] and calls .length on them. ec.scrub prints
+	// "Affected shards:" only when there are broken shards, so a broken-
+	// volumes / zero-broken-shards result would otherwise leave this nil.
+	if s.AffectedVolumes == nil {
+		s.AffectedVolumes = []string{}
+	}
+	if s.AffectedShards == nil {
+		s.AffectedShards = []string{}
+	}
 	return s
 }
 

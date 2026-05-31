@@ -67,5 +67,25 @@ func TestParseECScrubOutput(t *testing.T) {
 		if got.BrokenVolumes != 0 || len(got.AffectedShards) != 0 {
 			t.Fatalf("expected zero/empty for empty input, got %+v", got)
 		}
+		// Slices must be non-nil (they serialize to JSON [] not null).
+		if got.AffectedVolumes == nil || got.AffectedShards == nil {
+			t.Fatalf("affected lists must be non-nil, got %+v", got)
+		}
+	})
+
+	t.Run("broken volumes but no broken shards", func(t *testing.T) {
+		// ec.scrub omits the "Affected shards:" line when there are none.
+		out := "\nGot scrub failures on 1 EC volumes and 0 EC shards :(\n" +
+			"Affected volumes: 10.0.0.1:8080:7\n"
+		got := parseECScrubOutput(out)
+		if got.BrokenVolumes != 1 || got.BrokenShards != 0 {
+			t.Fatalf("counts = %d/%d, want 1/0", got.BrokenVolumes, got.BrokenShards)
+		}
+		if got.AffectedShards == nil {
+			t.Fatal("AffectedShards must be non-nil even when absent")
+		}
+		if len(got.AffectedShards) != 0 {
+			t.Fatalf("expected empty AffectedShards, got %v", got.AffectedShards)
+		}
 	})
 }
