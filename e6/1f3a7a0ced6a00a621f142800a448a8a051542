@@ -1,0 +1,9 @@
+seaweedfs-tiering-controller/web/app/clusters/[id]/ec-shards/page.tsx
+  ai_agent 5,15,32-33,124-159
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e61f3a7a0ced6a00a621f142800a448a8a051542",
+  "prompts": {}
+}
