@@ -26,6 +26,12 @@ const (
 	ExtendedKeyMetadataVersion = "s3tables.metadataVersion"
 	ExtendedKeyPolicy          = "s3tables.policy"
 	ExtendedKeyTags            = "s3tables.tags"
+	ExtendedKeyEntryType       = "s3tables.entryType"
+
+	// Entry-type marker values for ExtendedKeyEntryType. Absent or "table" means
+	// a table; views are stored like tables but tagged "view".
+	EntryTypeTable = "table"
+	EntryTypeView  = "view"
 
 	// Maximum request body size (10MB)
 	maxRequestBodySize = 10 * 1024 * 1024
@@ -132,6 +138,8 @@ func (h *S3TablesHandler) HandleRequest(w http.ResponseWriter, r *http.Request, 
 		err = h.handleCreateNamespace(w, r, filerClient)
 	case "GetNamespace":
 		err = h.handleGetNamespace(w, r, filerClient)
+	case "UpdateNamespace":
+		err = h.handleUpdateNamespace(w, r, filerClient)
 	case "ListNamespaces":
 		err = h.handleListNamespaces(w, r, filerClient)
 	case "DeleteNamespace":
@@ -140,6 +148,8 @@ func (h *S3TablesHandler) HandleRequest(w http.ResponseWriter, r *http.Request, 
 	// Table operations
 	case "CreateTable":
 		err = h.handleCreateTable(w, r, filerClient)
+	case "RegisterTable":
+		err = h.handleRegisterTable(w, r, filerClient)
 	case "GetTable":
 		err = h.handleGetTable(w, r, filerClient)
 	case "ListTables":
@@ -148,6 +158,18 @@ func (h *S3TablesHandler) HandleRequest(w http.ResponseWriter, r *http.Request, 
 		err = h.handleUpdateTable(w, r, filerClient)
 	case "DeleteTable":
 		err = h.handleDeleteTable(w, r, filerClient)
+
+	// View operations
+	case "CreateView":
+		err = h.handleCreateView(w, r, filerClient)
+	case "GetView":
+		err = h.handleGetView(w, r, filerClient)
+	case "ListViews":
+		err = h.handleListViews(w, r, filerClient)
+	case "UpdateView":
+		err = h.handleUpdateView(w, r, filerClient)
+	case "DeleteView":
+		err = h.handleDeleteView(w, r, filerClient)
 
 	// Table Policy operations
 	case "PutTablePolicy":
@@ -357,6 +379,10 @@ func (h *S3TablesHandler) generateTableBucketARN(ownerAccountID, bucketName stri
 
 func (h *S3TablesHandler) generateTableARN(ownerAccountID, bucketName, tableID string) string {
 	return fmt.Sprintf("arn:aws:s3tables:%s:%s:bucket/%s/table/%s", h.region, ownerAccountID, bucketName, tableID)
+}
+
+func (h *S3TablesHandler) generateViewARN(ownerAccountID, bucketName, viewID string) string {
+	return fmt.Sprintf("arn:aws:s3tables:%s:%s:bucket/%s/view/%s", h.region, ownerAccountID, bucketName, viewID)
 }
 
 func isAuthError(err error) bool {
