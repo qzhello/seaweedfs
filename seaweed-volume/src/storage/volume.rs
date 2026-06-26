@@ -455,6 +455,19 @@ pub(crate) struct RemoteDatFile {
 }
 
 impl RemoteDatFile {
+    /// Read up to `size` bytes at `offset`, bounded by the remote file size.
+    /// Mirrors `Volume::read_dat_slice` for a remote-only backend, but holds no
+    /// volume/store lock so callers can stream off the store lock entirely.
+    pub(crate) fn read_slice(&self, offset: u64, size: usize) -> io::Result<Vec<u8>> {
+        if size == 0 || offset >= self.file_size {
+            return Ok(Vec::new());
+        }
+        let read_len = std::cmp::min(size as u64, self.file_size - offset) as usize;
+        let mut buf = vec![0u8; read_len];
+        self.read_exact_at(&mut buf, offset)?;
+        Ok(buf)
+    }
+
     pub(crate) fn read_exact_at(&self, buf: &mut [u8], offset: u64) -> io::Result<()> {
         let data = self
             .backend
@@ -936,7 +949,7 @@ impl Volume {
         Ok(())
     }
 
-    fn load_remote_dat_file(&mut self) -> Result<(), VolumeError> {
+    pub(crate) fn load_remote_dat_file(&mut self) -> Result<(), VolumeError> {
         let (storage_name, storage_key) = self.remote_storage_name_key();
         let backend = crate::remote_storage::s3_tier::global_s3_tier_registry()
             .read()
@@ -1035,6 +1048,14 @@ impl Volume {
         let mut buf = vec![0u8; read_len];
         self.read_exact_at_backend(&mut buf, offset)?;
         Ok(buf)
+    }
+
+    /// Clone the remote backend handle (cheap: an `Arc` plus key/size) so a
+    /// caller can stream a tiered `.dat` from S3 after dropping the store lock.
+    /// Returns `None` for local volumes. `has_remote_file` implies `dat_file`
+    /// is `None`, so this selects the same backend `read_dat_slice` would.
+    pub(crate) fn remote_dat_file(&self) -> Option<RemoteDatFile> {
+        self.remote_dat_file.clone()
     }
 
     // ---- SuperBlock I/O ----
@@ -2204,16 +2225,16 @@ impl Volume {
         }
     }
 
-    /// Close the local .dat file handle (matches Go's v.DataBackend.Close() in LoadRemoteFile).
-    /// Called after tier-upload when the local file is being replaced by remote storage.
-    pub fn close_local_dat_backend(&mut self) {
-        self.dat_file = None;
-    }
-
-    /// Close the remote dat file backend (matches Go's v.DataBackend.Close(); v.DataBackend = nil).
-    /// Called after tier-download when the remote backend is being replaced by local storage.
-    pub fn close_remote_dat_backend(&mut self) {
+    /// Open the local .dat as the data backend, dropping any remote backend, so reads
+    /// are served from local disk. Mirrors Go's swapToLocalDatBackend after a tier-down.
+    pub(crate) fn open_local_dat_backend(&mut self) -> Result<(), VolumeError> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(self.dat_path())?;
         self.remote_dat_file = None;
+        self.dat_file = Some(file);
+        Ok(())
     }
 
     /// Path to .vif file.
@@ -2351,7 +2372,15 @@ impl Volume {
         let vif = VifVolumeInfo::from_pb(&self.volume_info);
         let content = serde_json::to_string_pretty(&vif)
             .map_err(|e| VolumeError::Io(io::Error::new(io::ErrorKind::Other, e.to_string())))?;
-        fs::write(&self.vif_path(), content)?;
+        // fsync the .vif so a tiered volume's remote reference is durable before the
+        // caller acts on it, e.g. deletes the remote object (matches Go util.WriteFile).
+        let mut f = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(self.vif_path())?;
+        f.write_all(content.as_bytes())?;
+        f.sync_all()?;
         Ok(())
     }
 

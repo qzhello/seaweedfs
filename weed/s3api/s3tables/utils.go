@@ -15,8 +15,8 @@ import (
 
 const (
 	bucketNamePatternStr     = `[a-z0-9-]+`
-	tableNamespacePatternStr = `[a-z0-9_.]+`
-	tableNamePatternStr      = `[a-z0-9_]+`
+	tableNamespacePatternStr = `[a-z0-9_.-]+`
+	tableNamePatternStr      = `[a-z0-9_-]+`
 )
 
 const (
@@ -95,6 +95,22 @@ func GetNamespacePath(bucketName, namespace string) string {
 // GetTablePath returns the filer path for a table
 func GetTablePath(bucketName, namespace, tableName string) string {
 	return path.Join(TablesPath, bucketName, namespace, tableName)
+}
+
+// tableDataDirFromMetadataLocation maps a table's s3:// metadata location to the
+// filer directory holding its data. A renamed table is catalog-only, so its data
+// stays at the original location while its catalog entry moves; this lets a drop
+// purge the real data instead of the now-empty catalog path.
+func tableDataDirFromMetadataLocation(metadataLocation string) string {
+	loc := strings.TrimSuffix(metadataLocation, "/")
+	if idx := strings.LastIndex(loc, "/metadata/"); idx != -1 {
+		loc = loc[:idx]
+	}
+	loc = strings.TrimPrefix(loc, "s3://")
+	if loc == "" {
+		return ""
+	}
+	return path.Join(TablesPath, loc)
 }
 
 // GetTableObjectRootDir returns the root path for table bucket object storage
@@ -328,12 +344,12 @@ func validateNamespacePart(name string) error {
 		return fmt.Errorf("namespace name must end with a letter or digit")
 	}
 
-	// Allowed characters: a-z, 0-9, _
+	// Allowed characters: a-z, 0-9, _, - (hyphen interior; start/end checked above)
 	for _, ch := range name {
-		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' {
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-' {
 			continue
 		}
-		return fmt.Errorf("invalid namespace name: only 'a-z', '0-9', and '_' are allowed")
+		return fmt.Errorf("invalid namespace name: only 'a-z', '0-9', '_', and '-' are allowed")
 	}
 
 	// Reserved prefix
@@ -395,12 +411,12 @@ func validateTableName(name string) (string, error) {
 		return "", fmt.Errorf("table name must start with a letter or digit")
 	}
 
-	// Allowed characters: a-z, 0-9, _
+	// Allowed characters: a-z, 0-9, _, - (start checked above)
 	for _, ch := range name {
-		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' {
+		if (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-' {
 			continue
 		}
-		return "", fmt.Errorf("invalid table name: only 'a-z', '0-9', and '_' are allowed")
+		return "", fmt.Errorf("invalid table name: only 'a-z', '0-9', '_', and '-' are allowed")
 	}
 	return name, nil
 }

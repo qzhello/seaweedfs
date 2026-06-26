@@ -5,6 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/seaweedfs/seaweedfs/weed/operation"
@@ -25,6 +28,7 @@ type ecRebuilder struct {
 	writer       io.Writer
 	applyChanges bool
 	collections  []string
+	volumeIds    []needle.VolumeId
 	diskType     types.DiskType
 
 	ewg       *ErrorWaitGroup
@@ -42,6 +46,11 @@ func (c *commandEcRebuild) Help() string {
 	return `find and rebuild missing ec shards among volume servers
 
 	ec.rebuild [-c EACH_COLLECTION|<collection_name>] [-apply] [-maxParallelization N] [-diskType=<disk_type>]
+
+	Before rebuilding, asks volume servers to recover any shards left unmounted by
+	a missing .ecx index (the index resides only on a peer server). Such shards are
+	invisible to the master, so recovering them first avoids regenerating data that
+	is actually present (issue #10104).
 
 	Options:
 	  -collection: specify a collection name, or "EACH_COLLECTION" to process all collections
@@ -84,6 +93,7 @@ func (c *commandEcRebuild) Do(args []string, commandEnv *CommandEnv, writer io.W
 
 	fixCommand := flag.NewFlagSet(c.Name(), flag.ContinueOnError)
 	collection := fixCommand.String("collection", "EACH_COLLECTION", "collection name, or \"EACH_COLLECTION\" for each collection")
+	volumeIdsStr := fixCommand.String("volumeIds", "", "optional comma-separated list of volume ID to process; defaults to all volumes in the collection")
 	maxParallelization := fixCommand.Int("maxParallelization", DefaultMaxParallelization, "run up to X tasks in parallel, whenever possible")
 	applyChanges := fixCommand.Bool("apply", false, "apply the changes")
 	diskTypeStr := fixCommand.String("diskType", "", "disk type for EC shards (hdd, ssd, or empty for default hdd)")
@@ -117,16 +127,37 @@ func (c *commandEcRebuild) Do(args []string, commandEnv *CommandEnv, writer io.W
 		collections = []string{*collection}
 	}
 
+	var volumeIds []needle.VolumeId
+	if *volumeIdsStr != "" {
+		for _, vidStr := range strings.Split(*volumeIdsStr, ",") {
+			vidStr = strings.TrimSpace(vidStr)
+			if len(vidStr) == 0 {
+				continue
+			}
+			if vid, err := strconv.ParseUint(vidStr, 10, 32); err == nil {
+				volumeIds = append(volumeIds, needle.VolumeId(vid))
+			} else {
+				return fmt.Errorf("invalid volume ID %q", vidStr)
+			}
+		}
+	}
+
 	erb := &ecRebuilder{
 		commandEnv:   commandEnv,
 		ecNodes:      allEcNodes,
 		writer:       writer,
 		applyChanges: *applyChanges,
 		collections:  collections,
+		volumeIds:    volumeIds,
 		diskType:     diskType,
 
 		ewg: NewErrorWaitGroup(*maxParallelization),
 	}
+
+	// Recover shards left unmounted by a missing .ecx index before planning: such
+	// shards never register with the master, so the rebuild below would treat the
+	// volume as short or unrepairable even though its data is intact (issue #10104).
+	erb.recoverMissingIndexes()
 
 	fmt.Printf("rebuildEcVolumes for %d collection(s)\n", len(collections))
 	for _, c := range collections {
@@ -142,6 +173,15 @@ func (erb *ecRebuilder) write(format string, a ...any) {
 
 func (erb *ecRebuilder) isLocked() bool {
 	return erb.commandEnv.isLocked()
+}
+
+// matchesVolumeId verifies whether the rebuilder is targeted at a given volume ID.
+func (erb *ecRebuilder) matchesVolumeId(vid needle.VolumeId) bool {
+	if len(erb.volumeIds) == 0 {
+		return true
+	}
+
+	return slices.Contains(erb.volumeIds, vid)
 }
 
 // countLocalShards returns the number of shards already present locally on the node for the given volume.
@@ -229,6 +269,9 @@ func (erb *ecRebuilder) rebuildEcVolumes(collection string) {
 	erb.ecNodesMu.Unlock()
 
 	for vid, locations := range ecShardMap {
+		if !erb.matchesVolumeId(vid) {
+			continue
+		}
 		shardCount := locations.shardCount()
 		if shardCount == erasure_coding.TotalShardsCount {
 			continue
@@ -253,6 +296,61 @@ func (erb *ecRebuilder) rebuildEcVolumes(collection string) {
 			return erb.rebuildOneEcVolume(collection, vid, locations, rebuilder)
 		})
 	}
+}
+
+// recoverMissingIndexes asks every ec node to fetch a missing .ecx index from a
+// peer and mount the on-disk shards it could not load on its own. Shards
+// orphaned this way (index only on another server) are absent from the master
+// topology, so without this pass ec.rebuild would regenerate or give up on
+// shards whose data is actually present — and a volume whose every holder lacks
+// the index would not appear in the topology at all. Each node therefore
+// recovers all of its on-disk orphans (volume_id 0); an explicit -volumeIds
+// list narrows that to the requested volumes. On apply it refreshes the topology
+// so the rebuild planning sees the recovered shards (issue #10104).
+func (erb *ecRebuilder) recoverMissingIndexes() {
+	erb.ecNodesMu.Lock()
+	nodes := append([]*EcNode(nil), erb.ecNodes...)
+	erb.ecNodesMu.Unlock()
+	if len(nodes) == 0 {
+		return
+	}
+
+	// volume_id 0 means "recover every orphan on the node"; a -volumeIds list
+	// narrows recovery to those ids (each scanned across collections server-side).
+	vids := erb.volumeIds
+	if len(vids) == 0 {
+		vids = []needle.VolumeId{0}
+	}
+
+	if !erb.applyChanges {
+		erb.write("would ask %d ec node(s) to recover EC shards left unmounted by a missing .ecx index\n", len(nodes))
+		return
+	}
+
+	for _, node := range nodes {
+		for _, vid := range vids {
+			err := operation.WithVolumeServerClient(false, pb.NewServerAddressFromDataNode(node.info), erb.commandEnv.option.GrpcDialOption, func(client volume_server_pb.VolumeServerClient) error {
+				_, mountErr := client.VolumeEcShardsMount(context.Background(), &volume_server_pb.VolumeEcShardsMountRequest{
+					VolumeId:            uint32(vid),
+					RecoverMissingIndex: true,
+				})
+				return mountErr
+			})
+			if err != nil {
+				erb.write("%s recover missing index (volume %d): %v\n", node.info.Id, vid, err)
+			}
+		}
+	}
+
+	// Refresh topology so the rebuild planning sees shards the recovery registered.
+	refreshed, _, err := collectEcNodes(erb.commandEnv, erb.diskType)
+	if err != nil {
+		erb.write("failed to refresh ec nodes after index recovery: %v\n", err)
+		return
+	}
+	erb.ecNodesMu.Lock()
+	erb.ecNodes = refreshed
+	erb.ecNodesMu.Unlock()
 }
 
 func (erb *ecRebuilder) rebuildOneEcVolume(collection string, volumeId needle.VolumeId, locations EcShardLocations, rebuilder *EcNode) error {
